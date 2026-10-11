@@ -3,6 +3,8 @@
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// The aspireify skill will wire up your projects here.
+builder.AddProject("api", "src/Api/Api.csproj")
+    .WithHttpHealthCheck("/health")
+    .WithExternalHttpEndpoints();
 
 builder.Build().Run();
