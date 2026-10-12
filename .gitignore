@@ -1,2 +1,12 @@
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
+.rig/
+
+# Build, test, and dependency output
+bin/
+obj/
+node_modules/
+dist/
+test-results/
+playwright-report/
+*.tsbuildinfo
