@@ -2,7 +2,7 @@ using Swan.Core.Common;
 
 namespace Swan.Core.Scoring;
 
-public enum ScoreSource { TeamPick, DogPick, PerfectWeek }
+public enum ScoreSource { TeamPick, DogPick, PerfectWeek, PlayoffQualification }
 public sealed record ScoreLine(TeamId? TeamId, int Points, ScoreSource Source, string Reference)
 {
     public ScoreLine(TeamId teamId, int points) : this(teamId, points, ScoreSource.TeamPick, teamId.Value.ToString()) { }

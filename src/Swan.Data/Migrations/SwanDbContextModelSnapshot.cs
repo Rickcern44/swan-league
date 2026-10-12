@@ -579,6 +579,9 @@ namespace Swan.Data.Migrations
                             b1.Property<DateTimeOffset>("LockTime")
                                 .HasColumnType("timestamp with time zone");
 
+                            b1.Property<int>("PointValue")
+                                .HasColumnType("integer");
+
                             b1.Property<Guid>("TeamId")
                                 .HasColumnType("uuid");
 
@@ -662,6 +665,43 @@ namespace Swan.Data.Migrations
                     b.Navigation("DogOptions");
 
                     b.Navigation("Games");
+                });
+
+            modelBuilder.Entity("Swan.Core.Scoring.WeekScore", b =>
+                {
+                    b.OwnsMany("ScoreLine", "Lines", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("Points")
+                                .HasColumnType("integer");
+
+                            b1.Property<string>("Reference")
+                                .IsRequired()
+                                .HasColumnType("text");
+
+                            b1.Property<int>("Source")
+                                .HasColumnType("integer");
+
+                            b1.Property<Guid?>("TeamId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("WeekScoreId")
+                                .HasColumnType("uuid");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("WeekScoreId");
+
+                            b1.ToTable("score_lines", "scoring");
+
+                            b1.WithOwner()
+                                .HasForeignKey("WeekScoreId");
+                        });
+
+                    b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618
         }

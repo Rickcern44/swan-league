@@ -1,7 +1,7 @@
 ---
 id: SWAN-5.6
 title: Standings read models
-status: todo
+status: done
 parent: SWAN-5
 ---
 
@@ -18,13 +18,13 @@ Intent: Standings queries for Main, Dog, Regular Season, Playoff pools (PRD C10)
 
 ## Acceptance criteria
 
-- [ ] Read model computes rank, points, wins per pool
-- [ ] Ties share a rank, marked "unbroken"
-- [ ] Testcontainers test: seed weeks, assert totals and ranks
-- [ ] R15 setting changes main-pool totals
-- [ ] Regular-season excludes playoff weeks
-- [ ] Playoff includes R12 qualification
-- [ ] `dotnet test` passes
+- [x] Read model computes rank, points, wins per pool
+- [x] Ties share a rank, marked "unbroken"
+- [x] Testcontainers test: seed weeks, assert totals and ranks
+- [x] R15 setting changes main-pool totals
+- [x] Regular-season excludes playoff weeks
+- [x] Playoff includes R12 qualification
+- [x] `dotnet test` passes
 
 ## Files to touch
 

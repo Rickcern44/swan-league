@@ -216,7 +216,17 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(score => score.MembershipId).HasConversion(id => id.Value, value => new MembershipId(value));
             entity.Property(score => score.WeekId).HasConversion(id => id.Value, value => new WeekId(value));
             entity.Ignore(score => score.DomainEvents);
-            entity.Ignore(score => score.Lines);
+            entity.OwnsMany<ScoreLine>(nameof(ScoreLine), nameof(WeekScore.Lines), line =>
+            {
+                line.ToTable("score_lines", "scoring");
+                line.WithOwner().HasForeignKey("WeekScoreId");
+                line.Property<Guid>("Id");
+                line.HasKey("Id");
+                line.Property(value => value.TeamId).HasConversion(new ValueConverter<TeamId?, Guid?>(id => id == null ? null : id.Value.Value, value => value == null ? null : new TeamId(value.Value)));
+                line.Property(value => value.Points);
+                line.Property(value => value.Source);
+                line.Property(value => value.Reference);
+            });
         });
     }
 

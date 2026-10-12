@@ -13,6 +13,7 @@ using Swan.Data;
 using Swan.Data.Seed;
 using Swan.Services.Identity;
 using Swan.Services.Platform;
+using Swan.Services.Scoring;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -268,6 +269,98 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         Assert.Contains("Commissioner approved", entry.Details);
         Assert.Contains("setup", entry.Details);
         Assert.Contains("live", entry.Details);
+    }
+
+    [Fact]
+    public async Task StandingsRankStoredScoreLinesAndSeparateDogPoints()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var season = new SeasonId(Guid.NewGuid());
+        var first = new MembershipId(Guid.NewGuid());
+        var second = new MembershipId(Guid.NewGuid());
+        var week = new WeekId(Guid.NewGuid());
+        database.Weeks.Add(new Week(week, season, 1, new WeekType(WeekKind.Regular, null, true)));
+        var firstScore = new WeekScore(new WeekScoreId(Guid.NewGuid()), season, first, week);
+        firstScore.ReplaceLines([new Swan.Core.Scoring.ScoreLine(new TeamId(Guid.NewGuid()), 4, Swan.Core.Scoring.ScoreSource.TeamPick, "game-1"), new Swan.Core.Scoring.ScoreLine(new TeamId(Guid.NewGuid()), 3, Swan.Core.Scoring.ScoreSource.DogPick, "game-2")]);
+        var secondScore = new WeekScore(new WeekScoreId(Guid.NewGuid()), season, second, week);
+        secondScore.ReplaceLines([new Swan.Core.Scoring.ScoreLine(new TeamId(Guid.NewGuid()), 5, Swan.Core.Scoring.ScoreSource.TeamPick, "game-3")]);
+        database.WeekScores.AddRange(firstScore, secondScore);
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        var standings = new StandingsService(database);
+        var main = await standings.GetAsync(season, StandingPool.Main);
+        var dogs = await standings.GetAsync(season, StandingPool.Dog);
+
+        Assert.Equal(second, main[0].MembershipId);
+        Assert.Equal(5, main[0].Points);
+        Assert.Equal(first, dogs[0].MembershipId);
+        Assert.Equal(3, dogs[0].Points);
+    }
+
+    [Fact]
+    public async Task StandingsSeparateRegularAndPlayoffScoresAndCanIncludeDogsInMainPool()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var season = new SeasonId(Guid.NewGuid());
+        var membership = new MembershipId(Guid.NewGuid());
+        var regularWeek = new WeekId(Guid.NewGuid());
+        var playoffWeek = new WeekId(Guid.NewGuid());
+        database.Weeks.AddRange(
+            new Week(regularWeek, season, 1, new WeekType(WeekKind.Regular, null, true)),
+            new Week(playoffWeek, season, 19, new WeekType(WeekKind.Playoff, "Wild card", true)));
+
+        var regular = new WeekScore(new WeekScoreId(Guid.NewGuid()), season, membership, regularWeek);
+        regular.ReplaceLines([
+            new ScoreLine(new TeamId(Guid.NewGuid()), 4, ScoreSource.TeamPick, "regular-win"),
+            new ScoreLine(new TeamId(Guid.NewGuid()), 2, ScoreSource.DogPick, "regular-dog")]);
+        var playoff = new WeekScore(new WeekScoreId(Guid.NewGuid()), season, membership, playoffWeek);
+        playoff.ReplaceLines([
+            new ScoreLine(new TeamId(Guid.NewGuid()), 6, ScoreSource.TeamPick, "playoff-win"),
+            new ScoreLine(null, 3, ScoreSource.PlayoffQualification, "qualification")]);
+        database.WeekScores.AddRange(regular, playoff);
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        var standings = new StandingsService(database);
+        var main = Assert.Single(await standings.GetAsync(season, StandingPool.Main));
+        var mainWithDogs = Assert.Single(await standings.GetAsync(season, StandingPool.Main, dogsContributeToMainPool: true));
+        var regularSeason = Assert.Single(await standings.GetAsync(season, StandingPool.RegularSeason));
+        var playoffPool = Assert.Single(await standings.GetAsync(season, StandingPool.Playoff));
+        var currentWeek = Assert.Single(await standings.GetAsync(season, StandingPool.Main, weekId: playoffWeek));
+
+        Assert.Equal(13, main.Points);
+        Assert.Equal(15, mainWithDogs.Points);
+        Assert.Equal(4, regularSeason.Points);
+        Assert.Equal(9, playoffPool.Points);
+        Assert.Equal(9, currentWeek.Points);
+        Assert.True(main.TiebreakUnbroken);
+    }
+
+    [Fact]
+    public async Task StandingsAssignSharedUnbrokenRankToTies()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var season = new SeasonId(Guid.NewGuid());
+        var week = new WeekId(Guid.NewGuid());
+        database.Weeks.Add(new Week(week, season, 1, new WeekType(WeekKind.Regular, null, true)));
+        var scores = Enumerable.Range(0, 2).Select(_ =>
+        {
+            var score = new WeekScore(new WeekScoreId(Guid.NewGuid()), season, new MembershipId(Guid.NewGuid()), week);
+            score.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 4, ScoreSource.TeamPick, "win")]);
+            return score;
+        });
+        database.WeekScores.AddRange(scores);
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        var standings = await new StandingsService(database).GetAsync(season, StandingPool.Main);
+
+        Assert.All(standings, standing =>
+        {
+            Assert.Equal(1, standing.Rank);
+            Assert.True(standing.TiebreakUnbroken);
+        });
     }
 
     private static string TokenFrom(string body) => new Uri(body).Query.Split('=', 2)[1];

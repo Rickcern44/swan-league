@@ -1,11 +1,10 @@
 using Swan.Core.Common;
-using Swan.Core.League;
 
 namespace Swan.Core.Picks;
 
 public sealed record TeamPick(TeamId TeamId, GameId GameId, DateTimeOffset LockTime, bool IsBye = false, int PointValue = 1)
 {
-    public static TeamPick ForGame(TeamId teamId, GameId gameId, DateTimeOffset kickoff, SeasonSettings settings, DateTimeOffset weekStartUtc, bool isBye = false) =>
+    public static TeamPick ForGame(TeamId teamId, GameId gameId, DateTimeOffset kickoff, ITeamPickLockSettings settings, DateTimeOffset weekStartUtc, bool isBye = false) =>
         new(teamId, gameId, LockPolicy.TeamPickLockTime(kickoff, settings, weekStartUtc), isBye);
 }
 
@@ -34,7 +33,7 @@ public sealed class Roster(RosterId id, SeasonId seasonId, MembershipId membersh
         : Result<bool>.Success(true);
 }
 
-public sealed class Ballot(BallotId id, MembershipId membershipId, WeekId weekId, IEnumerable<TeamId>? rosterTeamIds = null) : AggregateRoot
+public sealed class Ballot(BallotId id, MembershipId membershipId, WeekId weekId, IEnumerable<TeamId>? rosterTeamIds = null) : AggregateRoot, IScoringBallot
 {
     private Ballot() : this(default, default, default) { }
     private readonly HashSet<TeamId>? rosterTeams = rosterTeamIds?.ToHashSet();
@@ -48,6 +47,9 @@ public sealed class Ballot(BallotId id, MembershipId membershipId, WeekId weekId
     public IReadOnlyCollection<TeamPick> Picks => picks.AsReadOnly();
     public IReadOnlyCollection<DogPick> Dogs => dogs.AsReadOnly();
     public IReadOnlyCollection<PickChange> Changes => changes.AsReadOnly();
+    string IScoringBallot.ScoringReference => Id.Value.ToString();
+    IReadOnlyCollection<ScoringTeamPick> IScoringBallot.ScoringPicks => picks.Select(pick => new ScoringTeamPick(pick.TeamId, pick.GameId, pick.PointValue)).ToList();
+    IReadOnlyCollection<ScoringDogPick> IScoringBallot.ScoringDogs => dogs.Select(dog => new ScoringDogPick(dog.TeamId, dog.GameId)).ToList();
     public Result<bool> AddPick(TeamPick pick, DateTimeOffset now) { if (pick.IsBye || !LockPolicy.CanChange(pick.LockTime, now) || picks.Count == 3 || picks.Any(item => item.TeamId == pick.TeamId) || rosterTeams is not null && !rosterTeams.Contains(pick.TeamId)) return Result<bool>.Failure("pick.invalid", "Pick is invalid or locked."); picks.Add(pick); Raise(new PickSubmitted(Id)); return Result<bool>.Success(true); }
     public Result<bool> ChangePick(TeamId from, TeamPick replacement, DateTimeOffset now, string reason) { var pick = picks.FirstOrDefault(item => item.TeamId == from); if (pick is null || !LockPolicy.CanChange(pick.LockTime, now) || !LockPolicy.CanChange(replacement.LockTime, now) || string.IsNullOrWhiteSpace(reason)) return Result<bool>.Failure("pick.locked", "Pick cannot change."); picks.Remove(pick); picks.Add(replacement); changes.Add(new(now, reason)); Raise(new PickChanged(Id)); return Result<bool>.Success(true); }
     public Result<bool> AddDog(DogPick dog, bool doubleDog, DateTimeOffset now) { var limit = doubleDog ? 2 : 1; if (!LockPolicy.CanChange(dog.LockTime, now) || dogs.Count == limit || dogs.Any(item => item.TeamId == dog.TeamId || item.GameId == dog.GameId)) return Result<bool>.Failure("dog.invalid", "Dog pick is invalid."); dogs.Add(dog); return Result<bool>.Success(true); }
