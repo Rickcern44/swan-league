@@ -1,10 +1,10 @@
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddHealthChecks();
+builder.AddServiceDefaults();
 
 var app = builder.Build();
 
-app.MapHealthChecks("/health");
+app.MapDefaultEndpoints();
 app.MapGet("/api/ping", () => Results.Ok(new { message = "pong" }));
 
 app.Run();

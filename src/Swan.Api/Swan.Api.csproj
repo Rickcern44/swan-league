@@ -4,4 +4,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Swan.Services/Swan.Services.csproj" />
+    <ProjectReference Include="../Swan.ServiceDefaults/Swan.ServiceDefaults.csproj" />
+  </ItemGroup>
 </Project>

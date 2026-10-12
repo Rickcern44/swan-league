@@ -1,7 +1,7 @@
 ---
 id: SWAN-2.2
 title: Core, Data, Services, ServiceDefaults skeletons
-status: todo
+status: done
 parent: SWAN-2
 ---
 
@@ -24,14 +24,14 @@ Plus: IClock interface (single file in Swan.Core root)
 
 ## Acceptance criteria
 
-- [ ] Project references match PRD §10.1 table exactly:
+- [x] Project references match PRD §10.1 table exactly:
   - Core references nothing external (no EF, no ASP.NET)
   - Data → Core only
   - Services → Core, Data
   - Api → Services, ServiceDefaults
-- [ ] Swan.Api calls AddServiceDefaults and exposes /health endpoint
-- [ ] Solution builds with `dotnet build`
-- [ ] `dotnet format --verify-no-changes` passes
+- [x] Swan.Api calls AddServiceDefaults and exposes /health endpoint
+- [x] Solution builds with `dotnet build`
+- [x] `dotnet format --verify-no-changes` passes
 
 ## Files to touch
 

@@ -1,5 +1,9 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Swan.Core/Swan.Core.csproj" />
+    <Project Path="src/Swan.Data/Swan.Data.csproj" />
+    <Project Path="src/Swan.Services/Swan.Services.csproj" />
+    <Project Path="src/Swan.ServiceDefaults/Swan.ServiceDefaults.csproj" />
     <Project Path="src/Swan.Api/Swan.Api.csproj" />
   </Folder>
   <Folder Name="/tests/">
