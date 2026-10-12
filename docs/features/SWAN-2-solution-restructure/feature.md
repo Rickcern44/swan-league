@@ -1,7 +1,7 @@
 ---
 id: SWAN-2
 title: Solution restructure to PRD architecture
-status: todo
+status: done
 parent: ~
 ---
 
