@@ -1,7 +1,7 @@
 ---
 id: SWAN-3.1
 title: Shared kernel + value objects
-status: todo
+status: done
 parent: SWAN-3
 ---
 
@@ -34,12 +34,12 @@ Intent: Build core abstractions and value objects used across all aggregates.
 
 ## Acceptance criteria
 
-- [ ] Each VO rejects invalid input with unit tests (e.g., negative Money, PointValue outside 1–4, malformed Email)
-- [ ] DogPoints rounding tested (+6.5 → 7)
-- [ ] GameResult derives winner/tie correctly (test both)
-- [ ] Strongly typed IDs are distinct at compile time (e.g., can't assign `UserId` to `TeamId`)
-- [ ] AggregateRoot collects events (not dispatched)
-- [ ] `dotnet test` passes; `dotnet format --verify-no-changes` clean
+- [x] Each VO rejects invalid input with unit tests (e.g., negative Money, PointValue outside 1–4, malformed Email)
+- [x] DogPoints rounding tested (+6.5 → 7)
+- [x] GameResult derives winner/tie correctly (test both)
+- [x] Strongly typed IDs are distinct at compile time (e.g., can't assign `UserId` to `TeamId`)
+- [x] AggregateRoot collects events (not dispatched)
+- [x] `dotnet test` passes; `dotnet format --verify-no-changes` clean
 
 ## Files to touch
 
