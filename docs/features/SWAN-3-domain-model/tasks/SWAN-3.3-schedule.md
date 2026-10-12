@@ -1,7 +1,7 @@
 ---
 id: SWAN-3.3
 title: Schedule aggregates
-status: todo
+status: done
 parent: SWAN-3
 ---
 
@@ -23,14 +23,14 @@ State machine: `Draft` → `LinesApproved` → `Open` → `Locked` → `Final`, 
 
 ## Acceptance criteria
 
-- [ ] State machine enforced (Draft→LinesApproved→Open→Locked→Final) with admin reopen
-- [ ] Publish blocked until every non-excluded game has an approved line
-- [ ] Approved lines frozen after publish (no changes allowed)
-- [ ] GameResult requires both scores; SeasonTeam point value derived from week scores
-- [ ] "One team per finish per division" invariant testable as static validation on the set (used later by wizard UI)
-- [ ] Events `WeekPublished`, `WeekLocked`, `ResultsConfirmed` raised and collected
-- [ ] Playoff weeks include round info and picks-required flag
-- [ ] `dotnet test` passes; `dotnet format` clean
+- [x] State machine enforced (Draft→LinesApproved→Open→Locked→Final) with admin reopen
+- [x] Publish blocked until every non-excluded game has an approved line
+- [x] Approved lines frozen after publish (no changes allowed)
+- [x] GameResult requires both scores; SeasonTeam point value derived from week scores
+- [x] "One team per finish per division" invariant testable as static validation on the set (used later by wizard UI)
+- [x] Events `WeekPublished`, `WeekLocked`, `ResultsConfirmed` raised and collected
+- [x] Playoff weeks include round info and picks-required flag
+- [x] `dotnet test` passes; `dotnet format` clean
 
 ## Files to touch
 
