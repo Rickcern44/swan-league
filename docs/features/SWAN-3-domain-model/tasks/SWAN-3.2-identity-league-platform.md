@@ -1,7 +1,7 @@
 ---
 id: SWAN-3.2
 title: Identity, League, Platform aggregates
-status: todo
+status: done
 parent: SWAN-3
 ---
 
@@ -27,13 +27,13 @@ Intent: Implement three core aggregates: User (with login token lifecycle), Seas
 
 ## Acceptance criteria
 
-- [ ] Unit tests cover all invariants from PRD §9.3 (e.g., pool stakes sum to buy-in; ≥3 double-dog weeks; structural settings only during Setup phase)
-- [ ] LoginToken is single-use and expires 15 min after issue (using passed-in `now` time)
-- [ ] Season state machine (Setup → Live → Completed) enforced
-- [ ] Membership role enum covers all roles
-- [ ] ScheduledJob lease claim prevents concurrent execution (single node holds the lease)
-- [ ] Events `MembershipInvited` and `SeasonActivated` are raised and collected
-- [ ] `dotnet test` passes; `dotnet format` clean
+- [x] Unit tests cover all invariants from PRD §9.3 (e.g., pool stakes sum to buy-in; ≥3 double-dog weeks; structural settings only during Setup phase)
+- [x] LoginToken is single-use and expires 15 min after issue (using passed-in `now` time)
+- [x] Season state machine (Setup → Live → Completed) enforced
+- [x] Membership role enum covers all roles
+- [x] ScheduledJob lease claim prevents concurrent execution (single node holds the lease)
+- [x] Events `MembershipInvited` and `SeasonActivated` are raised and collected
+- [x] `dotnet test` passes; `dotnet format` clean
 
 ## Files to touch
 
