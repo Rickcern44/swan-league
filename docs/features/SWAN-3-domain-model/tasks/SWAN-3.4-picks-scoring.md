@@ -1,7 +1,7 @@
 ---
 id: SWAN-3.4
 title: Picks and Scoring aggregates
-status: todo
+status: done
 parent: SWAN-3
 ---
 
@@ -22,17 +22,17 @@ Intent: Implement Picks and Scoring contexts: Roster (member teams), Ballot (pic
 
 ## Acceptance criteria
 
-- [ ] Roster enforces exactly 9 teams at close; window-open check prevents mutations outside window
-- [ ] Roster admin correction requires a reason field
-- [ ] Ballot: max 3 distinct teams across picks; no bye team; dog count 1 or 2 by week flag
-- [ ] Ballot: dogs have distinct teams and games
-- [ ] Ballot: no changes allowed at or after a pick's LockTime (compare against passed-in `now`)
-- [ ] Ballot: every change appended to history (complete audit trail)
-- [ ] Ballot: complete flag set when 3 picks submitted
-- [ ] WeekScore: replace-all lines on recompute (idempotent)
-- [ ] WeekScore: no scoring math (just a container)
-- [ ] Events `PickSubmitted` and `PickChanged` raised and collected
-- [ ] `dotnet test` passes; `dotnet format` clean
+- [x] Roster enforces exactly 9 teams at close; window-open check prevents mutations outside window
+- [x] Roster admin correction requires a reason field
+- [x] Ballot: max 3 distinct teams across picks; no bye team; dog count 1 or 2 by week flag
+- [x] Ballot: dogs have distinct teams and games
+- [x] Ballot: no changes allowed at or after a pick's LockTime (compare against passed-in `now`)
+- [x] Ballot: every change appended to history (complete audit trail)
+- [x] Ballot: complete flag set when 3 picks submitted
+- [x] WeekScore: replace-all lines on recompute (idempotent)
+- [x] WeekScore: no scoring math (just a container)
+- [x] Events `PickSubmitted` and `PickChanged` raised and collected
+- [x] `dotnet test` passes; `dotnet format` clean
 
 ## Files to touch
 
