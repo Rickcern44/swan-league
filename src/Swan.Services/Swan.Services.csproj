@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Swan.Core/Swan.Core.csproj" />
     <ProjectReference Include="../Swan.Data/Swan.Data.csproj" />
   </ItemGroup>

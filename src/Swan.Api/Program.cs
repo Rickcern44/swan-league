@@ -1,6 +1,9 @@
+using Swan.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddSwanServices();
 
 var app = builder.Build();
 
