@@ -1,7 +1,7 @@
 ---
 id: SWAN-3
 title: Domain model + base migration
-status: todo
+status: done
 parent: ~
 ---
 
