@@ -1,7 +1,7 @@
 ---
 id: SWAN-5.5
 title: Scoring fixture suite
-status: todo
+status: done
 parent: SWAN-5
 ---
 
@@ -23,11 +23,11 @@ Intent: Hand-built sample weeks (JSON fixtures) + expected per-coach totals. Run
 
 ## Acceptance criteria
 
-- [ ] Fixture data files (JSON) with input week + expected scores
-- [ ] Test harness runs fixtures through policies
-- [ ] All fixtures pass
-- [ ] Adding a new fixture needs no code change
-- [ ] `dotnet test` passes
+- [x] Fixture data files (JSON) with input week + expected scores
+- [x] Test harness runs fixtures through policies
+- [x] All fixtures pass
+- [x] Adding a new fixture needs no code change
+- [x] `dotnet test` passes
 
 ## Files to touch
 
