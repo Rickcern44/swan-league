@@ -1,7 +1,7 @@
 ---
 id: SWAN-5.0
 title: Housekeeping — delete stray folder, add gitignore
-status: todo
+status: done
 parent: SWAN-5
 ---
 
@@ -13,6 +13,6 @@ Delete stray folder `src/Swan.Data/bin\Debug/` (Roslyn BuildHost output with lit
 
 ## Acceptance criteria
 
-- [ ] Folder deleted
-- [ ] .gitignore pattern added (covers `bin\` and similar spurious build folders)
-- [ ] `git status` clean
+- [x] Folder deleted
+- [x] .gitignore pattern added (covers `bin\` and similar spurious build folders)
+- [ ] `git status` clean — pre-existing untracked `.openrig/` and `CLAUDE.md` were preserved.
