@@ -5,8 +5,10 @@
     <Project Path="src/Swan.Services/Swan.Services.csproj" />
     <Project Path="src/Swan.ServiceDefaults/Swan.ServiceDefaults.csproj" />
     <Project Path="src/Swan.Api/Swan.Api.csproj" />
+    <Project Path="src/Swan.Worker/Swan.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Swan.Api.Tests/Swan.Api.Tests.csproj" />
+    <Project Path="tests/Swan.Worker.Tests/Swan.Worker.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,7 +1,7 @@
 ---
 id: SWAN-2.3
 title: Worker host skeleton
-status: todo
+status: done
 parent: SWAN-2
 ---
 
@@ -11,11 +11,11 @@ Intent: Create Swan.Worker as a BackgroundService that polls every 15s and calls
 
 ## Acceptance criteria
 
-- [ ] References Swan.Services and Swan.ServiceDefaults
-- [ ] `dotnet run --project src/Swan.Worker -- --once` exits with code 0
-- [ ] Unit test covers the --once path and passes
-- [ ] Worker appears in apphost.cs
-- [ ] `dotnet build` and `dotnet test` pass
+- [x] References Swan.Services and Swan.ServiceDefaults
+- [x] `dotnet run --project src/Swan.Worker -- --once` exits with code 0
+- [x] Unit test covers the --once path and passes
+- [x] Worker appears in apphost.cs
+- [x] `dotnet build` and `dotnet test` pass
 
 ## Files to touch
 

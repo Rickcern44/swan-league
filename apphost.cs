@@ -8,6 +8,8 @@ var api = builder.AddProject("api", "src/Swan.Api/Swan.Api.csproj")
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
+builder.AddProject("worker", "src/Swan.Worker/Swan.Worker.csproj");
+
 builder.AddViteApp("web", "src/Swan.Web")
     .WithReference(api)
     .WaitFor(api)
