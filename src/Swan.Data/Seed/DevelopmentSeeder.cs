@@ -26,7 +26,7 @@ public static class DevelopmentSeeder
         database.SeasonTeams.AddRange(teams.Select((team, index) => new SeasonTeam(new SeasonTeamId(DeterministicGuid(index + 100)), seasonId, seededTeams[index].Id, team.Division, team.Finish, 0)));
 
         var adminId = new UserId(Guid.Parse("b548d5d9-272d-4f4d-b2b4-f179ad8b289d"));
-        database.Users.Add(new User(adminId, Email.Create("admin@swan.local").Value!, "Swan Admin"));
+        database.Users.Add(new User(adminId, Email.Create("admin@swan.local").Value!, "Swan Admin", UserRole.Admin));
         var coaches = Enumerable.Range(1, 6).Select(index => new User(new UserId(DeterministicGuid(index + 200)), Email.Create($"coach{index}@swan.local").Value!, $"Coach {index}")).ToList();
         database.Users.AddRange(coaches);
         database.Memberships.Add(new Membership(new MembershipId(DeterministicGuid(300)), adminId, seasonId, MembershipRole.Administrator));

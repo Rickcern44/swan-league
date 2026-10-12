@@ -53,6 +53,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(user => user.Id).HasConversion(id => id.Value, value => new UserId(value));
             entity.Property(user => user.Email).HasConversion(email => email.Value, value => new Email(value)).HasMaxLength(320);
             entity.Property(user => user.Name).HasMaxLength(200);
+            entity.Property(user => user.Role);
             entity.Property(user => user.IsActive);
             entity.HasIndex(user => user.Email).IsUnique();
             entity.Ignore(user => user.DomainEvents);

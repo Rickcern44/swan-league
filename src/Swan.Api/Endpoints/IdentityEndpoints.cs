@@ -11,7 +11,8 @@ public static class IdentityEndpoints
     {
         endpoints.MapPost("/api/sign-in-links", RequestSignInLink).AllowAnonymous();
         endpoints.MapGet("/api/sign-in-links/redeem", RedeemSignInLink).AllowAnonymous();
-        endpoints.MapGet("/api/me", GetCurrentUser).AllowAnonymous();
+        endpoints.MapGet("/api/me", GetCurrentUser).RequireAuthorization("Coach");
+        endpoints.MapGet("/api/admin/ping", () => Results.Ok(new { message = "admin-pong" })).RequireAuthorization("Admin");
         return endpoints;
     }
 

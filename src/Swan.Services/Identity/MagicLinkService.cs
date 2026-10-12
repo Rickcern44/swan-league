@@ -58,12 +58,6 @@ public sealed class SessionService(SwanDbContext database)
     {
         var user = await database.Users.SingleOrDefaultAsync(candidate => candidate.Id == userId, cancellationToken);
         if (user is null || !user.IsActive) return null;
-
-        var membership = await database.Memberships
-            .Where(candidate => candidate.UserId == userId && candidate.IsActive)
-            .OrderBy(candidate => candidate.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return membership is null ? null : new CurrentUser(user.Id, user.Name, membership.Role.ToString());
+        return new CurrentUser(user.Id, user.Name, user.Role.ToString());
     }
 }

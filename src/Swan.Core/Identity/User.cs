@@ -2,6 +2,8 @@ using Swan.Core.Common;
 
 namespace Swan.Core.Identity;
 
+public enum UserRole { Admin, Coach }
+
 public sealed class LoginToken(string value, DateTimeOffset expiresAt)
 {
     public string Value { get; } = value;
@@ -18,12 +20,13 @@ public sealed class LoginToken(string value, DateTimeOffset expiresAt)
     }
 }
 
-public sealed class User(UserId id, Email email, string name) : AggregateRoot
+public sealed class User(UserId id, Email email, string name, UserRole role = UserRole.Coach) : AggregateRoot
 {
     private readonly List<LoginToken> tokens = [];
     public UserId Id { get; } = id;
     public Email Email { get; } = email;
     public string Name { get; private set; } = name;
+    public UserRole Role { get; private set; } = role;
     public bool IsActive { get; private set; } = true;
     public IReadOnlyCollection<LoginToken> LoginTokens => tokens;
     public LoginToken IssueLoginToken(string value, DateTimeOffset now)
@@ -42,4 +45,5 @@ public sealed class User(UserId id, Email email, string name) : AggregateRoot
     }
 
     public void Deactivate() => IsActive = false;
+    public void AssignRole(UserRole role) => Role = role;
 }

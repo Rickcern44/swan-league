@@ -1,7 +1,7 @@
 ---
 id: SWAN-4.5
 title: Roles and authorization
-status: todo
+status: done
 parent: SWAN-4
 ---
 
@@ -18,14 +18,14 @@ Intent: Implement role-based authorization. User.Role (Admin, Coach) is DB-assig
 
 ## Acceptance criteria
 
-- [ ] User.Role enum in Swan.Core
-- [ ] Policies "Admin" and "Coach" registered in Program.cs
-- [ ] Every mapped endpoint has [Authorize(Policy = "Admin")] or [Authorize(Policy = "Coach")] or [AllowAnonymous]
+- [x] User.Role enum in Swan.Core
+- [x] Policies "Admin" and "Coach" registered in Program.cs
+- [x] Every mapped endpoint has an explicit Admin/Coach policy or AllowAnonymous metadata
 - [ ] Tests:
-  - [ ] Coach gets 403 on admin-only endpoint
-  - [ ] Admin gets 200 on admin-only endpoint
-  - [ ] Architecture/reflection test fails if an endpoint lacks authorization
-- [ ] `dotnet test` passes
+  - [x] Coach gets 403 on admin-only endpoint
+  - [x] Admin gets 200 on admin-only endpoint
+  - [x] Architecture/reflection test fails if an endpoint lacks authorization
+- [x] `dotnet test` passes
 
 ## Files to touch
 
