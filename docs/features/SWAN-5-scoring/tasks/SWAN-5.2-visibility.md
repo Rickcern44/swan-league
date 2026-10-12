@@ -1,7 +1,7 @@
 ---
 id: SWAN-5.2
 title: PickVisibilityPolicy
-status: todo
+status: done
 parent: SWAN-5
 ---
 
@@ -18,13 +18,13 @@ Intent: Implement PRD R21 + A20: viewer sees another coach's locked picks only a
 
 ## Acceptance criteria
 
-- [ ] Before own lock: cannot see others' locked picks
-- [ ] After own lock: can see others' locked picks
-- [ ] Partial lock (one early game done) does not reveal
-- [ ] Dogs independent from team picks
-- [ ] Admin always true
-- [ ] Coach never sees unlocked pick of another
-- [ ] `dotnet test` passes
+- [x] Before own lock: cannot see others' locked picks
+- [x] After own lock: can see others' locked picks
+- [x] Partial lock (one early game done) does not reveal
+- [x] Dogs independent from team picks
+- [x] Admin always true
+- [x] Coach never sees unlocked pick of another
+- [x] `dotnet test` passes
 
 ## Files to touch
 
