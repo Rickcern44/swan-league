@@ -1,7 +1,7 @@
 ---
 id: SWAN-3
 title: Domain model + base migration
-status: done
+status: in-progress
 parent: ~
 ---
 
@@ -42,3 +42,4 @@ Intent: Implement all aggregates with structural invariants enforced and persist
 - [[SWAN-3.5-money-communication]] — Money and Communication aggregates
 - [[SWAN-3.6-arch-test]] — Context boundary architecture test
 - [[SWAN-3.7-ef-migration]] — EF configuration + initial migration
+- [[SWAN-3.8-test-coverage]] — Invariant test coverage + child round-trips
