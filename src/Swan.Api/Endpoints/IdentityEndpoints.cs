@@ -11,6 +11,7 @@ public static class IdentityEndpoints
     {
         endpoints.MapPost("/api/sign-in-links", RequestSignInLink).AllowAnonymous();
         endpoints.MapGet("/api/sign-in-links/redeem", RedeemSignInLink).AllowAnonymous();
+        endpoints.MapPost("/api/sign-out", SignOut).AllowAnonymous();
         endpoints.MapGet("/api/me", GetCurrentUser).RequireAuthorization("Coach");
         return endpoints;
     }
@@ -24,7 +25,7 @@ public static class IdentityEndpoints
         var email = Email.Create(request.Email);
         if (email.IsSuccess)
         {
-            var baseUri = new Uri($"{context.Request.Scheme}://{context.Request.Host}/api/sign-in-links/redeem");
+            var baseUri = new Uri($"{context.Request.Scheme}://{context.Request.Host}/signin-callback");
             await magicLinks.RequestAsync(email.Value!, context.Connection.RemoteIpAddress?.ToString() ?? "unknown", baseUri, cancellationToken);
         }
 
@@ -36,6 +37,7 @@ public static class IdentityEndpoints
         HttpContext context,
         MagicLinkService magicLinks,
         IClock clock,
+        IHostEnvironment environment,
         CancellationToken cancellationToken)
     {
         var redeemed = await magicLinks.RedeemAsync(token, cancellationToken);
@@ -44,11 +46,17 @@ public static class IdentityEndpoints
         context.Response.Cookies.Append("swan_session", redeemed.Value!.UserId.Value.ToString(), new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
+            Secure = !environment.IsDevelopment(),
             SameSite = SameSiteMode.Lax,
             Expires = clock.UtcNow.AddDays(30)
         });
         return Results.Ok();
+    }
+
+    private static IResult SignOut(HttpContext context)
+    {
+        context.Response.Cookies.Delete("swan_session", new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Lax });
+        return Results.NoContent();
     }
 
     private static async Task<IResult> GetCurrentUser(HttpContext context, IServiceProvider services, CancellationToken cancellationToken)

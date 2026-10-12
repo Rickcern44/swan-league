@@ -1,7 +1,7 @@
 ---
 id: SWAN-4.7
 title: Web sign-in flow + E2E
-status: todo
+status: done
 parent: SWAN-4
 ---
 
@@ -19,20 +19,20 @@ Intent: Implement sign-in UI in Swan.Web (sign-in page, email entry, "check your
 
 ## Acceptance criteria
 
-- [ ] Sign-in page with email input and submit (Vitest)
-- [ ] "Check your email" message after submission
-- [ ] `/signin-callback` route redeems token and redirects
-- [ ] Signed-in landing shows name + role
-- [ ] Admin landing shows "Admin" marker
-- [ ] Sign-out clears cookie and redirects
-- [ ] Playwright E2E:
-  - [ ] Request sign-in link for seeded admin
-  - [ ] Fetch link from Mailpit API
-  - [ ] Redeem link (click or programmatic)
-  - [ ] Assert signed in with admin role
-  - [ ] Repeat for seeded coach (assert coach role)
-- [ ] `npm lint`, `npm run format:check`, `npm test` (Vitest) pass
-- [ ] Playwright E2E passes
+- [x] Sign-in page with email input and submit (Vitest)
+- [x] "Check your email" message after submission
+- [x] `/signin-callback` route redeems token and redirects
+- [x] Signed-in landing shows name + role
+- [x] Admin landing shows "Admin" marker
+- [x] Sign-out clears cookie and redirects
+- [x] Playwright E2E:
+  - [x] Request sign-in link for seeded admin
+  - [x] Fetch link from Mailpit API
+  - [x] Redeem link (click or programmatic)
+  - [x] Assert signed in with admin role
+  - [x] Repeat for seeded coach (assert coach role)
+- [x] `npm lint`, `npm run format:check`, `npm test` (Vitest) pass
+- [x] Playwright E2E passes
 
 ## Files to touch
 
