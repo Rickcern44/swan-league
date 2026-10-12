@@ -32,7 +32,9 @@ public sealed class Membership(MembershipId id, UserId userId, SeasonId seasonId
     public UserId UserId { get; } = userId;
     public SeasonId SeasonId { get; } = seasonId;
     public MembershipRole Role { get; } = role;
+    public bool IsActive { get; private set; } = true;
     public void Invite() => Raise(new MembershipInvited(Id));
+    public void Deactivate() => IsActive = false;
 }
 public sealed record MembershipInvited(MembershipId MembershipId) : IDomainEvent;
 public sealed record SeasonActivated(SeasonId SeasonId) : IDomainEvent;

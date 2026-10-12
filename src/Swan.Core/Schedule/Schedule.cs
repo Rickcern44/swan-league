@@ -5,7 +5,12 @@ namespace Swan.Core.Schedule;
 public enum WeekState { Draft, LinesApproved, Open, Locked, Final }
 public enum WeekKind { Regular, Playoff, SuperBowl }
 public sealed record WeekType(WeekKind Kind, string? Round, bool PicksRequired);
-public sealed record Team(TeamId Id, string Name, string? LogoUrl, DateTimeOffset CreatedAt);
+public sealed record Team(TeamId Id, string Name, string? LogoUrl, DateTimeOffset CreatedAt, string Division)
+{
+    public static Result<Team> Create(TeamId id, string name, string? logoUrl, DateTimeOffset createdAt, string division) => string.IsNullOrWhiteSpace(division)
+        ? Result<Team>.Failure("team.division.required", "Teams require a division.")
+        : Result<Team>.Success(new Team(id, name, logoUrl, createdAt, division));
+}
 public sealed record SeasonTeam(SeasonTeamId Id, SeasonId SeasonId, TeamId TeamId, string Division, int FinishPosition, int FinishTies)
 {
     public static bool HasUniqueFinishes(IEnumerable<SeasonTeam> teams) => teams.GroupBy(team => (team.Division, team.FinishPosition)).All(group => group.Count() == 1);
@@ -31,13 +36,16 @@ public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickof
 public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type) : AggregateRoot
 {
     private readonly List<Game> games = [];
+    private readonly List<DogOption> dogOptions = [];
     public WeekId Id { get; } = id;
     public SeasonId SeasonId { get; } = seasonId;
     public int Number { get; } = number;
     public WeekType Type { get; } = type;
     public WeekState State { get; private set; } = WeekState.Draft;
     public IReadOnlyCollection<Game> Games => games.AsReadOnly();
+    public IReadOnlyCollection<DogOption> DogOptions => dogOptions.AsReadOnly();
     public void AddGame(Game game) => games.Add(game);
+    public void SetDogOptions(IEnumerable<DogOption> options) { dogOptions.Clear(); dogOptions.AddRange(options); }
     public Result<bool> AddLine(GameId gameId, Spread line) => games.FirstOrDefault(game => game.Id == gameId)?.AddLine(line, State is not WeekState.Draft) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
     public Result<bool> ApproveLines() => State != WeekState.Draft || games.Any(game => !game.Excluded && game.ApprovedLine is null) ? Result<bool>.Failure("week.lines", "Every included game needs an approved line.") : Transition(WeekState.LinesApproved);
     public Result<bool> ApproveLatestLine(GameId gameId) => games.FirstOrDefault(game => game.Id == gameId)?.ApproveLine(State is not WeekState.Draft) ?? Result<bool>.Failure("game.missing", "Game does not exist.");

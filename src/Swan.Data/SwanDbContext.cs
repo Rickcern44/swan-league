@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Swan.Core.Communication;
 using Swan.Core.Common;
 using Swan.Core.Finance;
@@ -112,8 +113,29 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(week => week.Number);
             entity.Property(week => week.State);
             entity.Ignore(week => week.DomainEvents);
-            entity.Ignore(week => week.Games);
             entity.Property(week => week.Type).HasConversion(value => $"{(int)value.Kind}|{value.Round}|{value.PicksRequired}", value => ParseWeekType(value));
+            entity.OwnsMany<Game>(nameof(Game), nameof(Week.Games), game =>
+            {
+                game.ToTable("games", "schedule");
+                game.WithOwner().HasForeignKey("WeekId");
+                game.HasKey(value => value.Id);
+                game.Property(value => value.Id).HasConversion(id => id.Value, value => new GameId(value));
+                game.Property(value => value.HomeTeamId).HasConversion(id => id.Value, value => new TeamId(value));
+                game.Property(value => value.AwayTeamId).HasConversion(id => id.Value, value => new TeamId(value));
+                game.Property(value => value.Kickoff).HasConversion(value => value.Value, value => new Kickoff(value));
+                game.Property(value => value.Excluded);
+                game.Property(value => value.ApprovedLine).HasConversion(new ValueConverter<Spread?, decimal?>(value => value == null ? null : value.Value, value => value == null ? null : new Spread(value.Value)));
+                game.Property(value => value.Result).HasConversion(new ValueConverter<GameResult?, string?>(value => value == null ? null : $"{value.HomeScore}:{value.AwayScore}", value => value == null ? null : ParseResult(value)));
+                game.Ignore(value => value.LineHistory);
+            });
+            entity.OwnsMany<DogOption>(nameof(DogOption), nameof(Week.DogOptions), option =>
+            {
+                option.ToTable("dog_options", "schedule");
+                option.WithOwner().HasForeignKey("WeekId");
+                option.Property<Guid>("Id");
+                option.HasKey("Id");
+                option.Property(value => value.TeamId).HasConversion(id => id.Value, value => new TeamId(value));
+            });
         });
     }
 
@@ -127,6 +149,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(roster => roster.SeasonId).HasConversion(id => id.Value, value => new SeasonId(value));
             entity.Property(roster => roster.MembershipId).HasConversion(id => id.Value, value => new MembershipId(value));
             entity.Ignore(roster => roster.DomainEvents);
+            entity.Ignore(roster => roster.Teams);
         });
         modelBuilder.Entity<Ballot>(entity =>
         {
@@ -136,7 +159,36 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(ballot => ballot.MembershipId).HasConversion(id => id.Value, value => new MembershipId(value));
             entity.Property(ballot => ballot.WeekId).HasConversion(id => id.Value, value => new WeekId(value));
             entity.Ignore(ballot => ballot.DomainEvents);
-            entity.Ignore(ballot => ballot.Changes);
+            entity.OwnsMany<TeamPick>(nameof(TeamPick), nameof(Ballot.Picks), pick =>
+            {
+                pick.ToTable("team_picks", "picks");
+                pick.WithOwner().HasForeignKey("BallotId");
+                pick.Property<Guid>("Id");
+                pick.HasKey("Id");
+                pick.Property(value => value.TeamId).HasConversion(id => id.Value, value => new TeamId(value));
+                pick.Property(value => value.GameId).HasConversion(id => id.Value, value => new GameId(value));
+                pick.Property(value => value.LockTime);
+                pick.Property(value => value.IsBye);
+            });
+            entity.OwnsMany<DogPick>(nameof(DogPick), nameof(Ballot.Dogs), dog =>
+            {
+                dog.ToTable("dog_picks", "picks");
+                dog.WithOwner().HasForeignKey("BallotId");
+                dog.Property<Guid>("Id");
+                dog.HasKey("Id");
+                dog.Property(value => value.TeamId).HasConversion(id => id.Value, value => new TeamId(value));
+                dog.Property(value => value.GameId).HasConversion(id => id.Value, value => new GameId(value));
+                dog.Property(value => value.LockTime);
+            });
+            entity.OwnsMany<PickChange>(nameof(PickChange), nameof(Ballot.Changes), change =>
+            {
+                change.ToTable("pick_changes", "picks");
+                change.WithOwner().HasForeignKey("BallotId");
+                change.Property<Guid>("Id");
+                change.HasKey("Id");
+                change.Property(value => value.ChangedAt);
+                change.Property(value => value.Reason);
+            });
         });
     }
 
@@ -164,7 +216,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(ledger => ledger.Id).HasConversion(id => id.Value, value => new LedgerId(value));
             entity.Property(ledger => ledger.SeasonId).HasConversion(id => id.Value, value => new SeasonId(value));
             entity.Ignore(ledger => ledger.DomainEvents);
-            entity.OwnsMany(ledger => ledger.Items, item =>
+            entity.OwnsMany<LedgerItem>(nameof(LedgerItem), nameof(Ledger.Items), item =>
             {
                 item.ToTable("ledger_items", "money");
                 item.WithOwner().HasForeignKey("LedgerId");
@@ -186,7 +238,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(settlement => settlement.SeasonId).HasConversion(id => id.Value, value => new SeasonId(value));
             entity.Ignore(settlement => settlement.DomainEvents);
             entity.Property(settlement => settlement.Pot).HasConversion(value => $"{value.Amount}|{value.Currency}", value => ParseMoney(value));
-            entity.OwnsMany(settlement => settlement.Placements, placing =>
+            entity.OwnsMany<Placing>(nameof(Placing), nameof(PoolSettlement.Placements), placing =>
             {
                 placing.ToTable("pool_placements", "money");
                 placing.WithOwner().HasForeignKey("PoolSettlementId");
@@ -282,5 +334,11 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
     {
         var parts = value.Split('|');
         return new WeekType((WeekKind)int.Parse(parts[0]), parts[1], bool.Parse(parts[2]));
+    }
+
+    private static GameResult ParseResult(string value)
+    {
+        var scores = value.Split(':');
+        return new GameResult(int.Parse(scores[0]), int.Parse(scores[1]));
     }
 }

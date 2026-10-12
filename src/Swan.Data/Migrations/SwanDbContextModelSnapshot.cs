@@ -168,6 +168,9 @@ namespace Swan.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("Role")
                         .HasColumnType("integer");
 
@@ -322,6 +325,10 @@ namespace Swan.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Division")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("LogoUrl")
                         .HasColumnType("text");
 
@@ -378,7 +385,7 @@ namespace Swan.Data.Migrations
 
             modelBuilder.Entity("Swan.Core.Finance.Ledger", b =>
                 {
-                    b.OwnsMany("Swan.Core.Finance.LedgerItem", "Items", b1 =>
+                    b.OwnsMany("LedgerItem", "Items", b1 =>
                         {
                             b1.Property<Guid>("Id")
                                 .ValueGeneratedOnAdd()
@@ -422,7 +429,7 @@ namespace Swan.Data.Migrations
 
             modelBuilder.Entity("Swan.Core.Finance.PoolSettlement", b =>
                 {
-                    b.OwnsMany("Swan.Core.Finance.Placing", "Placements", b1 =>
+                    b.OwnsMany("Placing", "Placements", b1 =>
                         {
                             b1.Property<Guid>("Id")
                                 .ValueGeneratedOnAdd()
@@ -452,6 +459,165 @@ namespace Swan.Data.Migrations
                         });
 
                     b.Navigation("Placements");
+                });
+
+            modelBuilder.Entity("Swan.Core.Picks.Ballot", b =>
+                {
+                    b.OwnsMany("DogPick", "Dogs", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("BallotId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("GameId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<DateTimeOffset>("LockTime")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.Property<Guid>("TeamId")
+                                .HasColumnType("uuid");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("BallotId");
+
+                            b1.ToTable("dog_picks", "picks");
+
+                            b1.WithOwner()
+                                .HasForeignKey("BallotId");
+                        });
+
+                    b.OwnsMany("PickChange", "Changes", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("BallotId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<DateTimeOffset>("ChangedAt")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.Property<string>("Reason")
+                                .IsRequired()
+                                .HasColumnType("text");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("BallotId");
+
+                            b1.ToTable("pick_changes", "picks");
+
+                            b1.WithOwner()
+                                .HasForeignKey("BallotId");
+                        });
+
+                    b.OwnsMany("TeamPick", "Picks", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("BallotId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("GameId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<bool>("IsBye")
+                                .HasColumnType("boolean");
+
+                            b1.Property<DateTimeOffset>("LockTime")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.Property<Guid>("TeamId")
+                                .HasColumnType("uuid");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("BallotId");
+
+                            b1.ToTable("team_picks", "picks");
+
+                            b1.WithOwner()
+                                .HasForeignKey("BallotId");
+                        });
+
+                    b.Navigation("Changes");
+
+                    b.Navigation("Dogs");
+
+                    b.Navigation("Picks");
+                });
+
+            modelBuilder.Entity("Swan.Core.Schedule.Week", b =>
+                {
+                    b.OwnsMany("DogOption", "DogOptions", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("TeamId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("WeekId")
+                                .HasColumnType("uuid");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("WeekId");
+
+                            b1.ToTable("dog_options", "schedule");
+
+                            b1.WithOwner()
+                                .HasForeignKey("WeekId");
+                        });
+
+                    b.OwnsMany("Game", "Games", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .HasColumnType("uuid");
+
+                            b1.Property<decimal?>("ApprovedLine")
+                                .HasColumnType("numeric");
+
+                            b1.Property<Guid>("AwayTeamId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<bool>("Excluded")
+                                .HasColumnType("boolean");
+
+                            b1.Property<Guid>("HomeTeamId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<DateTimeOffset>("Kickoff")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.Property<string>("Result")
+                                .HasColumnType("text");
+
+                            b1.Property<Guid>("WeekId")
+                                .HasColumnType("uuid");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("WeekId");
+
+                            b1.ToTable("games", "schedule");
+
+                            b1.WithOwner()
+                                .HasForeignKey("WeekId");
+                        });
+
+                    b.Navigation("DogOptions");
+
+                    b.Navigation("Games");
                 });
 #pragma warning restore 612, 618
         }
