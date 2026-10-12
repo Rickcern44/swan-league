@@ -1,7 +1,7 @@
 ---
 id: SWAN-5.4
 title: ScoringPolicy (playoffs)
-status: todo
+status: done
 parent: SWAN-5
 ---
 
@@ -18,11 +18,11 @@ Intent: Implement PRD R12–R14: qualification bonus, round multipliers, #1-seed
 
 ## Acceptance criteria
 
-- [ ] One focused test per rule ID
-- [ ] Hand-calculated playoff fixture matches
-- [ ] Multipliers applied per round
-- [ ] Bye compensation awarded correctly
-- [ ] `dotnet test` passes
+- [x] One focused test per rule ID
+- [x] Hand-calculated playoff fixture matches
+- [x] Multipliers applied per round
+- [x] Bye compensation awarded correctly
+- [x] `dotnet test` passes
 
 ## Files to touch
 
