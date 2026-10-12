@@ -1,7 +1,7 @@
 ---
 id: SWAN-3.7
 title: EF configuration + initial migration
-status: todo
+status: done
 parent: SWAN-3
 ---
 
@@ -27,13 +27,13 @@ Intent: Map all aggregates to Postgres via EF Core with proper configurations, o
 
 ## Acceptance criteria
 
-- [ ] `dotnet ef migrations add InitialDomain` produces no pending changes after migration creation
-- [ ] Testcontainers test applies the migration and round-trips one aggregate per context
-- [ ] `aspire run` brings up a fully migrated database
-- [ ] Schemas are visible per context in `pg_namespace`
-- [ ] No pending changes after running the migration
-- [ ] Dev startup runs migrations automatically (either API in Development or an Aspire migration step; document choice in README)
-- [ ] `dotnet test` passes; `dotnet format` clean
+- [x] `dotnet ef migrations add InitialDomain` produces no pending changes after migration creation
+- [x] Testcontainers test applies the migration and round-trips one aggregate per context
+- [x] `aspire run` brings up a fully migrated database
+- [x] Schemas are visible per context in `pg_namespace`
+- [x] No pending changes after running the migration
+- [x] Dev startup runs migrations automatically (either API in Development or an Aspire migration step; document choice in README)
+- [x] `dotnet test` passes; `dotnet format` clean
 
 ## Files to touch
 

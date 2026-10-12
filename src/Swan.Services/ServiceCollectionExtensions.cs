@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Swan.Data;
 
@@ -10,5 +12,11 @@ public static class ServiceCollectionExtensions
     {
         builder.AddNpgsqlDbContext<SwanDbContext>("swan");
         return builder;
+    }
+
+    public static async Task MigrateSwanDatabaseAsync(this IHost host)
+    {
+        using var scope = host.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<SwanDbContext>().Database.MigrateAsync();
     }
 }

@@ -28,6 +28,8 @@ ASPIRE_CONTAINER_RUNTIME=podman aspire run
 
 The dashboard lists the `api` and `web` resources. Open the web URL to see `API response: pong`.
 
+In the Development environment, the API applies the committed `InitialDomain` EF Core migration automatically when it starts. Production deployment intentionally does not perform schema changes at application startup.
+
 ## Verify
 
 Run the API endpoint test and format check from the repository root:

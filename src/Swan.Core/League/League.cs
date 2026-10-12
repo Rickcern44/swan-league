@@ -12,6 +12,7 @@ public sealed record Ruling(string Decision, DateTimeOffset DecidedAt);
 
 public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnlyCollection<PoolDefinition> pools) : AggregateRoot
 {
+    private Season() : this(default, new SeasonSettings(new Money(0, "USD"), 3), []) { }
     public SeasonId Id { get; } = id;
     public SeasonSettings Settings { get; private set; } = initialSettings;
     public SeasonState State { get; private set; } = SeasonState.Setup;

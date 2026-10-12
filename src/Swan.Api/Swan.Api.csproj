@@ -6,6 +6,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.3">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <ProjectReference Include="../Swan.Services/Swan.Services.csproj" />
     <ProjectReference Include="../Swan.ServiceDefaults/Swan.ServiceDefaults.csproj" />
   </ItemGroup>
