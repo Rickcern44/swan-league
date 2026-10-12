@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Swan.Api/Swan.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Swan.Api.Tests/Swan.Api.Tests.csproj" />
+  </Folder>
+</Solution>

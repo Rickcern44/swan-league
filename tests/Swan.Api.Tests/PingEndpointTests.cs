@@ -2,7 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
-namespace SwanLeagueTracker.Api.Tests;
+namespace Swan.Api.Tests;
 
 public sealed class PingEndpointTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>

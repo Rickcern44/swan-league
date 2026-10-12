@@ -1,8 +1,8 @@
 ## Project development rules
 
 - Use TDD: write a failing test before implementing each behavior.
-- Before every commit, run `dotnet format` and `dotnet format --verify-no-changes`; for the UI run `npm run format`, `npm run format:check`, and `npm run lint` from `src/web`.
-- Test UI behavior end-to-end with Playwright: run `npm run test:e2e` from `src/web` against a running Aspire stack.
+- Before every commit, run `dotnet format` and `dotnet format --verify-no-changes`; for the UI run `npm run format`, `npm run format:check`, and `npm run lint` from `src/Swan.Web`.
+- Test UI behavior end-to-end with Playwright: run `npm run test:e2e` from `src/Swan.Web` against a running Aspire stack.
 - Use Conventional Commits and keep commits small and focused.
 
 <!-- BEGIN OpenRig MANAGED BLOCK: CULTURE-default.md -->

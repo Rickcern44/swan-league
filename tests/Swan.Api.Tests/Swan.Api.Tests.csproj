@@ -17,6 +17,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Api/Api.csproj" />
+    <ProjectReference Include="../../src/Swan.Api/Swan.Api.csproj" />
   </ItemGroup>
 </Project>

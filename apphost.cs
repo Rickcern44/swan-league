@@ -4,11 +4,11 @@
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-var api = builder.AddProject("api", "src/Api/Api.csproj")
+var api = builder.AddProject("api", "src/Swan.Api/Swan.Api.csproj")
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
-builder.AddViteApp("web", "src/web")
+builder.AddViteApp("web", "src/Swan.Web")
     .WithReference(api)
     .WaitFor(api)
     .WithExternalHttpEndpoints();

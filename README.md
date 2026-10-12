@@ -13,7 +13,7 @@ Runnable baseline for the Swan League Tracker: an ASP.NET Core API and React/Vit
 Install the UI dependencies once:
 
 ```sh
-cd src/web
+cd src/Swan.Web
 npm install
 ```
 
@@ -30,11 +30,11 @@ The dashboard lists the `api` and `web` resources. Open the web URL to see `API 
 Run the API endpoint test and format check from the repository root:
 
 ```sh
-dotnet test SwanLeagueTracker.slnx
-dotnet format SwanLeagueTracker.slnx --verify-no-changes
+dotnet test Swan.slnx
+dotnet format Swan.slnx --verify-no-changes
 ```
 
-Run UI formatting, linting, unit tests, and the production build from `src/web`:
+Run UI formatting, linting, unit tests, and the production build from `src/Swan.Web`:
 
 ```sh
 npm run format:check
@@ -49,3 +49,7 @@ With the Aspire stack running, install Playwright's Chromium browser once and ru
 npx playwright install chromium
 E2E_BASE_URL=http://localhost:<web-port> npm run test:e2e
 ```
+
+## Troubleshooting
+
+After a sandboxed .NET build, run `dotnet build-server shutdown` before starting the AppHost; AppHost builds require permission to write their user-level runfile cache.
