@@ -1,7 +1,7 @@
 ---
 id: SWAN-3.5
 title: Money and Communication aggregates
-status: todo
+status: done
 parent: SWAN-3
 ---
 
@@ -26,15 +26,15 @@ Intent: Implement Money and Communication contexts for fines, payouts, announcem
 
 ## Acceptance criteria
 
-- [ ] Ledger: item status machine Pending → Confirmed/Waived → Paid (never back, only forward)
-- [ ] LedgerItem amounts always positive
-- [ ] PoolSettlement: settles once (not twice); payouts sum to the pool pot
-- [ ] Announcement: schedule must be future; sent once (idempotent send)
-- [ ] Notification: unique per recipient+event key (will use DB unique index later)
-- [ ] NotificationPreferences: essential categories (e.g., member invitations) cannot be muted
-- [ ] PushSubscription stores endpoint and encryption keys
-- [ ] Events `FineAssessed` and `PoolSettled` raised and collected
-- [ ] `dotnet test` passes; `dotnet format` clean
+- [x] Ledger: item status machine Pending → Confirmed/Waived → Paid (never back, only forward)
+- [x] LedgerItem amounts always positive
+- [x] PoolSettlement: settles once (not twice); payouts sum to the pool pot
+- [x] Announcement: schedule must be future; sent once (idempotent send)
+- [x] Notification: unique per recipient+event key (will use DB unique index later)
+- [x] NotificationPreferences: essential categories (e.g., member invitations) cannot be muted
+- [x] PushSubscription stores endpoint and encryption keys
+- [x] Events `FineAssessed` and `PoolSettled` raised and collected
+- [x] `dotnet test` passes; `dotnet format` clean
 
 ## Files to touch
 
