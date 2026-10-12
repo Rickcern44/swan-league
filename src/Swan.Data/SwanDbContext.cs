@@ -80,7 +80,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.HasKey(season => season.Id);
             entity.Property(season => season.Id).HasConversion(id => id.Value, value => new SeasonId(value));
             entity.Ignore(season => season.DomainEvents);
-            entity.Property(season => season.Settings).HasConversion(value => $"{value.BuyIn.Amount}|{value.BuyIn.Currency}|{value.DoubleDogWeeks}", value => ParseSeasonSettings(value));
+            entity.Property(season => season.Settings).HasConversion(value => $"{value.BuyIn.Amount}|{value.BuyIn.Currency}|{value.DoubleDogWeeks}|{value.TeamPickDeadlineEastern}", value => ParseSeasonSettings(value));
         });
         modelBuilder.Entity<Membership>(entity =>
         {
@@ -340,7 +340,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
     private static SeasonSettings ParseSeasonSettings(string value)
     {
         var parts = value.Split('|');
-        return new SeasonSettings(new Money(decimal.Parse(parts[0]), parts[1]), int.Parse(parts[2]));
+        return new SeasonSettings(new Money(decimal.Parse(parts[0]), parts[1]), int.Parse(parts[2]), parts.Length > 3 && TimeOnly.TryParse(parts[3], out var deadline) ? deadline : null);
     }
 
     private static WeekType ParseWeekType(string value)

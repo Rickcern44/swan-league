@@ -4,7 +4,7 @@ namespace Swan.Core.League;
 
 public enum SeasonState { Setup, Live, Completed }
 public enum MembershipRole { Commissioner, Administrator, Coach }
-public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks);
+public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null);
 public sealed record PlayoffRules(bool PicksRequired);
 public sealed record RosterWindow(DateTimeOffset OpensAt, DateTimeOffset ClosesAt);
 public sealed record PoolDefinition(string Name, Money Stake);

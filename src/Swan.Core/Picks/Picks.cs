@@ -1,9 +1,18 @@
 using Swan.Core.Common;
+using Swan.Core.League;
 
 namespace Swan.Core.Picks;
 
-public sealed record TeamPick(TeamId TeamId, GameId GameId, DateTimeOffset LockTime, bool IsBye = false);
-public sealed record DogPick(TeamId TeamId, GameId GameId, DateTimeOffset LockTime);
+public sealed record TeamPick(TeamId TeamId, GameId GameId, DateTimeOffset LockTime, bool IsBye = false)
+{
+    public static TeamPick ForGame(TeamId teamId, GameId gameId, DateTimeOffset kickoff, SeasonSettings settings, DateTimeOffset weekStartUtc, bool isBye = false) =>
+        new(teamId, gameId, LockPolicy.TeamPickLockTime(kickoff, settings, weekStartUtc), isBye);
+}
+
+public sealed record DogPick(TeamId TeamId, GameId GameId, DateTimeOffset LockTime)
+{
+    public static DogPick ForGame(TeamId teamId, GameId gameId, DateTimeOffset kickoff) => new(teamId, gameId, LockPolicy.DogPickLockTime(kickoff));
+}
 public sealed record PickChange(DateTimeOffset ChangedAt, string Reason);
 
 public sealed class Roster(RosterId id, SeasonId seasonId, MembershipId membershipId) : AggregateRoot
@@ -39,9 +48,9 @@ public sealed class Ballot(BallotId id, MembershipId membershipId, WeekId weekId
     public IReadOnlyCollection<TeamPick> Picks => picks.AsReadOnly();
     public IReadOnlyCollection<DogPick> Dogs => dogs.AsReadOnly();
     public IReadOnlyCollection<PickChange> Changes => changes.AsReadOnly();
-    public Result<bool> AddPick(TeamPick pick, DateTimeOffset now) { if (pick.IsBye || now >= pick.LockTime || picks.Count == 3 || picks.Any(item => item.TeamId == pick.TeamId) || rosterTeams is not null && !rosterTeams.Contains(pick.TeamId)) return Result<bool>.Failure("pick.invalid", "Pick is invalid or locked."); picks.Add(pick); Raise(new PickSubmitted(Id)); return Result<bool>.Success(true); }
-    public Result<bool> ChangePick(TeamId from, TeamPick replacement, DateTimeOffset now, string reason) { var pick = picks.FirstOrDefault(item => item.TeamId == from); if (pick is null || now >= pick.LockTime || now >= replacement.LockTime || string.IsNullOrWhiteSpace(reason)) return Result<bool>.Failure("pick.locked", "Pick cannot change."); picks.Remove(pick); picks.Add(replacement); changes.Add(new(now, reason)); Raise(new PickChanged(Id)); return Result<bool>.Success(true); }
-    public Result<bool> AddDog(DogPick dog, bool doubleDog, DateTimeOffset now) { var limit = doubleDog ? 2 : 1; if (now >= dog.LockTime || dogs.Count == limit || dogs.Any(item => item.TeamId == dog.TeamId || item.GameId == dog.GameId)) return Result<bool>.Failure("dog.invalid", "Dog pick is invalid."); dogs.Add(dog); return Result<bool>.Success(true); }
+    public Result<bool> AddPick(TeamPick pick, DateTimeOffset now) { if (pick.IsBye || !LockPolicy.CanChange(pick.LockTime, now) || picks.Count == 3 || picks.Any(item => item.TeamId == pick.TeamId) || rosterTeams is not null && !rosterTeams.Contains(pick.TeamId)) return Result<bool>.Failure("pick.invalid", "Pick is invalid or locked."); picks.Add(pick); Raise(new PickSubmitted(Id)); return Result<bool>.Success(true); }
+    public Result<bool> ChangePick(TeamId from, TeamPick replacement, DateTimeOffset now, string reason) { var pick = picks.FirstOrDefault(item => item.TeamId == from); if (pick is null || !LockPolicy.CanChange(pick.LockTime, now) || !LockPolicy.CanChange(replacement.LockTime, now) || string.IsNullOrWhiteSpace(reason)) return Result<bool>.Failure("pick.locked", "Pick cannot change."); picks.Remove(pick); picks.Add(replacement); changes.Add(new(now, reason)); Raise(new PickChanged(Id)); return Result<bool>.Success(true); }
+    public Result<bool> AddDog(DogPick dog, bool doubleDog, DateTimeOffset now) { var limit = doubleDog ? 2 : 1; if (!LockPolicy.CanChange(dog.LockTime, now) || dogs.Count == limit || dogs.Any(item => item.TeamId == dog.TeamId || item.GameId == dog.GameId)) return Result<bool>.Failure("dog.invalid", "Dog pick is invalid."); dogs.Add(dog); return Result<bool>.Success(true); }
 }
 public sealed record PickSubmitted(BallotId BallotId) : IDomainEvent;
 public sealed record PickChanged(BallotId BallotId) : IDomainEvent;
