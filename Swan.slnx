@@ -9,6 +9,9 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Swan.Api.Tests/Swan.Api.Tests.csproj" />
+    <Project Path="tests/Swan.Architecture.Tests/Swan.Architecture.Tests.csproj" />
+    <Project Path="tests/Swan.Core.Tests/Swan.Core.Tests.csproj" />
+    <Project Path="tests/Swan.Services.Tests/Swan.Services.Tests.csproj" />
     <Project Path="tests/Swan.Worker.Tests/Swan.Worker.Tests.csproj" />
   </Folder>
 </Solution>

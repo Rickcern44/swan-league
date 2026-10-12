@@ -1,7 +1,7 @@
 ---
 id: SWAN-2.5
 title: Test project baselines
-status: todo
+status: done
 parent: SWAN-2
 ---
 
@@ -20,11 +20,11 @@ Projects:
 
 ## Acceptance criteria
 
-- [ ] `dotnet test` runs all four .NET test projects and passes
-- [ ] Swan.Core.Tests has one placeholder test (passes)
-- [ ] Swan.Services.Tests connects to Postgres via Testcontainers and calls EnsureCreated (passes; Docker required)
-- [ ] Swan.Architecture.Tests includes real failing case (documented in handoff, not committed)
-- [ ] README notes Docker requirement for Services.Tests
+- [x] `dotnet test` runs all four .NET test projects and passes
+- [x] Swan.Core.Tests has one placeholder test (passes)
+- [x] Swan.Services.Tests connects to Postgres via Testcontainers and calls EnsureCreated (passes; Docker required)
+- [x] Swan.Architecture.Tests includes real failing case (documented in handoff, not committed)
+- [x] README notes Docker requirement for Services.Tests
 
 ## Files to touch
 
@@ -37,3 +37,7 @@ Projects:
 ## Notes
 
 The architecture test should have one test that fails when you add a forbidden reference. Show this in a comment or documentation, then remove it before committing.
+
+## Verification note
+
+Temporarily adding an ASP.NET Core framework reference and a Core type using `HttpContext` made `CoreDoesNotDependOnFrameworks("Microsoft.AspNetCore")` fail. The temporary dependency was removed before commit.

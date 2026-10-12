@@ -9,6 +9,8 @@ Runnable baseline for the Swan League Tracker: an ASP.NET Core API and React/Vit
 - Aspire CLI 13.5 or later
 - Podman with its machine running (`podman machine start`)
 
+Swan.Services integration tests require a Docker-compatible container runtime.
+
 ## Run locally
 
 Install the UI dependencies once:
