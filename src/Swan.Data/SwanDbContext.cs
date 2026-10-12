@@ -53,9 +53,21 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(user => user.Id).HasConversion(id => id.Value, value => new UserId(value));
             entity.Property(user => user.Email).HasConversion(email => email.Value, value => new Email(value)).HasMaxLength(320);
             entity.Property(user => user.Name).HasMaxLength(200);
+            entity.Property(user => user.IsActive);
             entity.HasIndex(user => user.Email).IsUnique();
             entity.Ignore(user => user.DomainEvents);
-            entity.Ignore(user => user.LoginTokens);
+            entity.Navigation(user => user.LoginTokens).HasField("tokens").UsePropertyAccessMode(PropertyAccessMode.Field);
+            entity.OwnsMany<LoginToken>(nameof(LoginToken), nameof(User.LoginTokens), token =>
+            {
+                token.ToTable("login_tokens", "identity");
+                token.WithOwner().HasForeignKey("UserId");
+                token.Property<Guid>("Id");
+                token.HasKey("Id");
+                token.Property(value => value.Value).HasMaxLength(128);
+                token.Property(value => value.ExpiresAt);
+                token.Property(value => value.Used);
+                token.HasIndex(value => value.Value).IsUnique();
+            });
         });
     }
 

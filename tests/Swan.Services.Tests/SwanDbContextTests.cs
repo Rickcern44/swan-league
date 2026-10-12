@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Swan.Core;
 using Swan.Core.Common;
 using Swan.Core.Finance;
 using Swan.Core.Identity;
+using Swan.Core.Integrations;
 using Swan.Core.League;
 using Swan.Core.Picks;
 using Swan.Core.Platform;
@@ -9,6 +11,7 @@ using Swan.Core.Schedule;
 using Swan.Core.Scoring;
 using Swan.Data;
 using Swan.Data.Seed;
+using Swan.Services.Identity;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -173,6 +176,96 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         await database.SaveChangesAsync();
         database.PushSubscriptions.Add(new Swan.Core.Communication.PushSubscription(new PushSubscriptionId(Guid.NewGuid()), new MembershipId(Guid.NewGuid()), "https://push.example/sub", "two", "two"));
         await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task MagicLinkIssuesHashesRedeemsOnceAndRateLimitsRequests()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var email = Email.Create("magic@example.com").Value!;
+        var user = new User(new UserId(Guid.NewGuid()), email, "Magic Coach");
+        database.Users.Add(user);
+        database.Seasons.Add(new Season(new SeasonId(Guid.NewGuid()), new SeasonSettings(Money.Create(100m, "USD").Value!, 3), []));
+        await database.SaveChangesAsync();
+
+        var sender = new CapturingEmailSender();
+        var clock = new FakeClock(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        var service = new MagicLinkService(database, sender, clock);
+        await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"));
+        await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"));
+
+        var rawToken = TokenFrom(sender.Messages.Single().Body);
+        database.ChangeTracker.Clear();
+        var stored = await database.Users.SingleAsync();
+        Assert.NotEqual(rawToken, stored.LoginTokens.Single().Value);
+
+        var redeemed = await service.RedeemAsync(rawToken);
+        Assert.True(redeemed.IsSuccess);
+        Assert.Equal("Magic Coach", redeemed.Value!.Name);
+        Assert.False((await service.RedeemAsync(rawToken)).IsSuccess);
+    }
+
+    [Fact]
+    public async Task MagicLinkRejectsExpiredInactiveAndUnknownUsersWithoutEnumeration()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var email = Email.Create("inactive@example.com").Value!;
+        var user = new User(new UserId(Guid.NewGuid()), email, "Inactive Coach");
+        database.Users.Add(user);
+        await database.SaveChangesAsync();
+
+        var sender = new CapturingEmailSender();
+        var clock = new FakeClock(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        var service = new MagicLinkService(database, sender, clock);
+        await service.RequestAsync(email, "192.0.2.45", new Uri("https://swan.test/api/sign-in-links/redeem"));
+        var expired = TokenFrom(sender.Messages.Single().Body);
+        clock.UtcNow = clock.UtcNow.AddMinutes(15);
+        Assert.False((await service.RedeemAsync(expired)).IsSuccess);
+
+        database.ChangeTracker.Clear();
+        var inactive = await database.Users.SingleAsync();
+        inactive.Deactivate();
+        await database.SaveChangesAsync();
+        await service.RequestAsync(email, "192.0.2.46", new Uri("https://swan.test/api/sign-in-links/redeem"));
+        await service.RequestAsync(Email.Create("unknown@example.com").Value!, "192.0.2.47", new Uri("https://swan.test/api/sign-in-links/redeem"));
+
+        Assert.Single(sender.Messages);
+        Assert.False((await service.RedeemAsync(expired)).IsSuccess);
+    }
+
+    [Fact]
+    public async Task SessionReturnsActiveUserAndMembershipRole()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var user = new User(new UserId(Guid.NewGuid()), Email.Create("session@example.com").Value!, "Session Coach");
+        database.Users.Add(user);
+        database.Memberships.Add(new Membership(new MembershipId(Guid.NewGuid()), user.Id, new SeasonId(Guid.NewGuid()), MembershipRole.Coach));
+        await database.SaveChangesAsync();
+
+        var current = await new SessionService(database).GetAsync(user.Id);
+
+        Assert.NotNull(current);
+        Assert.Equal("Session Coach", current.Name);
+        Assert.Equal("Coach", current.Role);
+        Assert.Null(await new SessionService(database).GetAsync(new UserId(Guid.NewGuid())));
+    }
+
+    private static string TokenFrom(string body) => new Uri(body).Query.Split('=', 2)[1];
+
+    private sealed class FakeClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+    }
+
+    private sealed class CapturingEmailSender : IEmailSender
+    {
+        public List<EmailMessage> Messages { get; } = [];
+
+        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
+        {
+            Messages.Add(message);
+            return Task.CompletedTask;
+        }
     }
 
     private async Task<SwanDbContext> CreateMigratedDatabase()

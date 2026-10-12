@@ -5,6 +5,8 @@ using Swan.Data;
 using Swan.Data.Seed;
 using Swan.Core.Integrations;
 using Swan.Services.Integrations;
+using Swan.Services.Identity;
+using Swan.Core;
 
 namespace Swan.Services;
 
@@ -18,6 +20,9 @@ public static class ServiceCollectionExtensions
             builder.Configuration["MAILPIT_HOST"] ?? "localhost",
             int.TryParse(builder.Configuration["MAILPIT_PORT"], out var port) ? port : 1025,
             "noreply@swan.local"));
+        builder.Services.AddSingleton<IClock, SystemClock>();
+        builder.Services.AddScoped<MagicLinkService>();
+        builder.Services.AddScoped<SessionService>();
         return builder;
     }
 

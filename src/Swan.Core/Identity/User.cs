@@ -2,11 +2,20 @@ using Swan.Core.Common;
 
 namespace Swan.Core.Identity;
 
-public sealed record LoginToken(string Value, DateTimeOffset ExpiresAt, bool Used = false)
+public sealed class LoginToken(string value, DateTimeOffset expiresAt)
 {
-    public Result<LoginToken> Use(DateTimeOffset now) => Used || now >= ExpiresAt
-        ? Result<LoginToken>.Failure("login-token.invalid", "Token is used or expired.")
-        : Result<LoginToken>.Success(this with { Used = true });
+    public string Value { get; } = value;
+    public DateTimeOffset ExpiresAt { get; } = expiresAt;
+    public bool Used { get; private set; }
+
+    public Result<LoginToken> Use(DateTimeOffset now)
+    {
+        if (Used || now >= ExpiresAt)
+            return Result<LoginToken>.Failure("login-token.invalid", "Token is used or expired.");
+
+        Used = true;
+        return Result<LoginToken>.Success(this);
+    }
 }
 
 public sealed class User(UserId id, Email email, string name) : AggregateRoot
@@ -15,6 +24,22 @@ public sealed class User(UserId id, Email email, string name) : AggregateRoot
     public UserId Id { get; } = id;
     public Email Email { get; } = email;
     public string Name { get; private set; } = name;
-    public IReadOnlyCollection<LoginToken> LoginTokens => tokens.AsReadOnly();
-    public LoginToken IssueLoginToken(string value, DateTimeOffset now) => new(value, now.AddMinutes(15));
+    public bool IsActive { get; private set; } = true;
+    public IReadOnlyCollection<LoginToken> LoginTokens => tokens;
+    public LoginToken IssueLoginToken(string value, DateTimeOffset now)
+    {
+        var token = new LoginToken(value, now.AddMinutes(15));
+        tokens.Add(token);
+        return token;
+    }
+
+    public Result<LoginToken> RedeemLoginToken(string value, DateTimeOffset now)
+    {
+        var token = tokens.SingleOrDefault(candidate => candidate.Value == value);
+        return token is null
+            ? Result<LoginToken>.Failure("login-token.invalid", "Token is invalid.")
+            : token.Use(now);
+    }
+
+    public void Deactivate() => IsActive = false;
 }

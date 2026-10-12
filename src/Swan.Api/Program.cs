@@ -1,4 +1,5 @@
 using Swan.Services;
+using Swan.Api.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,7 @@ if (app.Environment.IsDevelopment() && !string.IsNullOrWhiteSpace(app.Configurat
 
 app.MapDefaultEndpoints();
 app.MapGet("/api/ping", () => Results.Ok(new { message = "pong" }));
+app.MapIdentityEndpoints();
 
 app.Run();
 

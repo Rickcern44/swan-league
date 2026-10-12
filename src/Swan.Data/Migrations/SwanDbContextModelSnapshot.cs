@@ -150,6 +150,9 @@ namespace Swan.Data.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
 
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -459,6 +462,44 @@ namespace Swan.Data.Migrations
                         });
 
                     b.Navigation("Placements");
+                });
+
+            modelBuilder.Entity("Swan.Core.Identity.User", b =>
+                {
+                    b.OwnsMany("LoginToken", "LoginTokens", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("uuid");
+
+                            b1.Property<DateTimeOffset>("ExpiresAt")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.Property<bool>("Used")
+                                .HasColumnType("boolean");
+
+                            b1.Property<Guid>("UserId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(128)
+                                .HasColumnType("character varying(128)");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("UserId");
+
+                            b1.HasIndex("Value")
+                                .IsUnique();
+
+                            b1.ToTable("login_tokens", "identity");
+
+                            b1.WithOwner()
+                                .HasForeignKey("UserId");
+                        });
+
+                    b.Navigation("LoginTokens");
                 });
 
             modelBuilder.Entity("Swan.Core.Picks.Ballot", b =>

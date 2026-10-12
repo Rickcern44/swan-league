@@ -17,4 +17,12 @@ public sealed class PingEndpointTests(WebApplicationFactory<Program> factory)
         using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("pong", payload.RootElement.GetProperty("message").GetString());
     }
+
+    [Fact]
+    public async Task GetMeWithoutSessionReturnsUnauthorized()
+    {
+        var response = await factory.CreateClient().GetAsync("/api/me");
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 }

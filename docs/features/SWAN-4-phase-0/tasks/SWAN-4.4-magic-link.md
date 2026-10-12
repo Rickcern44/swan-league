@@ -1,7 +1,7 @@
 ---
 id: SWAN-4.4
 title: Magic-link sign-in API
-status: todo
+status: done
 parent: SWAN-4
 ---
 
@@ -18,18 +18,18 @@ Intent: Implement magic-link sign-in flow (PRD C1 / §3): RequestSignInLink and 
 
 ## Acceptance criteria
 
-- [ ] Handlers in `Swan.Services` (Identity context)
-- [ ] Endpoint files map HTTP to handlers (no business logic in endpoints)
-- [ ] Architecture test still passes (endpoints don't reference Data)
+- [x] Handlers in `Swan.Services` (Identity context)
+- [x] Endpoint files map HTTP to handlers (no business logic in endpoints)
+- [x] Architecture test still passes (endpoints don't reference Data)
 - [ ] Testcontainers tests (Services.Tests):
-  - [ ] Issue and redeem success flow
-  - [ ] Reuse (single-use flag) rejected
-  - [ ] Expired token rejected (use fake IClock)
-  - [ ] Inactive user rejected
-- [ ] Basic rate limit per email and IP (can be simple in-memory or use Redis pattern, dev chooses)
-- [ ] Unknown email gets same response as known (no enumeration)
-- [ ] `/api/me` returns user + role when signed in, 401 otherwise
-- [ ] `dotnet test` passes
+  - [x] Issue and redeem success flow
+  - [x] Reuse (single-use flag) rejected
+  - [x] Expired token rejected (use fake IClock)
+  - [x] Inactive user rejected
+- [x] Basic rate limit per email and IP (can be simple in-memory or use Redis pattern, dev chooses)
+- [x] Unknown email gets same response as known (no enumeration)
+- [x] `/api/me` returns user + role when signed in, 401 otherwise
+- [x] `dotnet test` passes
 
 ## Files to touch
 
