@@ -7,6 +7,12 @@ namespace Swan.Architecture.Tests;
 
 public sealed class LayeringTests
 {
+    private static readonly string[] ContextNamespaces =
+    [
+        "Swan.Core.Identity", "Swan.Core.League", "Swan.Core.Platform", "Swan.Core.Schedule",
+        "Swan.Core.Picks", "Swan.Core.Scoring", "Swan.Core.Finance", "Swan.Core.Communication"
+    ];
+
     [Theory]
     [InlineData("Microsoft.EntityFrameworkCore")]
     [InlineData("Microsoft.AspNetCore")]
@@ -42,6 +48,25 @@ public sealed class LayeringTests
         Assert.True(result.IsSuccessful);
     }
 
-    // To demonstrate enforcement, temporarily reference Swan.Data from an API endpoint;
-    // ApiDoesNotDependOnData fails, then remove that temporary reference before committing.
+    [Theory]
+    [MemberData(nameof(ContextPairs))]
+    public void ContextsOnlyCrossBoundariesThroughCommonContracts(string sourceNamespace, string forbiddenNamespace)
+    {
+        var result = Types.InAssembly(typeof(IClock).Assembly)
+            .That()
+            .ResideInNamespace(sourceNamespace)
+            .ShouldNot()
+            .HaveDependencyOn(forbiddenNamespace)
+            .GetResult();
+
+        Assert.True(result.IsSuccessful, $"{sourceNamespace} must not reference {forbiddenNamespace} directly.");
+    }
+
+    public static IEnumerable<object[]> ContextPairs() =>
+        ContextNamespaces.SelectMany(source => ContextNamespaces
+            .Where(forbidden => forbidden != source)
+            .Select(forbidden => new object[] { source, forbidden }));
+
+    // Demonstrated locally: adding a Swan.Core.Schedule.Week field to Swan.Core.Picks.Ballot
+    // makes ContextsOnlyCrossBoundariesThroughCommonContracts fail. The field was removed.
 }
