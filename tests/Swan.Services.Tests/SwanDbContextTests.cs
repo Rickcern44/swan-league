@@ -12,6 +12,7 @@ using Swan.Core.Scoring;
 using Swan.Data;
 using Swan.Data.Seed;
 using Swan.Services.Identity;
+using Swan.Services.Platform;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -248,6 +249,25 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         Assert.Equal("Session Coach", current.Name);
         Assert.Equal("Coach", current.Role);
         Assert.Null(await new SessionService(database).GetAsync(new UserId(Guid.NewGuid())));
+    }
+
+    [Fact]
+    public async Task AuditServiceAppendsImmutableEntriesAndFiltersThem()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var clock = new FakeClock(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        var actor = new UserId(Guid.NewGuid());
+        var audit = new AuditService(database, clock);
+
+        await audit.AppendAsync(actor, "season.activate", "season-1", new { state = "setup" }, new { state = "live" }, "Commissioner approved");
+        await audit.AppendAsync(new UserId(Guid.NewGuid()), "season.activate", "season-2");
+
+        var entries = await audit.QueryAsync(new AuditFilter(Actor: actor, Action: "season.activate", From: clock.UtcNow.AddMinutes(-1), To: clock.UtcNow.AddMinutes(1)));
+        var entry = Assert.Single(entries);
+        Assert.Equal(actor, entry.UserId);
+        Assert.Contains("Commissioner approved", entry.Details);
+        Assert.Contains("setup", entry.Details);
+        Assert.Contains("live", entry.Details);
     }
 
     private static string TokenFrom(string body) => new Uri(body).Query.Split('=', 2)[1];

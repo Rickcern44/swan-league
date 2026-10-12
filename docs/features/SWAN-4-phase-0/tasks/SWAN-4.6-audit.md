@@ -1,7 +1,7 @@
 ---
 id: SWAN-4.6
 title: Audit log
-status: todo
+status: done
 parent: SWAN-4
 ---
 
@@ -18,17 +18,17 @@ Intent: Append-only audit log for admin actions via AuditEntry (already in SWAN-
 
 ## Acceptance criteria
 
-- [ ] AuditEntry writes append actor, time, before/after values, reason on admin actions
-- [ ] AuditService helper in Swan.Services logs actions
-- [ ] GET /api/admin/audit endpoint (admin-only) with filters:
-  - [ ] actor (UserId)
-  - [ ] action (enum or string)
-  - [ ] date range
+- [x] AuditEntry writes append actor, time, before/after values, reason on admin actions
+- [x] AuditService helper in Swan.Services logs actions
+- [x] GET /api/admin/audit endpoint (admin-only) with filters:
+  - [x] actor (UserId)
+  - [x] action (enum or string)
+  - [x] date range
 - [ ] Tests:
-  - [ ] Admin action logs to AuditEntry
-  - [ ] Coach gets 403 on audit endpoint
-  - [ ] Architecture/reflection test: no AuditEntry.Update or .Delete calls exist
-- [ ] `dotnet test` passes
+  - [x] Admin action logs to AuditEntry
+  - [x] Coach gets 403 on audit endpoint
+  - [x] Architecture/reflection test: no AuditEntry.Update or .Delete calls exist
+- [x] `dotnet test` passes
 
 ## Files to touch
 

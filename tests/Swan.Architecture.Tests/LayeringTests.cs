@@ -1,6 +1,7 @@
 using NetArchTest.Rules;
 using Swan.Core;
 using Swan.Data;
+using Swan.Core.Platform;
 using Xunit;
 
 namespace Swan.Architecture.Tests;
@@ -46,6 +47,15 @@ public sealed class LayeringTests
             .GetResult();
 
         Assert.True(result.IsSuccessful);
+    }
+
+    [Fact]
+    public void AuditEntriesHaveNoUpdateOrDeleteMutationMethods()
+    {
+        var mutation = typeof(AuditEntry).GetMethods()
+            .FirstOrDefault(method => method.Name.Contains("Update", StringComparison.OrdinalIgnoreCase) || method.Name.Contains("Delete", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Null(mutation);
     }
 
     [Theory]

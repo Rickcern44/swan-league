@@ -6,6 +6,7 @@ using Swan.Data.Seed;
 using Swan.Core.Integrations;
 using Swan.Services.Integrations;
 using Swan.Services.Identity;
+using Swan.Services.Platform;
 using Swan.Core;
 
 namespace Swan.Services;
@@ -23,6 +24,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddScoped<MagicLinkService>();
         builder.Services.AddScoped<SessionService>();
+        builder.Services.AddScoped<IAuditService, AuditService>();
         return builder;
     }
 

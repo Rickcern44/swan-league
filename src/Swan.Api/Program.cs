@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication;
 using Swan.Api.Authentication;
 using Swan.Services;
 using Swan.Api.Endpoints;
+using Swan.Api.Endpoints.Admin;
 using Swan.Core.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +28,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapGet("/api/ping", () => Results.Ok(new { message = "pong" })).AllowAnonymous();
 app.MapIdentityEndpoints();
+app.MapAuditEndpoints();
 
 app.Run();
 
