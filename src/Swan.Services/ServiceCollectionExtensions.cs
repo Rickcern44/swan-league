@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Swan.Data;
 using Swan.Data.Seed;
+using Swan.Core.Integrations;
+using Swan.Services.Integrations;
 
 namespace Swan.Services;
 
@@ -12,6 +14,10 @@ public static class ServiceCollectionExtensions
         where TBuilder : IHostApplicationBuilder
     {
         builder.AddNpgsqlDbContext<SwanDbContext>("swan");
+        builder.Services.AddSingleton<IEmailSender>(_ => new SmtpEmailSender(
+            builder.Configuration["MAILPIT_HOST"] ?? "localhost",
+            int.TryParse(builder.Configuration["MAILPIT_PORT"], out var port) ? port : 1025,
+            "noreply@swan.local"));
         return builder;
     }
 

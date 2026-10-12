@@ -1,7 +1,7 @@
 ---
 id: SWAN-4.3
 title: Email sender via Mailpit
-status: todo
+status: done
 parent: SWAN-4
 ---
 
@@ -17,12 +17,12 @@ Intent: Implement IEmailSender interface (Core, per PRD §10.1) with SMTP implem
 
 ## Acceptance criteria
 
-- [ ] IEmailSender interface in Swan.Core
-- [ ] SmtpEmailSender implementation in Swan.Services/Integrations
-- [ ] Integration test (Testcontainers Mailpit or Aspire resource) sends a message and reads it back via Mailpit API
-- [ ] `aspire run` brings up Mailpit; emails are visible in the dashboard
-- [ ] No real email provider code
-- [ ] `dotnet test` passes
+- [x] IEmailSender interface in Swan.Core
+- [x] SmtpEmailSender implementation in Swan.Services/Integrations
+- [x] Integration test (Testcontainers Mailpit or Aspire resource) sends a message and reads it back via Mailpit API
+- [x] `aspire run` brings up Mailpit; emails are visible in the dashboard
+- [x] No real email provider code
+- [x] `dotnet test` passes
 
 ## Files to touch
 
