@@ -22,6 +22,13 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
 
     [Fact]
+    public void DesignTimeFactoryUsesNpgsqlWithoutConnecting()
+    {
+        using var database = new SwanDbContextFactory().CreateDbContext(["--connection", "Host=example.invalid;Database=swan"]);
+        Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", database.Database.ProviderName);
+    }
+
+    [Fact]
     public async Task MigrationCreatesSchemasAndRoundTripsAnAggregate()
     {
         var options = new DbContextOptionsBuilder<SwanDbContext>()

@@ -1,7 +1,7 @@
 ---
 id: SWAN-4.1
 title: EF design-time hardening
-status: todo
+status: done
 parent: SWAN-4
 ---
 
@@ -19,13 +19,13 @@ Intent: Harden EF tooling for design-time operations (migrations, scripts). Fact
 
 ## Acceptance criteria
 
-- [ ] Factory reads connection string from env var `SWAN_DESIGN_CONNECTION` or CLI arg `-- --connection`, with fallback to local default
-- [ ] `.config/dotnet-tools.json` pins `dotnet-ef` to match EF package version
-- [ ] `dotnet tool restore` works
-- [ ] README documents: `dotnet ef migrations add`, `dotnet ef migrations list`, `dotnet ef migrations script`, `dotnet ef has-pending-model-changes` (all with `--project src/Swan.Data`)
-- [ ] Unit test constructs context via factory without a DB; asserts provider is Npgsql
-- [ ] Test or script asserts `has-pending-model-changes` is clean after migration
-- [ ] `dotnet test` passes
+- [x] Factory reads connection string from env var `SWAN_DESIGN_CONNECTION` or CLI arg `-- --connection`, with fallback to local default
+- [x] `.config/dotnet-tools.json` pins `dotnet-ef` to match EF package version
+- [x] `dotnet tool restore` works
+- [x] README documents: `dotnet ef migrations add`, `dotnet ef migrations list`, `dotnet ef migrations script`, `dotnet ef has-pending-model-changes` (all with `--project src/Swan.Data`)
+- [x] Unit test constructs context via factory without a DB; asserts provider is Npgsql
+- [x] Test or script asserts `has-pending-model-changes` is clean after migration
+- [x] `dotnet test` passes
 
 ## Files to touch
 

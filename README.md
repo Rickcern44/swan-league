@@ -39,6 +39,25 @@ dotnet test Swan.slnx
 dotnet format Swan.slnx --verify-no-changes
 ```
 
+## EF Core design-time commands
+
+The repository pins `dotnet-ef`; restore it once from the repository root:
+
+```sh
+dotnet tool restore
+```
+
+The design-time factory uses `SWAN_DESIGN_CONNECTION`, or a `-- --connection <connection-string>` argument, and otherwise uses its local Postgres default. Run EF commands from the repository root:
+
+```sh
+dotnet ef migrations add <Name> --project src/Swan.Data
+dotnet ef migrations list --project src/Swan.Data
+dotnet ef migrations script --project src/Swan.Data
+dotnet ef migrations has-pending-model-changes --project src/Swan.Data
+```
+
+To make the last check suitable for CI, run `./scripts/verify-ef-model.sh`.
+
 Run UI formatting, linting, unit tests, and the production build from `src/Swan.Web`:
 
 ```sh
