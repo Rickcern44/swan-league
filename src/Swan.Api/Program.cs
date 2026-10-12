@@ -10,6 +10,7 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment() && !string.IsNullOrWhiteSpace(app.Configuration.GetConnectionString("swan")))
 {
     await app.MigrateSwanDatabaseAsync();
+    await app.SeedSwanDatabaseAsync();
 }
 
 app.MapDefaultEndpoints();

@@ -1,7 +1,7 @@
 ---
 id: SWAN-4.2
 title: Seed and reset
-status: todo
+status: done
 parent: SWAN-4
 ---
 
@@ -22,14 +22,14 @@ Intent: Idempotent seed of 32 NFL teams with divisions, 2025 division finishes a
 
 ## Acceptance criteria
 
-- [ ] Seed is idempotent (run twice → same row counts, no duplicates)
-- [ ] Seed runs on dev startup after migrate (or via command; documented)
-- [ ] Reset command documented (drops all and reseeds)
-- [ ] 2025 finishes data in one reviewable file (CSV or JSON)
-- [ ] Testcontainers test asserts: 32 teams, 1–4 finishes per division
-- [ ] No null division assignments
-- [ ] `dotnet test` passes
-- [ ] `aspire run` shows seeded data accessible
+- [x] Seed is idempotent (run twice → same row counts, no duplicates)
+- [x] Seed runs on dev startup after migrate (or via command; documented)
+- [x] Reset command documented (drops all and reseeds)
+- [x] 2025 finishes data in one reviewable file (CSV or JSON)
+- [x] Testcontainers test asserts: 32 teams, 1–4 finishes per division
+- [x] No null division assignments
+- [x] `dotnet test` passes
+- [x] `aspire run` shows seeded data accessible
 
 ## Files to touch
 

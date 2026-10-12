@@ -15,4 +15,8 @@
   <ItemGroup>
     <ProjectReference Include="../Swan.Core/Swan.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Seed/nfl-2025-finishes.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

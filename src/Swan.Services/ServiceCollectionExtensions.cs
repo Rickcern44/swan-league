@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Swan.Data;
+using Swan.Data.Seed;
 
 namespace Swan.Services;
 
@@ -18,5 +19,11 @@ public static class ServiceCollectionExtensions
     {
         using var scope = host.Services.CreateScope();
         await scope.ServiceProvider.GetRequiredService<SwanDbContext>().Database.MigrateAsync();
+    }
+
+    public static async Task SeedSwanDatabaseAsync(this IHost host)
+    {
+        using var scope = host.Services.CreateScope();
+        await DevelopmentSeeder.SeedAsync(scope.ServiceProvider.GetRequiredService<SwanDbContext>());
     }
 }

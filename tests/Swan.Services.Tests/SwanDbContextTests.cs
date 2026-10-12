@@ -8,6 +8,7 @@ using Swan.Core.Platform;
 using Swan.Core.Schedule;
 using Swan.Core.Scoring;
 using Swan.Data;
+using Swan.Data.Seed;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -26,6 +27,25 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     {
         using var database = new SwanDbContextFactory().CreateDbContext(["--connection", "Host=example.invalid;Database=swan"]);
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", database.Database.ProviderName);
+    }
+
+    [Fact]
+    public async Task DevelopmentSeedIsIdempotentAndProvidesDivisionFinishes()
+    {
+        await using var database = await CreateMigratedDatabase();
+
+        await DevelopmentSeeder.SeedAsync(database);
+        var firstTeamCount = await database.Teams.CountAsync();
+        var firstSeasonTeamCount = await database.SeasonTeams.CountAsync();
+        database.ChangeTracker.Clear();
+        await DevelopmentSeeder.SeedAsync(database);
+
+        var finishes = await database.SeasonTeams.ToListAsync();
+        Assert.Equal(32, firstTeamCount);
+        Assert.Equal(32, firstSeasonTeamCount);
+        Assert.Equal(32, await database.Teams.CountAsync());
+        Assert.All(await database.Teams.ToListAsync(), team => Assert.False(string.IsNullOrWhiteSpace(team.Division)));
+        Assert.All(finishes.GroupBy(team => team.Division), division => Assert.Equal(new[] { 1, 2, 3, 4 }, division.Select(team => team.FinishPosition).Order()));
     }
 
     [Fact]

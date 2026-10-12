@@ -30,6 +30,15 @@ The dashboard lists the `api` and `web` resources. Open the web URL to see `API 
 
 In the Development environment, the API applies the committed `InitialDomain` EF Core migration automatically when it starts. Production deployment intentionally does not perform schema changes at application startup.
 
+Development startup also seeds the 32 NFL teams, final 2025 division finishes, a demo season, and demo users (`admin@swan.local`, `coach1@swan.local` through `coach6@swan.local`). The seed is idempotent. The checked-in standings data is [nfl-2025-finishes.json](src/Swan.Data/Seed/nfl-2025-finishes.json), sourced from the [official NFL division standings](https://www.nfl.com/standings/division/2025/POST).
+
+To reset local development data, drop the database and start the development stack again so migrations and seed data are reapplied:
+
+```sh
+dotnet ef database drop --project src/Swan.Data --force
+ASPIRE_CONTAINER_RUNTIME=podman aspire run
+```
+
 ## Verify
 
 Run the API endpoint test and format check from the repository root:
