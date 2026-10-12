@@ -1,0 +1,17 @@
+{
+  "name": "Swan League",
+  "short_name": "Swan League",
+  "description": "Swan League Tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef5fb",
+  "theme_color": "#12355b",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

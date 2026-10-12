@@ -1,10 +1,18 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
 
 const apiUrl = process.env.API_HTTP;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      injectRegister: false,
+      manifest: false,
+      registerType: "autoUpdate",
+    }),
+  ],
   server: {
     host: "0.0.0.0",
     proxy: apiUrl

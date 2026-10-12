@@ -1,7 +1,7 @@
 ---
 id: SWAN-2.6
 title: Swan.Web PWA shell
-status: todo
+status: done
 parent: SWAN-2
 ---
 
@@ -11,13 +11,13 @@ Intent: Add PWA scaffolding with vite-plugin-pwa. Create manifest (name "Swan Le
 
 ## Acceptance criteria
 
-- [ ] `npm lint` passes
-- [ ] `npm run format:check` passes
-- [ ] `npm test` (Vitest) passes
-- [ ] Playwright e2e passes
-- [ ] DevTools and Lighthouse show an installable manifest
-- [ ] Active service worker registered in preview build
-- [ ] Mobile-first base layout in place
+- [x] `npm lint` passes
+- [x] `npm run format:check` passes
+- [x] `npm test` (Vitest) passes
+- [x] Playwright e2e passes
+- [x] DevTools and Lighthouse show an installable manifest
+- [x] Active service worker registered in preview build
+- [x] Mobile-first base layout in place
 
 ## Files to touch
 

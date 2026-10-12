@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Swan League placeholder icon</title>
+  <rect width="512" height="512" rx="96" fill="#12355b"/>
+  <path fill="#fff" d="M367 139c-61 0-111 43-111 96 0 33 20 58 49 73-45 9-80 41-88 84h-58c-14 0-25 11-25 25s11 25 25 25h192c14 0 25-11 25-25s-11-25-25-25h-57c8-33 40-57 78-57 58 0 105-42 105-93s-47-103-105-103Zm0 50c30 0 55 20 55 53 0 32-25 43-55 43s-55-11-55-43c0-33 25-53 55-53Z"/>
+</svg>
