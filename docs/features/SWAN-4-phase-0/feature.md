@@ -1,7 +1,7 @@
 ---
 id: SWAN-4
 title: Phase 0 completion (auth, audit, seed, sign-in)
-status: todo
+status: done
 parent: ~
 ---
 
