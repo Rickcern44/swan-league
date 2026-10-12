@@ -3,7 +3,7 @@ using Swan.Core.League;
 
 namespace Swan.Core.Picks;
 
-public sealed record TeamPick(TeamId TeamId, GameId GameId, DateTimeOffset LockTime, bool IsBye = false)
+public sealed record TeamPick(TeamId TeamId, GameId GameId, DateTimeOffset LockTime, bool IsBye = false, int PointValue = 1)
 {
     public static TeamPick ForGame(TeamId teamId, GameId gameId, DateTimeOffset kickoff, SeasonSettings settings, DateTimeOffset weekStartUtc, bool isBye = false) =>
         new(teamId, gameId, LockPolicy.TeamPickLockTime(kickoff, settings, weekStartUtc), isBye);

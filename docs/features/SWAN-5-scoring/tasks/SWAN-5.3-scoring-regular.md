@@ -1,7 +1,7 @@
 ---
 id: SWAN-5.3
 title: ScoringPolicy (regular season)
-status: todo
+status: done
 parent: SWAN-5
 ---
 
@@ -21,13 +21,13 @@ Intent: Implement PRD R3–R5, R9, R11, R15, R17: team points, Perfect Week, dog
 
 ## Acceptance criteria
 
-- [ ] One focused test per rule ID
-- [ ] WeekScore.Recompute builds ScoreLines with source + reference (S3)
-- [ ] Idempotent: recompute twice = same lines (S2)
-- [ ] Settings R15/R17 toggle the pools correctly
-- [ ] Collisions score normally
-- [ ] Missing/incomplete slots score 0
-- [ ] `dotnet test` passes
+- [x] One focused test per rule ID
+- [x] WeekScore.Recompute builds ScoreLines with source + reference (S3)
+- [x] Idempotent: recompute twice = same lines (S2)
+- [x] Settings R15/R17 toggle the pools correctly
+- [x] Collisions score normally
+- [x] Missing/incomplete slots score 0
+- [x] `dotnet test` passes
 
 ## Files to touch
 
