@@ -1,7 +1,7 @@
 ---
 id: SWAN-1
 title: Runnable baseline (UI + API)
-status: todo
+status: done
 parent: ~
 ---
 
