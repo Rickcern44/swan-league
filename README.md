@@ -7,6 +7,7 @@ Runnable baseline for the Swan League Tracker: an ASP.NET Core API and React/Vit
 - .NET SDK 10
 - Node.js 20 or later
 - Aspire CLI 13.5 or later
+- Podman with its machine running (`podman machine start`)
 
 ## Run locally
 
@@ -20,7 +21,7 @@ npm install
 From the repository root, start the stack and open the dashboard URL printed by Aspire:
 
 ```sh
-aspire run
+ASPIRE_CONTAINER_RUNTIME=podman aspire run
 ```
 
 The dashboard lists the `api` and `web` resources. Open the web URL to see `API response: pong`.

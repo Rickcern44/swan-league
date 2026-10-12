@@ -1,7 +1,7 @@
 ---
 id: SWAN-2.4
 title: AppHost resources (Postgres, Mailpit, wiring)
-status: blocked
+status: done
 parent: SWAN-2
 ---
 
@@ -11,10 +11,10 @@ Intent: Update apphost.cs to add Postgres container + database, Mailpit, and wir
 
 ## Acceptance criteria
 
-- [ ] `aspire run` shows postgres, mailpit, api, worker, web all healthy
+- [x] `aspire run` shows postgres, mailpit, api, worker, web all healthy
 - [x] Api /health endpoint includes a database connectivity check
-- [ ] Mailpit UI is reachable from the dashboard
-- [ ] All containers start cleanly with no errors
+- [x] Mailpit UI is reachable from the dashboard
+- [x] All containers start cleanly with no errors
 
 ## Files to touch
 
@@ -28,6 +28,6 @@ Intent: Update apphost.cs to add Postgres container + database, Mailpit, and wir
 
 Reference PRD §10.3 for the exact wiring diagram. Use Aspire Postgres + Mailpit container specs.
 
-## Blocked
+## Runtime note
 
-The AppHost compiles and exposes postgres, swan, mailpit, api, worker, and web resources, but this machine has no `docker` command or running Docker-compatible daemon. Postgres and Mailpit cannot start, so their health, Mailpit UI reachability, and clean container startup remain unverified.
+Use Podman with a running machine: `ASPIRE_CONTAINER_RUNTIME=podman aspire run`.
