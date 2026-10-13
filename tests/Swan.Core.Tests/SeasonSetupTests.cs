@@ -34,4 +34,45 @@ public sealed class SeasonSetupTests
 
         Assert.Equal(code, created.Error!.Code);
     }
+
+    [Fact]
+    public void SetupSeasonBasicsCanBeRevisedWithoutTouchingPoolsOrSettings()
+    {
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", isSimulation: false).Value!;
+        var (settings, pools) = (season.Settings, season.Pools);
+
+        var updated = season.UpdateBasics(2027, "  2027 Season  ", isSimulation: true);
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal((2027, "2027 Season", true, SeasonState.Setup), (season.Year, season.Name, season.IsSimulation, season.State));
+        Assert.Equal(settings, season.Settings);
+        Assert.Equal(pools, season.Pools);
+    }
+
+    [Theory]
+    [InlineData("", 2027, "season.name")]
+    [InlineData("   ", 2027, "season.name")]
+    [InlineData("2027", 1999, "season.year")]
+    [InlineData("2027", 2101, "season.year")]
+    public void InvalidBasicsAreRejectedAndLeaveTheSeasonUnchanged(string name, int year, string code)
+    {
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", isSimulation: false).Value!;
+
+        var updated = season.UpdateBasics(year, name, isSimulation: true);
+
+        Assert.Equal(code, updated.Error!.Code);
+        Assert.Equal((2026, "2026 Season", false), (season.Year, season.Name, season.IsSimulation));
+    }
+
+    [Fact]
+    public void LiveSeasonRejectsAnyBasicsUpdate()
+    {
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", isSimulation: false).Value!;
+        Assert.True(season.Activate().IsSuccess);
+
+        var updated = season.UpdateBasics(2027, "2027 Season", isSimulation: true);
+
+        Assert.Equal("season.locked", updated.Error!.Code);
+        Assert.Equal((2026, "2026 Season", false), (season.Year, season.Name, season.IsSimulation));
+    }
 }

@@ -24,12 +24,25 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     // A blank season carries only the PRD defaults (W2): $100 buy-in split Main 60 / Dog 20 / Regular Season 10 / Playoff 10, three double-dog weeks, Sunday 1:00 PM ET deadline.
     public static Result<Season> CreateBlank(SeasonId id, int year, string name, bool isSimulation)
     {
-        if (string.IsNullOrWhiteSpace(name)) return Result<Season>.Failure("season.name", "Season name is required.");
-        if (year is < 2000 or > 2100) return Result<Season>.Failure("season.year", "Season year must be between 2000 and 2100.");
+        if (ValidateBasics(year, name) is { } invalid) return Result<Season>.Failure(invalid.Code, invalid.Message);
         var buyIn = new Money(100m, "USD");
         PoolDefinition[] pools = [new("Main", new Money(60m, "USD")), new("Dog", new Money(20m, "USD")), new("Regular Season", new Money(10m, "USD")), new("Playoff", new Money(10m, "USD"))];
         return Result<Season>.Success(new Season(id, new SeasonSettings(buyIn, 3, new TimeOnly(13, 0)), pools) { Year = year, Name = name.Trim(), IsSimulation = isSimulation });
     }
+
+    // Only a Setup season's identity may be revised; pools, settings and state are never touched here.
+    public Result<bool> UpdateBasics(int year, string name, bool isSimulation)
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
+        if (ValidateBasics(year, name) is { } invalid) return Result<bool>.Failure(invalid.Code, invalid.Message);
+        (Year, Name, IsSimulation) = (year, name.Trim(), isSimulation);
+        return Result<bool>.Success(true);
+    }
+
+    private static Error? ValidateBasics(int year, string name) =>
+        string.IsNullOrWhiteSpace(name) ? new Error("season.name", "Season name is required.")
+        : year is < 2000 or > 2100 ? new Error("season.year", "Season year must be between 2000 and 2100.")
+        : null;
 
     public Result<bool> Activate() => State != SeasonState.Setup || Settings.DoubleDogWeeks < 3 || Settings.DoubleDogWeeks > 4 || Pools.Sum(pool => pool.Stake.Amount) != Settings.BuyIn.Amount
         ? Result<bool>.Failure("season.invalid", "Season settings cannot activate.")

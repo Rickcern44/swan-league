@@ -13,6 +13,7 @@ public interface ISeasonSetupService
 {
     Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
     Task<Result<SeasonSummary>> GetSetupAsync(CancellationToken cancellationToken = default);
+    Task<Result<SeasonSummary>> UpdateSetupBasicsAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
 }
 
 public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit) : ISeasonSetupService
@@ -44,6 +45,18 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken) is { } setup
             ? Result<SeasonSummary>.Success(ToSummary(setup))
             : Result<SeasonSummary>.Failure("season.missing", "No season is in Setup.");
+
+    public async Task<Result<SeasonSummary>> UpdateSetupBasicsAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default)
+    {
+        var season = await database.Seasons.FirstOrDefaultAsync(value => value.State == SeasonState.Setup, cancellationToken);
+        if (season is null) return Result<SeasonSummary>.Failure("season.missing", "No season is in Setup.");
+        var before = ToSummary(season);
+        var updated = season.UpdateBasics(year, name, isSimulation);
+        if (!updated.IsSuccess) return Result<SeasonSummary>.Failure(updated.Error!.Code, updated.Error.Message);
+        var after = ToSummary(season);
+        await audit.AppendAsync(actor, "season.setup.updated", after.Id.Value.ToString(), before, after, cancellationToken: cancellationToken);
+        return Result<SeasonSummary>.Success(after);
+    }
 
     private static SeasonSummary ToSummary(Season season) => new(season.Id, season.Year, season.Name, season.IsSimulation, season.State, season.Settings, season.Pools);
 }

@@ -171,6 +171,62 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(2, await upgrading.Seasons.CountAsync(season => season.State == SeasonState.Setup));
     }
 
+    [Fact]
+    public async Task EditingSetupBasicsPersistsAuditsOldAndNewValuesAndKeepsPoolsAndSettings()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var updated = await Run(service => service.UpdateSetupBasicsAsync(Admin, 2027, "  2027 Season  ", isSimulation: true));
+        var reloaded = await Run(service => service.GetSetupAsync());
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(created.Value!.Id, reloaded.Value!.Id);
+        Assert.Equal((2027, "2027 Season", true, SeasonState.Setup), (reloaded.Value.Year, reloaded.Value.Name, reloaded.Value.IsSimulation, reloaded.Value.State));
+        Assert.Equal(created.Value.Settings, reloaded.Value.Settings);
+        Assert.Equal(created.Value.Pools, reloaded.Value.Pools);
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.updated"));
+        Assert.Equal((Admin, created.Value.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("2026 Season", audit.Details);
+        Assert.Contains("2027 Season", audit.Details);
+    }
+
+    [Theory]
+    [InlineData("", 2027, "season.name")]
+    [InlineData("2027", 2101, "season.year")]
+    public async Task InvalidEditsAreRejectedWithoutChangingOrAuditing(string name, int year, string code)
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var result = await Run(service => service.UpdateSetupBasicsAsync(Admin, year, name, isSimulation: true));
+
+        Assert.Equal(code, result.Error!.Code);
+        var found = await Run(service => service.GetSetupAsync());
+        Assert.Equal((2026, "2026 Season", false), (found.Value!.Year, found.Value.Name, found.Value.IsSimulation));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task EditingWithNoSetupSeasonIsMissingAndALiveSeasonIsNeverChanged()
+    {
+        await Migrate();
+        var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
+        Assert.True(live.Activate().IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(live);
+            await database.SaveChangesAsync();
+        }
+
+        var result = await Run(service => service.UpdateSetupBasicsAsync(Admin, 2030, "Changed", isSimulation: true));
+
+        Assert.Equal("season.missing", result.Error!.Code);
+        var stored = await Run((service, database) => database.Seasons.SingleAsync());
+        Assert.Equal((2025, "2025 Season", false, SeasonState.Live), (stored.Year, stored.Name, stored.IsSimulation, stored.State));
+        Assert.Equal(0, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
     private async Task Migrate()
     {
         await using var database = CreateDatabase();
