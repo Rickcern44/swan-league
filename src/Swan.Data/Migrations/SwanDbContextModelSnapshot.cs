@@ -352,6 +352,14 @@ namespace Swan.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("SeasonId", "TeamId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_season_teams_season_team");
+
+                    b.HasIndex("SeasonId", "Division", "FinishPosition")
+                        .IsUnique()
+                        .HasDatabaseName("ux_season_teams_season_division_finish");
+
                     b.ToTable("season_teams", "schedule");
                 });
 

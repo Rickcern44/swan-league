@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Swan.Core.Common;
 using Swan.Core.League;
+using Swan.Core.Schedule;
 using Swan.Services.League;
 using Xunit;
 
@@ -25,6 +26,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("PUT", "/api/admin/seasons/setup/money")]
     [InlineData("PUT", "/api/admin/seasons/setup/deadline")]
     [InlineData("PUT", "/api/admin/seasons/setup/step")]
+    [InlineData("GET", "/api/admin/seasons/setup/teams")]
+    [InlineData("PUT", "/api/admin/seasons/setup/teams")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -264,6 +267,81 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains(code, await response.Content.ReadAsStringAsync());
     }
 
+    private static readonly string TeamA = "11111111-1111-1111-1111-111111111111";
+
+    [Fact]
+    public async Task AdminReadsTheSetupTeams()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.GetAsync("/api/admin/seasons/setup/teams");
+
+        response.EnsureSuccessStatusCode();
+        Assert.Contains("\"division\":\"AFC East\"", await response.Content.ReadAsStringAsync());
+        Assert.Equal(["teams:get"], service.Calls);
+    }
+
+    [Fact]
+    public async Task AdminSavesTheSetupTeamFinishes()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = new[] { new { teamId = TeamA, finishPosition = 2, pointValue = 99 } } });
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal([$"teams:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:{TeamA}=2"], service.Calls);
+        Assert.Contains("\"pointValue\":2", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task AnonymousCannotReadOrSaveTheSetupTeams()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/teams");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = Array.Empty<object>() });
+
+        Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"teams":null}""")]
+    [InlineData("""{"teams":[null]}""")]
+    [InlineData("""{"teams":"all"}""")]
+    [InlineData("""{"teams":[{"teamId":"not-a-guid","finishPosition":1}]}""")]
+    [InlineData("""{"teams":[{"teamId":"11111111-1111-1111-1111-111111111111","finishPosition":"first"}]}""")]
+    public async Task MissingNullOrMalformedTeamsAreBadRequestAndNeverReachTheService(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsync("/api/admin/seasons/setup/teams", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.teams", HttpStatusCode.BadRequest)]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("season.locked", HttpStatusCode.Conflict)]
+    public async Task TeamRejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/teams");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = new[] { new { teamId = TeamA, finishPosition = 1 } } });
+
+        Assert.Equal(expected, write.StatusCode);
+        Assert.Contains(code, await write.Content.ReadAsStringAsync());
+        if (code == "season.missing") Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -328,6 +406,20 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         {
             Calls.Add($"step:{actor.Value}:{step}");
             return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Ok());
+        }
+
+        private static Result<SetupTeams> OkTeams(params SetupTeam[] teams) => Result<SetupTeams>.Success(new SetupTeams(teams.Length > 0 ? teams : [new SetupTeam(new TeamId(Guid.Parse("11111111-1111-1111-1111-111111111111")), "Bills", "AFC East", null, null)]));
+
+        public Task<Result<SetupTeams>> GetSetupTeamsAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("teams:get");
+            return Task.FromResult(Failure is { } error ? Result<SetupTeams>.Failure(error.Code, error.Message) : OkTeams());
+        }
+
+        public Task<Result<SetupTeams>> UpdateSetupTeamsAsync(UserId actor, IReadOnlyList<TeamFinish> finishes, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"teams:put:{actor.Value}:{string.Join(",", finishes.Select(entry => $"{entry.TeamId.Value}={entry.Finish}"))}");
+            return Task.FromResult(Failure is { } error ? Result<SetupTeams>.Failure(error.Code, error.Message) : OkTeams(finishes.Select(entry => new SetupTeam(entry.TeamId, "Bills", "AFC East", entry.Finish, entry.Finish)).ToArray()));
         }
 
         private static Result<SeasonSummary> Ok() => Result<SeasonSummary>.Success(new SeasonSummary(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", false, SeasonState.Setup, new SeasonSettings(new Money(100m, "USD"), 3), []));

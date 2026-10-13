@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Swan.Core.Common;
 using Swan.Core.League;
+using Swan.Core.Schedule;
 using Swan.Services.League;
 
 namespace Swan.Api.Endpoints.Admin;
@@ -14,6 +15,10 @@ public sealed record UpdateSeasonMoneyRequest(decimal BuyIn, decimal Main, decim
 public sealed record UpdateSeasonDeadlineRequest(TimeOnly? TeamPickDeadlineEastern);
 
 public sealed record UpdateSeasonStepRequest(SetupStep? Step);
+
+public sealed record TeamFinishRequest(Guid TeamId, int FinishPosition);
+
+public sealed record UpdateSeasonTeamsRequest(List<TeamFinishRequest?>? Teams);
 
 public static class SeasonEndpoints
 {
@@ -75,6 +80,24 @@ public static class SeasonEndpoints
                     {
                         { IsSuccess: true } updated => Results.Ok(updated.Value),
                         { Error.Code: "season.step" } invalid => Results.BadRequest(invalid.Error),
+                        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
+                        var rejected => Results.Conflict(rejected.Error)
+                    });
+        seasons.MapGet("/setup/teams", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
+            await service.GetSetupTeamsAsync(cancellationToken) switch
+            {
+                { IsSuccess: true } found => Results.Ok(found.Value),
+                var missing => Results.NotFound(missing.Error)
+            });
+        seasons.MapPut("/setup/teams", async (UpdateSeasonTeamsRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            request.Teams is null || request.Teams.Any(team => team is null)
+                ? Results.BadRequest(new Error("season.teams", "A finish for every team is required."))
+                : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                    ? Results.Unauthorized()
+                    : await service.UpdateSetupTeamsAsync(new UserId(actor), request.Teams.Select(team => new TeamFinish(new TeamId(team!.TeamId), team.FinishPosition)).ToList(), cancellationToken) switch
+                    {
+                        { IsSuccess: true } updated => Results.Ok(updated.Value),
+                        { Error.Code: "season.teams" } invalid => Results.BadRequest(invalid.Error),
                         { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
                         var rejected => Results.Conflict(rejected.Error)
                     });

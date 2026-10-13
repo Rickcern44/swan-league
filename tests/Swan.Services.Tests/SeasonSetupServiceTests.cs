@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Swan.Core.Common;
 using Swan.Core.League;
 using Swan.Core.Picks;
+using Swan.Core.Schedule;
 using Swan.Data;
 using Swan.Services.League;
 using Swan.Services.Platform;
@@ -550,6 +551,155 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
         Assert.Equal(SetupStep.Basics, found.Value!.SetupStep);
         Assert.True((await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Money))).IsSuccess);
+    }
+
+    private static readonly string[] Divisions = ["AFC East", "AFC North", "AFC South", "AFC West", "NFC East", "NFC North", "NFC South", "NFC West"];
+
+    private async Task<List<Team>> SeedTeams()
+    {
+        var teams = Divisions.SelectMany(division => Enumerable.Range(1, 4).Select(slot => new Team(new TeamId(Guid.NewGuid()), $"{division} Team {slot}", null, DateTimeOffset.UtcNow, division))).ToList();
+        await using var database = CreateDatabase();
+        database.Teams.AddRange(teams);
+        await database.SaveChangesAsync();
+        return teams;
+    }
+
+    private static List<TeamFinish> Finishes(List<Team> teams) => teams.GroupBy(team => team.Division).SelectMany(group => group.Select((team, index) => new TeamFinish(team.Id, index + 1))).ToList();
+
+    [Fact]
+    public async Task SetupTeamsListEveryCanonicalTeamWithoutFinishesUntilTheyAreSaved()
+    {
+        await Migrate();
+        await SeedTeams();
+        Assert.Equal("season.missing", (await Run(service => service.GetSetupTeamsAsync())).Error!.Code);
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var listed = await Run(service => service.GetSetupTeamsAsync());
+
+        Assert.Equal(32, listed.Value!.Teams.Count);
+        Assert.All(listed.Value.Teams, team => Assert.Null(team.FinishPosition));
+        Assert.All(listed.Value.Teams, team => Assert.Null(team.PointValue));
+        Assert.Equal(Divisions.Order(), listed.Value.Teams.Select(team => team.Division).Distinct().Order());
+    }
+
+    [Fact]
+    public async Task SavingSetupTeamsPersistsOnlyTheSetupSeasonDerivesPointValuesAndAudits()
+    {
+        await Migrate();
+        var teams = await SeedTeams();
+        var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
+        Assert.True(live.Activate().IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(live);
+            database.SeasonTeams.Add(new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), live.Id, teams[0].Id, teams[0].Division, 1, 0));
+            await database.SaveChangesAsync();
+        }
+
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var saved = await Run(service => service.UpdateSetupTeamsAsync(Admin, Finishes(teams)));
+
+        Assert.True(saved.IsSuccess);
+        Assert.All(saved.Value!.Teams, team => Assert.Equal(team.FinishPosition, team.PointValue));
+        var reloaded = await Run(service => service.GetSetupTeamsAsync());
+        Assert.Equal(Finishes(teams).Select(entry => (entry.TeamId, (int?)entry.Finish)).OrderBy(entry => entry.TeamId.Value), reloaded.Value!.Teams.Select(team => (team.TeamId, team.FinishPosition)).OrderBy(entry => entry.TeamId.Value));
+        Assert.Equal(32, await Run((service, database) => database.SeasonTeams.CountAsync(team => team.SeasonId == created.Value!.Id)));
+        Assert.Equal(1, await Run((service, database) => database.SeasonTeams.CountAsync(team => team.SeasonId == live.Id)));
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.teams.updated"));
+        Assert.Equal((Admin, created.Value!.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+    }
+
+    [Fact]
+    public async Task RepeatingTheSameTeamsAddsNothingAndARealChangeReplacesThemWithOneMoreAuditEntry()
+    {
+        await Migrate();
+        var teams = await SeedTeams();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var finishes = Finishes(teams);
+        Assert.True((await Run(service => service.UpdateSetupTeamsAsync(Admin, finishes))).IsSuccess);
+
+        Assert.True((await Run(service => service.UpdateSetupTeamsAsync(Admin, finishes))).IsSuccess);
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.teams.updated")));
+
+        // Swap 1st and 2nd in AFC East: the unique division finish index must not trip on the replacement.
+        var east = teams.Where(team => team.Division == "AFC East").Take(2).ToList();
+        var swapped = finishes.Select(entry => entry.TeamId == east[0].Id ? entry with { Finish = 2 } : entry.TeamId == east[1].Id ? entry with { Finish = 1 } : entry).ToList();
+        Assert.True((await Run(service => service.UpdateSetupTeamsAsync(Admin, swapped))).IsSuccess);
+
+        var reloaded = await Run(service => service.GetSetupTeamsAsync());
+        Assert.Equal(2, reloaded.Value!.Teams.Single(team => team.TeamId == east[0].Id).FinishPosition);
+        Assert.Equal(32, await Run((service, database) => database.SeasonTeams.CountAsync()));
+        Assert.Equal(2, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.teams.updated")));
+    }
+
+    [Fact]
+    public async Task InvalidSetupTeamsAreRejectedWithoutSavingOrAuditing()
+    {
+        await Migrate();
+        var teams = await SeedTeams();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var duplicateFinish = Finishes(teams);
+        duplicateFinish[1] = duplicateFinish[1] with { Finish = 1 };
+
+        var missingTeam = await Run(service => service.UpdateSetupTeamsAsync(Admin, Finishes(teams).Skip(1).ToList()));
+        var badDivision = await Run(service => service.UpdateSetupTeamsAsync(Admin, duplicateFinish));
+
+        Assert.Equal("season.teams", missingTeam.Error!.Code);
+        Assert.Equal("season.teams", badDivision.Error!.Code);
+        Assert.Contains("AFC East", badDivision.Error.Message);
+        Assert.Equal(0, await Run((service, database) => database.SeasonTeams.CountAsync()));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task SavingTeamsWithNoSetupSeasonIsMissingAndWritesNothing()
+    {
+        await Migrate();
+        var teams = await SeedTeams();
+
+        var result = await Run(service => service.UpdateSetupTeamsAsync(Admin, Finishes(teams)));
+
+        Assert.Equal("season.missing", result.Error!.Code);
+        Assert.Equal(0, await Run((service, database) => database.SeasonTeams.CountAsync()));
+    }
+
+    [Fact]
+    public async Task TheDatabaseRefusesADuplicateTeamOrDivisionFinishInOneSeason()
+    {
+        await Migrate();
+        var teams = await SeedTeams();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var east = teams.Where(team => team.Division == "AFC East").ToList();
+        await using var database = CreateDatabase();
+        database.SeasonTeams.Add(new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), created.Value!.Id, east[0].Id, "AFC East", 1, 0));
+        await database.SaveChangesAsync();
+
+        database.SeasonTeams.Add(new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), created.Value.Id, east[1].Id, "AFC East", 1, 0));
+        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+        database.ChangeTracker.Clear();
+        database.SeasonTeams.Add(new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), created.Value.Id, east[0].Id, "AFC East", 2, 0));
+        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task UpgradingWithDuplicateSeasonTeamsFailsLoudlyAndDeletesNothing()
+    {
+        await using (var database = CreateDatabase())
+        {
+            await database.GetService<IMigrator>().MigrateAsync("20261013203733_AddSetupStep");
+            var (season, team) = (Guid.NewGuid(), Guid.NewGuid());
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({season}, '100|USD|3|', 1)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into schedule.teams ("Id", "Name", "CreatedAt", "Division") values ({team}, 'A', now(), 'AFC East')""");
+            foreach (var finish in new[] { 1, 1 })
+                await database.Database.ExecuteSqlInterpolatedAsync($"""insert into schedule.season_teams ("Id", "SeasonId", "TeamId", "Division", "FinishPosition", "FinishTies") values ({Guid.NewGuid()}, {season}, {team}, 'AFC East', {finish}, 0)""");
+        }
+
+        await using var upgrading = CreateDatabase();
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => upgrading.Database.MigrateAsync());
+
+        Assert.Contains("unique season teams", failure.ToString());
+        Assert.Equal(2, await upgrading.SeasonTeams.CountAsync());
     }
 
     private async Task Migrate()

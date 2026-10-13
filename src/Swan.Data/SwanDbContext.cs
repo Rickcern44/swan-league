@@ -128,6 +128,9 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(team => team.Division);
             entity.Property(team => team.FinishPosition);
             entity.Property(team => team.FinishTies);
+            // A team appears once per season, and a Setup-entered division finish is held by one team only.
+            entity.HasIndex(team => new { team.SeasonId, team.TeamId }).IsUnique().HasDatabaseName("ux_season_teams_season_team");
+            entity.HasIndex(team => new { team.SeasonId, team.Division, team.FinishPosition }).IsUnique().HasDatabaseName("ux_season_teams_season_division_finish");
         });
         modelBuilder.Entity<Week>(entity =>
         {

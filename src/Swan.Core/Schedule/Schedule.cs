@@ -15,6 +15,30 @@ public sealed record SeasonTeam(SeasonTeamId Id, SeasonId SeasonId, TeamId TeamI
 {
     public static bool HasUniqueFinishes(IEnumerable<SeasonTeam> teams) => teams.GroupBy(team => (team.Division, team.FinishPosition)).All(group => group.Count() == 1);
 }
+public sealed record TeamFinish(TeamId TeamId, int Finish);
+
+// A Setup season's team finishes are entered as one complete set: every known team once, and each division holding one team at each of 1st to 4th.
+public static class SetupTeamFinishes
+{
+    // R3: a team's point value is its prior-season division finish.
+    public static int PointValueFor(int finish) => PointValue.Create(finish).Value!.Value;
+
+    public static Result<IReadOnlyList<SeasonTeam>> Create(SeasonId seasonId, IReadOnlyCollection<Team> teams, IReadOnlyCollection<TeamFinish> finishes)
+    {
+        if (finishes.Count != teams.Count || finishes.Select(entry => entry.TeamId).Distinct().Count() != finishes.Count || finishes.Any(entry => teams.All(team => team.Id != entry.TeamId)))
+            return Failure($"Submit each of the {teams.Count} teams exactly once.");
+        if (finishes.Any(entry => entry.Finish is < 1 or > 4)) return Failure("Every finish must be 1st, 2nd, 3rd or 4th.");
+        var byTeam = finishes.ToDictionary(entry => entry.TeamId, entry => entry.Finish);
+        foreach (var division in teams.GroupBy(team => team.Division).OrderBy(group => group.Key, StringComparer.Ordinal))
+            if (!division.Select(team => byTeam[team.Id]).Order().SequenceEqual(Enumerable.Range(1, 4)))
+                return Failure($"{division.Key} needs exactly one team at each of 1st, 2nd, 3rd and 4th.");
+        IReadOnlyList<SeasonTeam> built = teams.Select(team => new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), seasonId, team.Id, team.Division, byTeam[team.Id], 0)).ToList();
+        return Result<IReadOnlyList<SeasonTeam>>.Success(built);
+    }
+
+    private static Result<IReadOnlyList<SeasonTeam>> Failure(string message) => Result<IReadOnlyList<SeasonTeam>>.Failure("season.teams", message);
+}
+
 public sealed record DogOption(TeamId TeamId);
 
 public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickoff kickoff, bool excluded = false)
