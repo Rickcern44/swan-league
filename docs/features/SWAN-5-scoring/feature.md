@@ -1,7 +1,7 @@
 ---
 id: SWAN-5
 title: Phase 1 scoring core
-status: todo
+status: blocked
 parent: ~
 ---
 
