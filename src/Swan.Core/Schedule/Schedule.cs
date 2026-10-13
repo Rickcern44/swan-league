@@ -53,7 +53,7 @@ public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type
     public Result<bool> Lock() => State != WeekState.Open ? Result<bool>.Failure("week.state", "Week must be open.") : LockInternal();
     public Result<bool> FinalizeResults() => State != WeekState.Locked || games.Any(game => !game.Excluded && game.Result is null) ? Result<bool>.Failure("week.results", "Every included game needs a result.") : FinalizeInternal();
     public Result<bool> Reopen() => State is WeekState.Locked or WeekState.Final ? Transition(WeekState.Open) : Result<bool>.Failure("week.state", "Only locked or final weeks can reopen.");
-    public Result<bool> ConfirmResult(GameId gameId, GameResult result) => games.FirstOrDefault(game => game.Id == gameId)?.ConfirmResult(result) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
+    public Result<bool> ConfirmResult(GameId gameId, GameResult result) => State != WeekState.Locked ? Result<bool>.Failure("week.state", "Results can only be confirmed while the week is locked.") : games.FirstOrDefault(game => game.Id == gameId)?.ConfirmResult(result) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
     private Result<bool> Transition(WeekState state) { State = state; return Result<bool>.Success(true); }
     private Result<bool> PublishInternal() { State = WeekState.Open; Raise(new WeekPublished(Id)); return Result<bool>.Success(true); }
     private Result<bool> LockInternal() { State = WeekState.Locked; Raise(new WeekLocked(Id)); return Result<bool>.Success(true); }

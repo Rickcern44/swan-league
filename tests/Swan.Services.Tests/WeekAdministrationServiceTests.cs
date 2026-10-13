@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Swan.Core.Common;
+using Swan.Core.Picks;
 using Swan.Core.Schedule;
+using Swan.Core.Scoring;
 using Swan.Data;
 using Swan.Services.Platform;
 using Swan.Services.Schedule;
@@ -120,6 +122,143 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.Equal("week.missing", missingWeek.Error!.Code);
         Assert.Equal("game.line", frozen.Error!.Code);
         Assert.Equal(2, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task ResultsRequireLockedWeekAndIncompleteWeeksCannotFinalize()
+    {
+        var seeded = await SeedLockedWeek();
+        var draft = await SeedWeek();
+
+        var early = await Run(service => service.ConfirmResultAsync(Admin, draft.Week, draft.Game, 21, 14));
+        var negative = await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[0], -1, 14));
+        var missingGame = await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, new GameId(Guid.NewGuid()), 1, 0));
+        var missingWeek = await Run(service => service.FinalizeAsync(Admin, new WeekId(Guid.NewGuid())));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[0], 21, 14));
+        var incomplete = await Run(service => service.FinalizeAsync(Admin, seeded.Week));
+
+        Assert.Equal("week.state", early.Error!.Code);
+        Assert.Equal("game-result.invalid", negative.Error!.Code);
+        Assert.Equal("game.missing", missingGame.Error!.Code);
+        Assert.Equal("week.missing", missingWeek.Error!.Code);
+        Assert.Equal("week.results", incomplete.Error!.Code);
+        var week = (await Run(service => service.GetAsync(seeded.Week))).Value!;
+        Assert.Equal(WeekState.Locked, week.State);
+        Assert.Equal(1, week.Games.Count(game => game.HasResult));
+        Assert.Equal(0, await Run((service, database) => database.WeekScores.CountAsync()));
+        Assert.Equal(["week.result.confirmed"], await Run((service, database) => database.AuditEntries.Select(entry => entry.Action).ToListAsync()));
+    }
+
+    [Fact]
+    public async Task FinalizeRebuildsWeekScoresAndRecomputeReplacesInsteadOfAppending()
+    {
+        var seeded = await SeedLockedWeek();
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[0], 21, 14));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[1], 17, 17));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[2], 3, 10));
+
+        var finalized = await Run(service => service.FinalizeAsync(Admin, seeded.Week));
+        var again = await Run(service => service.RecomputeAsync(Admin, seeded.Week));
+
+        Assert.True(finalized.IsSuccess);
+        Assert.True(again.IsSuccess);
+        Assert.Equal(WeekState.Final, finalized.Value!.State);
+        var scores = await LoadScores(seeded.Week);
+        var score = Assert.Single(scores);
+        Assert.Equal(seeded.Membership, score.MembershipId);
+        Assert.Equal(3, score.Lines.Count);
+        Assert.Equal(1, score.Lines.Sum(line => line.Points));
+
+        // Correct the stored source (tie becomes a home win), then recompute: lines are replaced, not appended.
+        await CorrectStoredResult(seeded.Games[1], 24, 17);
+        var recomputed = await Run(service => service.RecomputeAsync(Admin, seeded.Week));
+
+        Assert.True(recomputed.IsSuccess);
+        var replaced = Assert.Single(await LoadScores(seeded.Week));
+        Assert.Equal(score.Id, replaced.Id);
+        Assert.Equal(3, replaced.Lines.Count);
+        Assert.Equal(2, replaced.Lines.Sum(line => line.Points));
+        Assert.Equal(["week.result.confirmed", "week.result.confirmed", "week.result.confirmed", "week.finalized", "week.recomputed", "week.recomputed"],
+            await Run((service, database) => database.AuditEntries.OrderBy(entry => entry.At).Select(entry => entry.Action).ToListAsync()));
+    }
+
+    [Fact]
+    public async Task RecomputeRequiresFinalWeekAndPlayoffWeeksAreNotScoredHere()
+    {
+        var locked = await SeedLockedWeek();
+        var playoff = await SeedLockedWeek(WeekKind.Playoff);
+        await Run(service => service.ConfirmResultAsync(Admin, playoff.Week, playoff.Games[0], 1, 0));
+        await Run(service => service.ConfirmResultAsync(Admin, playoff.Week, playoff.Games[1], 1, 0));
+        await Run(service => service.ConfirmResultAsync(Admin, playoff.Week, playoff.Games[2], 1, 0));
+
+        var notFinal = await Run(service => service.RecomputeAsync(Admin, locked.Week));
+        var unsupported = await Run(service => service.FinalizeAsync(Admin, playoff.Week));
+
+        Assert.Equal("week.state", notFinal.Error!.Code);
+        Assert.Equal("week.scoring", unsupported.Error!.Code);
+        Assert.Equal(WeekState.Locked, (await Run(service => service.GetAsync(playoff.Week))).Value!.State);
+        Assert.Equal(0, await Run((service, database) => database.WeekScores.CountAsync()));
+    }
+
+    [Fact]
+    public async Task DuplicateBallotsForOneMemberBlockScoringWithoutChangingTheWeek()
+    {
+        var seeded = await SeedLockedWeek();
+        await using (var database = CreateDatabase())
+        {
+            database.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), seeded.Membership, seeded.Week));
+            await database.SaveChangesAsync();
+        }
+
+        foreach (var game in seeded.Games) await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, game, 1, 0));
+        var finalized = await Run(service => service.FinalizeAsync(Admin, seeded.Week));
+
+        Assert.Equal("week.ballots", finalized.Error!.Code);
+        Assert.Equal(WeekState.Locked, (await Run(service => service.GetAsync(seeded.Week))).Value!.State);
+        Assert.Equal(0, await Run((service, database) => database.WeekScores.CountAsync()));
+        Assert.DoesNotContain("week.finalized", await Run((service, database) => database.AuditEntries.Select(entry => entry.Action).ToListAsync()));
+    }
+
+    private sealed record LockedWeek(WeekId Week, List<GameId> Games, MembershipId Membership);
+
+    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular)
+    {
+        await using var database = CreateDatabase();
+        await database.Database.MigrateAsync();
+        var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(kind, kind == WeekKind.Regular ? null : "WC", true));
+        var ballot = new Ballot(new BallotId(Guid.NewGuid()), new MembershipId(Guid.NewGuid()), week.Id);
+        var games = new List<GameId>();
+        for (var index = 0; index < 3; index++)
+        {
+            var game = new Game(new GameId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow.AddDays(3)));
+            week.AddGame(game);
+            games.Add(game.Id);
+            Assert.True(week.AddLine(game.Id, new Spread(-3m)).IsSuccess);
+            Assert.True(week.ApproveLatestLine(game.Id).IsSuccess);
+            Assert.True(ballot.AddPick(new TeamPick(game.HomeTeamId, game.Id, DateTimeOffset.UtcNow.AddDays(2)), DateTimeOffset.UtcNow).IsSuccess);
+        }
+
+        Assert.True(week.ApproveLines().IsSuccess);
+        Assert.True(week.Publish().IsSuccess);
+        Assert.True(week.Lock().IsSuccess);
+        database.Weeks.Add(week);
+        database.Ballots.Add(ballot);
+        await database.SaveChangesAsync();
+        return new LockedWeek(week.Id, games, ballot.MembershipId);
+    }
+
+    private async Task<List<WeekScore>> LoadScores(WeekId weekId)
+    {
+        await using var database = CreateDatabase();
+        return await database.WeekScores.AsNoTracking().Where(score => score.WeekId == weekId).ToListAsync();
+    }
+
+    // A Final week rejects result edits (reopen is a later slice), so correct the stored source directly.
+    private async Task CorrectStoredResult(GameId gameId, int home, int away)
+    {
+        await using var database = CreateDatabase();
+        var changed = await database.Database.ExecuteSqlInterpolatedAsync($"""update schedule.games set "Result" = {$"{home}:{away}"} where "Id" = {gameId.Value}""");
+        Assert.Equal(1, changed);
     }
 
     private async Task<(WeekId Week, GameId Game)> SeedWeek()

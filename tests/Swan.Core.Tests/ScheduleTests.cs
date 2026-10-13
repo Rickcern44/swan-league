@@ -43,6 +43,21 @@ public sealed class ScheduleTests
         Assert.False(SeasonTeam.HasUniqueFinishes(teams));
     }
 
+    [Fact]
+    public void ResultsCanOnlyBeConfirmedWhileWeekIsLocked()
+    {
+        var week = CreateWeek(out var gameId);
+        var result = GameResult.Create(21, 14).Value!;
+        Assert.Equal("week.state", week.ConfirmResult(gameId, result).Error!.Code);
+        week.AddLine(gameId, Spread.Create(-3m).Value!);
+        week.ApproveLatestLine(gameId);
+        week.ApproveLines();
+        week.Publish();
+        Assert.False(week.ConfirmResult(gameId, result).IsSuccess);
+        week.Lock();
+        Assert.True(week.ConfirmResult(gameId, result).IsSuccess);
+    }
+
     private static Week CreateWeek(out GameId gameId)
     {
         gameId = new GameId(Guid.NewGuid());

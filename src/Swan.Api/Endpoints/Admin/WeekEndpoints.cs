@@ -5,6 +5,7 @@ using Swan.Services.Schedule;
 namespace Swan.Api.Endpoints.Admin;
 
 public sealed record AddLineRequest(decimal Spread, bool Approve = false);
+public sealed record ConfirmResultRequest(int HomeScore, int AwayScore);
 
 public static class WeekEndpoints
 {
@@ -21,6 +22,12 @@ public static class WeekEndpoints
             Act(principal, actor => service.ApproveLinesAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/publish", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.PublishAsync(actor, new WeekId(weekId), cancellationToken)));
+        weeks.MapPost("/games/{gameId:guid}/result", (Guid weekId, Guid gameId, ConfirmResultRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.ConfirmResultAsync(actor, new WeekId(weekId), new GameId(gameId), request.HomeScore, request.AwayScore, cancellationToken)));
+        weeks.MapPost("/finalize", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.FinalizeAsync(actor, new WeekId(weekId), cancellationToken)));
+        weeks.MapPost("/recompute", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.RecomputeAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/lock", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.LockAsync(actor, new WeekId(weekId), cancellationToken)));
         return endpoints;
