@@ -1,28 +1,23 @@
 ---
 id: SWAN-5.7
-title: TiebreakPolicy
-status: blocked
+title: Competition ranking for tied standings
+status: done
 parent: SWAN-5
 ---
 
-# SWAN-5.7: TiebreakPolicy
+# SWAN-5.7: Competition ranking for tied standings
 
-**STATUS: BLOCKED — Pending user rules document**
+Intent: Decide how tied coaches are ranked in standings (PRD §6.1 step 2).
 
-Intent: Implement per-pool tiebreaker rules (PRD §6.1 step 2, R18 color tiers). Ranks tied coaches when points equal.
+## Decision
 
-## Blocker
+The owner chose traditional competition ranking: equal scores share a rank and the next rank skips the occupied places (for example `1, 1, 1, 4`). No secondary tiebreak rule is applied; tied coaches remain tied and `TiebreakUnbroken` stays true for them. No TiebreakPolicy class was added and no external rules document is needed.
 
-Needs the league rules doc with per-pool tiebreakers (color tiers, etc.). Planner is asking the user (PRD §11 Phase 1 dependency).
+## Delivered
 
-## What this task will do (when unblocked)
+- `StandingsService` already produced this ranking; no implementation change.
+- Regression test: `StandingsUseCompetitionRankingSoTiesShareARankAndSkipTheNext` in `tests/Swan.Services.Tests/SwanDbContextTests.cs` (three equal scores and one lower score give ranks `1, 1, 1, 4`).
 
-- Read the user-provided rules doc
-- Implement TiebreakPolicy per pool
-- Resolve ties by applying tiebreaker order
-- Update Standings to use TiebreakPolicy for ranking
+## Out of scope
 
-## Files (to be determined)
-
-- `src/Swan.Core/Scoring/` (TiebreakPolicy)
-- `tests/Swan.Core.Tests/` (tiebreak tests)
+- R18 color-tier configuration (separate; PRD unchanged).

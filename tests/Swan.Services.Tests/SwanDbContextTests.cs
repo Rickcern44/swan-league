@@ -363,6 +363,30 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         });
     }
 
+    [Fact]
+    public async Task StandingsUseCompetitionRankingSoTiesShareARankAndSkipTheNext()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var season = new SeasonId(Guid.NewGuid());
+        var week = new WeekId(Guid.NewGuid());
+        database.Weeks.Add(new Week(week, season, 1, new WeekType(WeekKind.Regular, null, true)));
+        var scores = new[] { 4, 4, 4, 2 }.Select(points =>
+        {
+            var score = new WeekScore(new WeekScoreId(Guid.NewGuid()), season, new MembershipId(Guid.NewGuid()), week);
+            score.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), points, ScoreSource.TeamPick, "win")]);
+            return score;
+        });
+        database.WeekScores.AddRange(scores);
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        var standings = await new StandingsService(database).GetAsync(season, StandingPool.Main);
+
+        Assert.Equal([1, 1, 1, 4], standings.Select(standing => standing.Rank));
+        Assert.Equal([4, 4, 4, 2], standings.Select(standing => standing.Points));
+        Assert.All(standings.Take(3), standing => Assert.True(standing.TiebreakUnbroken));
+    }
+
     private static string TokenFrom(string body) => new Uri(body).Query.Split('=', 2)[1];
 
     private sealed class FakeClock(DateTimeOffset utcNow) : IClock
