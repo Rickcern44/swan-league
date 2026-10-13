@@ -15,7 +15,6 @@ public sealed class StandingsService(SwanDbContext database)
         SeasonId seasonId,
         StandingPool pool,
         WeekId? weekId = null,
-        bool dogsContributeToMainPool = false,
         CancellationToken cancellationToken = default)
     {
         var scores = await database.WeekScores
@@ -35,8 +34,8 @@ public sealed class StandingsService(SwanDbContext database)
             .Select(value => new
             {
                 value.Membership,
-                Points = value.Lines.Where(value => Include(value.Line, value.WeekKind, pool, dogsContributeToMainPool)).Sum(value => value.Line.Points),
-                Wins = value.Lines.Count(value => Include(value.Line, value.WeekKind, pool, dogsContributeToMainPool) && value.Line.Source == ScoreSource.TeamPick && value.Line.Points > 0),
+                Points = value.Lines.Where(value => Include(value.Line, value.WeekKind, pool)).Sum(value => value.Line.Points),
+                Wins = value.Lines.Count(value => Include(value.Line, value.WeekKind, pool) && value.Line.Source == ScoreSource.TeamPick && value.Line.Points > 0),
             })
             .OrderByDescending(value => value.Points)
             .ThenBy(value => value.Membership.Value)
@@ -44,10 +43,10 @@ public sealed class StandingsService(SwanDbContext database)
         return totals.Select((value, index) => new Standing(value.Membership, index > 0 && value.Points == totals[index - 1].Points ? totals.Take(index).Count(previous => previous.Points > value.Points) + 1 : index + 1, value.Points, value.Wins)).ToList();
     }
 
-    private static bool Include(ScoreLine line, WeekKind weekKind, StandingPool pool, bool dogsContributeToMainPool) => pool switch
+    private static bool Include(ScoreLine line, WeekKind weekKind, StandingPool pool) => pool switch
     {
         StandingPool.Dog => line.Source == ScoreSource.DogPick,
-        StandingPool.Main => line.Source != ScoreSource.DogPick || dogsContributeToMainPool,
+        StandingPool.Main => line.Source != ScoreSource.DogPick,
         StandingPool.RegularSeason => weekKind == WeekKind.Regular && line.Source != ScoreSource.DogPick,
         StandingPool.Playoff => weekKind is WeekKind.Playoff or WeekKind.SuperBowl && line.Source != ScoreSource.DogPick,
         _ => false

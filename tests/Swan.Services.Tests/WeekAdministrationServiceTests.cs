@@ -5,6 +5,7 @@ using Swan.Core.Schedule;
 using Swan.Core.Scoring;
 using Swan.Data;
 using Swan.Services.Platform;
+using Swan.Services.Scoring;
 using Swan.Services.Schedule;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -219,9 +220,33 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.DoesNotContain("week.finalized", await Run((service, database) => database.AuditEntries.Select(entry => entry.Action).ToListAsync()));
     }
 
+    [Fact]
+    public async Task WinningDogScoresOnlyInTheDogPool()
+    {
+        var seeded = await SeedLockedWeek(withDog: true);
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[0], 7, 14));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[1], 1, 0));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[2], 1, 0));
+
+        await Run(service => service.FinalizeAsync(Admin, seeded.Week));
+
+        var season = (await Run(service => service.GetAsync(seeded.Week))).Value!.SeasonId;
+        var points = await Run(async (service, database) =>
+        {
+            var standings = new StandingsService(database);
+            return new[] { StandingPool.Dog, StandingPool.Main, StandingPool.RegularSeason }
+                .ToDictionary(pool => pool, pool => standings.GetAsync(season, pool).Result.Single().Points);
+        });
+        var dogLine = Assert.Single(Assert.Single(await LoadScores(seeded.Week)).Lines, line => line.Source == ScoreSource.DogPick);
+        Assert.Equal(3, dogLine.Points);
+        Assert.Equal(3, points[StandingPool.Dog]);
+        Assert.Equal(2, points[StandingPool.Main]);
+        Assert.Equal(2, points[StandingPool.RegularSeason]);
+    }
+
     private sealed record LockedWeek(WeekId Week, List<GameId> Games, MembershipId Membership);
 
-    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular)
+    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular, bool withDog = false)
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
@@ -236,6 +261,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
             Assert.True(week.AddLine(game.Id, new Spread(-3m)).IsSuccess);
             Assert.True(week.ApproveLatestLine(game.Id).IsSuccess);
             Assert.True(ballot.AddPick(new TeamPick(game.HomeTeamId, game.Id, DateTimeOffset.UtcNow.AddDays(2)), DateTimeOffset.UtcNow).IsSuccess);
+            if (withDog && index == 0) Assert.True(ballot.AddDog(new DogPick(game.AwayTeamId, game.Id, DateTimeOffset.UtcNow.AddDays(2)), false, DateTimeOffset.UtcNow).IsSuccess);
         }
 
         Assert.True(week.ApproveLines().IsSuccess);

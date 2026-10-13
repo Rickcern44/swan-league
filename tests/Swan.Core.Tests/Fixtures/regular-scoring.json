@@ -2,12 +2,11 @@
   { "name":"normal", "points":[1,2,3], "outcomes":["Home","Away","Home"], "expected":4 },
   { "name":"tie", "points":[1], "outcomes":["Tie"], "expected":0 },
   { "name":"bye-roster", "points":[1], "outcomes":["Away"], "expected":0 },
-  { "name":"collision", "points":[1], "outcomes":["Home"], "dog":true, "spread":2.5, "dogsMain":true, "teamDog":true, "expected":4 },
-  { "name":"double-dog", "points":[1,1], "outcomes":["Home","Home"], "dog":true, "spread":1.5, "dogsMain":true, "teamDog":true, "expected":6 },
+  { "name":"collision", "points":[1], "outcomes":["Home"], "dog":true, "spread":2.5, "teamDog":true, "expected":4 },
+  { "name":"double-dog", "points":[1,1], "outcomes":["Home","Home"], "dog":true, "spread":1.5, "teamDog":true, "expected":6 },
   { "name":"perfect-week", "points":[1,2,3], "outcomes":["Home","Home","Home"], "expected":9 },
   { "name":"going-perf", "points":[1,1,1], "outcomes":["Home","Home","Home"], "expected":6 },
   { "name":"zerofer", "points":[1,1,1], "outcomes":["Away","Away","Away"], "expected":0 },
   { "name":"incomplete", "points":[3], "outcomes":["Home"], "expected":3 },
-  { "name":"r15-off", "points":[1], "outcomes":["Home"], "dog":true, "spread":2.5, "dogsMain":false, "teamDog":true, "expected":1 },
-  { "name":"r17-off", "points":[1], "outcomes":["Home"], "dog":true, "spread":2.5, "dogsMain":true, "teamDog":false, "expected":1 }
+  { "name":"r17-off", "points":[1], "outcomes":["Home"], "dog":true, "spread":2.5, "teamDog":false, "expected":1 }
 ]

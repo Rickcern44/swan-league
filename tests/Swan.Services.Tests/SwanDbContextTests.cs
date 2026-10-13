@@ -299,7 +299,7 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task StandingsSeparateRegularAndPlayoffScoresAndCanIncludeDogsInMainPool()
+    public async Task StandingsSeparateRegularPlayoffAndDogScores()
     {
         await using var database = await CreateMigratedDatabase();
         var season = new SeasonId(Guid.NewGuid());
@@ -324,13 +324,13 @@ public sealed class SwanDbContextTests : IAsyncLifetime
 
         var standings = new StandingsService(database);
         var main = Assert.Single(await standings.GetAsync(season, StandingPool.Main));
-        var mainWithDogs = Assert.Single(await standings.GetAsync(season, StandingPool.Main, dogsContributeToMainPool: true));
+        var dogPool = Assert.Single(await standings.GetAsync(season, StandingPool.Dog));
         var regularSeason = Assert.Single(await standings.GetAsync(season, StandingPool.RegularSeason));
         var playoffPool = Assert.Single(await standings.GetAsync(season, StandingPool.Playoff));
         var currentWeek = Assert.Single(await standings.GetAsync(season, StandingPool.Main, weekId: playoffWeek));
 
         Assert.Equal(13, main.Points);
-        Assert.Equal(15, mainWithDogs.Points);
+        Assert.Equal(2, dogPool.Points);
         Assert.Equal(4, regularSeason.Points);
         Assert.Equal(9, playoffPool.Points);
         Assert.Equal(9, currentWeek.Points);

@@ -21,7 +21,7 @@ Intent: Standings queries for Main, Dog, Regular Season, Playoff pools (PRD C10)
 - [x] Read model computes rank, points, wins per pool
 - [x] Ties share a rank, marked "unbroken"
 - [x] Testcontainers test: seed weeks, assert totals and ranks
-- [x] R15 setting changes main-pool totals
+- [x] Dog points count in the Dog pool only (R15, fixed; no setting)
 - [x] Regular-season excludes playoff weeks
 - [x] Playoff includes R12 qualification
 - [x] `dotnet test` passes

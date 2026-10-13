@@ -126,7 +126,7 @@ Each rule below is a testable requirement. Rules marked **Setting** are owner-co
 | R12 | Playoff teams earn 3 points for their coaches for qualifying, counted only in the playoff pool | Rules doc | No |
 | R13 | Playoff points use the team's season point value (the rules doc says "original seeding") times the round multiplier: Wild Card x2, Divisional x4, Conference x6, Super Bowl x8 | Rules doc | No |
 | R14 | The conference winner that held the #1 seed pays 10 points to coaches holding it | Rules doc | No |
-| R15 | Dog points count toward the main pool as well as the dog pool | Open | Yes: default Off (dog pool only) |
+| R15 | Dog points count only in the dog pool, never in the main pool or the regular-season pool | Decided | No: fixed |
 | R16 | A coach may use the same team as a dog any number of times in a season; the only restriction is no repeated team or game within one double-dog week | Decided | No: fixed |
 | R17 | A team may be both a started team and the same week's dog | Open | Yes: default On |
 | R18 | Color tiers for tiebreakers map to 1-4 point values (green, blue, yellow, red) | Open | Yes: mapping editable, default 1=green, 2=blue, 3=yellow, 4=red |
@@ -184,7 +184,7 @@ The admin console is a separate area, visible only to admins, with a weekly work
 | A6 | Pick overrides | The admin can create or change any coach's picks, before or after lock, with a required reason, an audit entry, and a notification to the coach | P0 |
 | A7 | Members | Invite, resend, deactivate, and reactivate coaches; assign nicknames; view each coach's roster | P0 |
 | A8 | Rosters | Open and close the pre-season roster window; correct data-entry errors on any roster (logged with a reason); there are no mid-season swaps | P0 |
-| A9 | League settings | Toggles for R15, R17, R18, and R19 and the deadline time; each change shows who changed it, when, and the old value | P0 |
+| A9 | League settings | Toggles for R17, R18, and R19 and the deadline time; each change shows who changed it, when, and the old value | P0 |
 | A10 | Rulings log | A free-text log of commish rulings, linked to the setting they changed, visible to coaches on the rules page | P1 |
 | A11 | Fines | Pending fines are generated automatically for missed picks; the admin confirms, waives, or adds a manual fine; every fine has a reason | P0 |
 | A12 | Payments ledger | Per coach: buy-in owed and paid, fines, and payouts (section 6.1); admin marks each item paid with a date and note | P0 |
@@ -220,7 +220,7 @@ The Swan starts a season from a guided wizard on the admin dashboard. The dashbo
 | 3. Teams and point values | The 32 NFL teams are loaded; the admin enters or uploads last season's division finishes; point values (1 to 4) derive automatically | Each division has exactly one team at each finish |
 | 4. Schedule | Uploads the schedule CSV (automated in Phase 6) and previews byes by week | 18 regular-season weeks; each team plays once or has a bye; kickoffs parse as Eastern Time |
 | 5. Weeks and dogs | Confirms the weekly deadline (Sunday 1:00 PM ET), the double-dog weeks (Week 2 plus the suggested Thanksgiving and Christmas weeks), playoff multipliers, qualifying points, and the conference bonus | One deadline per week; at least three double-dog weeks |
-| 6. League settings | Reviews the toggles for R15, R17, R18, and R19 with their defaults; R1 to R14, R16, R20, and R21 are shown as fixed | None |
+| 6. League settings | Reviews the toggles for R17, R18, and R19 with their defaults; R1 to R16, R20, and R21 are shown as fixed | None |
 | 7. Coaches | Ticks last season's coaches to carry over and pastes email addresses to invite new ones; can add nicknames | Emails are valid and unique |
 | 8. Review and create | Sees every choice in one summary with warnings (missing finishes, schedule gaps, no coaches) and creates the season in Setup | Blocking errors must be fixed; warnings can be accepted |
 

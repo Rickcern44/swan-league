@@ -18,7 +18,6 @@ Intent: Hand-built sample weeks (JSON fixtures) + expected per-coach totals. Run
 - Perfect Week
 - Going Perf, 0fer
 - Incomplete ballot
-- R15 on vs off
 - R17 on vs off
 
 ## Acceptance criteria
