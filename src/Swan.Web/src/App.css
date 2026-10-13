@@ -131,3 +131,25 @@ button {
     grid-column: 1 / -1;
   }
 }
+
+.lead {
+  font-weight: 600;
+}
+
+.progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress [aria-current="step"] {
+  font-weight: 700;
+}
+
+button.secondary {
+  background: #fff;
+  color: #12355b;
+}

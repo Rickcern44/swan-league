@@ -56,6 +56,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
           teamPickDeadlineEastern: string | null;
         };
         pools: { name: string; stake: { amount: number } }[];
+        setupStep: number;
       })
     : undefined;
   let leftBehind = false;
@@ -66,40 +67,74 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
       await start.getByLabel("Season year").fill("2027");
       await start.getByLabel("Season name").fill("2027 Swan League");
       await start.getByRole("button", { name: "Create season" }).click();
+    } else {
+      // Begin at the first step whatever progress the existing season had.
+      await page.request.put("/api/admin/seasons/setup/step", {
+        data: { step: 0 },
+      });
+      await page.reload();
     }
 
     const basics = page.getByRole("form", { name: "Basics" });
     await expect(basics).toBeVisible();
+    await expect(page.getByText("Step 1 of 3")).toBeVisible();
+    await expect(page.getByRole("form", { name: "Money" })).toHaveCount(0);
     await basics.getByLabel("Season name").fill("E2E Swan League");
     await basics.getByLabel("Simulation season").check();
-    await basics.getByRole("button", { name: "Save basics" }).click();
-    await expect(basics.getByText("Basics saved")).toBeVisible();
+    await basics.getByRole("button", { name: "Save & continue" }).click();
 
+    // Closing the browser and coming back opens the saved step.
     const money = page.getByRole("form", { name: "Money" });
+    await expect(money).toBeVisible();
+    await expect(page.getByText("Step 2 of 3")).toBeVisible();
+    await page.reload();
+    await expect(money).toBeVisible();
+    await expect(page.getByText("Step 2 of 3")).toBeVisible();
+
+    // Back navigates without saving; reloading still resumes at Money.
+    await money.getByRole("button", { name: "Back" }).click();
+    await expect(basics).toBeVisible();
+    await expect(basics.getByLabel("Season name")).toHaveValue(
+      "E2E Swan League",
+    );
+    await page.reload();
+    await expect(money).toBeVisible();
+
+    await money.getByLabel("Playoff").fill("5");
+    await money.getByRole("button", { name: "Save & continue" }).click();
+    await expect(money.getByRole("alert")).toContainText("add up");
+    await expect(money).toBeVisible();
+
     await money.getByLabel("Buy-in").fill("150");
     await money.getByLabel("Main", { exact: true }).fill("90");
     await money.getByLabel("Dog").fill("30");
     await money.getByLabel("Regular Season").fill("15");
     await money.getByLabel("Playoff").fill("15");
     await expect(money.getByText("Pool total $150.00")).toBeVisible();
-    await money.getByRole("button", { name: "Save money" }).click();
-    await expect(money.getByText("Money saved")).toBeVisible();
+    await money.getByRole("button", { name: "Save & continue" }).click();
 
     const deadline = page.getByRole("form", { name: "Weekly deadline" });
+    await expect(deadline).toBeVisible();
+    await expect(page.getByText("Step 3 of 3")).toBeVisible();
     await deadline.getByLabel("Team picks lock Sundays at").fill("11:30");
-    await deadline.getByRole("button", { name: "Save deadline" }).click();
+    await deadline.getByRole("button", { name: "Save & continue" }).click();
     await expect(deadline.getByText("Deadline saved")).toBeVisible();
 
-    await money.getByLabel("Playoff").fill("5");
-    await money.getByRole("button", { name: "Save money" }).click();
-    await expect(money.getByRole("alert")).toContainText("add up");
+    // Later steps are only listed, never reachable.
+    await expect(page.getByText(/Coming next/)).toContainText(
+      "Schedule import",
+    );
+    await expect(
+      page.getByRole("button", { name: /schedule|teams|weeks/i }),
+    ).toHaveCount(0);
 
     await page.reload();
-    await expect(page.getByLabel("Season name")).toHaveValue("E2E Swan League");
-    await expect(page.getByLabel("Buy-in")).toHaveValue("150");
-    await expect(page.getByLabel("Team picks lock Sundays at")).toHaveValue(
+    await expect(deadline).toBeVisible();
+    await expect(deadline.getByLabel("Team picks lock Sundays at")).toHaveValue(
       "11:30",
     );
+    await deadline.getByRole("button", { name: "Back" }).click();
+    await expect(money.getByLabel("Buy-in")).toHaveValue("150");
   } finally {
     if (!original) {
       // The test created the season, so leaving it would change what the next run finds.
@@ -122,6 +157,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
         regularSeason: stake("Regular Season"),
         playoff: stake("Playoff"),
       });
+      await put("/api/admin/seasons/setup/step", { step: original.setupStep });
       await put("/api/admin/seasons/setup/deadline", {
         teamPickDeadlineEastern:
           original.settings.teamPickDeadlineEastern ?? "13:00:00",

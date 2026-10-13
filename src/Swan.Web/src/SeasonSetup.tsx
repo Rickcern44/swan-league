@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 type Money = { amount: number; currency: string };
 type Season = {
@@ -10,6 +10,7 @@ type Season = {
     teamPickDeadlineEastern: string | null;
   };
   pools: { name: string; stake: Money }[];
+  setupStep: number;
 };
 
 type Notice = { kind: "saved" | "error"; text: string } | undefined;
@@ -83,10 +84,6 @@ export default function SeasonSetup() {
       {loaded.status === "ready" && (
         <SetupCards season={loaded.season} onSeason={apply} />
       )}
-      <p>
-        Next up: teams and point values. Double-dog weeks are set after schedule
-        import.
-      </p>
     </section>
   );
 }
@@ -97,12 +94,14 @@ function Card({
   children,
   onSubmit,
   action,
+  onBack,
 }: {
   title: string;
   notice: Notice;
   children: React.ReactNode;
   onSubmit: () => void;
   action: string;
+  onBack?: () => void;
 }) {
   return (
     <form
@@ -118,6 +117,11 @@ function Card({
       <div className="actions">
         {notice?.kind === "error" && <span role="alert">{notice.text}</span>}
         {notice?.kind === "saved" && <span role="status">{notice.text}</span>}
+        {onBack && (
+          <button type="button" className="secondary" onClick={onBack}>
+            Back
+          </button>
+        )}
         <button type="submit">{action}</button>
       </div>
     </form>
@@ -184,6 +188,15 @@ function StartCard({ onSeason }: { onSeason: (season: Season) => void }) {
   );
 }
 
+const wizardSteps = ["Basics", "Money", "Weekly deadline"] as const;
+const lastStep = wizardSteps.length - 1;
+const stepSlugs = ["basics", "money", "deadline"];
+const upcoming = [
+  "Teams and point values",
+  "Schedule import",
+  "Weeks and dogs",
+];
+
 function SetupCards({
   season,
   onSeason,
@@ -204,14 +217,44 @@ function SetupCards({
     (season.settings.teamPickDeadlineEastern ?? defaultDeadline).slice(0, 5),
   );
   const [notices, setNotices] = useState<Record<string, Notice>>({});
+  // A fresh load opens at the saved resume point; the step after the last built one still shows the last page.
+  const [view, setView] = useState(() => Math.min(season.setupStep, lastStep));
+  const available = useRef(Math.min(season.setupStep, lastStep));
+  available.current = Math.min(season.setupStep, lastStep);
 
-  // Only the saved card takes the reply's values: another card's unsaved edits are not the reply's to discard.
-  function resync(saved: Season, card: string, text: string) {
-    if (card === "basics") {
+  useEffect(() => {
+    // Subpaths and history entries make the browser's Back/Forward move between pages; they never save anything.
+    window.history.replaceState(
+      { setupView: view },
+      "",
+      `/setup/${stepSlugs[view]}`,
+    );
+    const onPop = (event: PopStateEvent) => {
+      const target = (event.state as { setupView?: number } | null)?.setupView;
+      if (typeof target === "number" && target <= available.current)
+        setView(target);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // The initial entry is recorded once.
+  }, []);
+
+  function goTo(target: number) {
+    window.history.pushState(
+      { setupView: target },
+      "",
+      `/setup/${stepSlugs[target]}`,
+    );
+    setView(target);
+  }
+
+  // Only the saved page takes the reply's values: another page's unsaved edits are not the reply's to discard.
+  function resync(saved: Season, step: number) {
+    if (step === 0) {
       setYear(String(saved.year));
       setName(saved.name);
       setIsSimulation(saved.isSimulation);
-    } else if (card === "money") {
+    } else if (step === 1) {
       setBuyIn(String(saved.settings.buyIn.amount));
       setStakes(
         Object.fromEntries(
@@ -226,132 +269,158 @@ function SetupCards({
         (saved.settings.teamPickDeadlineEastern ?? defaultDeadline).slice(0, 5),
       );
     }
-    setNotices({ [card]: { kind: "saved", text } });
-    onSeason(saved);
   }
 
-  const save = (
-    card: string,
-    text: string,
-    method: string,
-    url: string,
-    body: unknown,
-  ) =>
-    void send(method, url, body).then((result) =>
-      "season" in result
-        ? resync(result.season, card, text)
-        : setNotices((current) => ({
-            ...current,
-            [card]: { kind: "error", text: result.error },
-          })),
-    );
+  // Save the page, then record the next step as the resume point (never moving it backwards), then move on.
+  async function saveAndContinue(step: number, url: string, body: unknown) {
+    const fail = (text: string) =>
+      setNotices({ [step]: { kind: "error", text } });
+    const saved = await send("PUT", url, body);
+    if (!("season" in saved)) return fail(saved.error);
+    resync(saved.season, step);
+    onSeason(saved.season);
+    const target = Math.max(saved.season.setupStep, step + 1);
+    let latest = saved.season;
+    if (target !== latest.setupStep) {
+      const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
+        step: target,
+      });
+      if (!("season" in recorded))
+        return fail(
+          `Saved, but your progress could not be recorded: ${recorded.error}`,
+        );
+      latest = recorded.season;
+      onSeason(latest);
+    }
+    if (step < lastStep) {
+      setNotices({});
+      goTo(step + 1);
+    } else setNotices({ [step]: { kind: "saved", text: "Deadline saved" } });
+  }
 
   const poolTotal = stakeNames.reduce(
     (sum, pool) => sum + toCents(stakes[pool]),
     0,
   );
+  const back = view > 0 ? () => goTo(view - 1) : undefined;
 
   return (
     <>
-      <Card
-        title="Basics"
-        notice={notices.basics}
-        action="Save basics"
-        onSubmit={() =>
-          save("basics", "Basics saved", "PUT", "/api/admin/seasons/setup", {
-            year: Number(year),
-            name,
-            isSimulation,
-          })
-        }
-      >
-        <Field label="Season year">
-          <input
-            type="number"
-            value={year}
-            onChange={(event) => setYear(event.target.value)}
-          />
-        </Field>
-        <Field label="Season name">
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </Field>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={isSimulation}
-            onChange={(event) => setIsSimulation(event.target.checked)}
-          />
-          Simulation season
-        </label>
-      </Card>
-      <Card
-        title="Money"
-        notice={notices.money}
-        action="Save money"
-        onSubmit={() =>
-          save(
-            "money",
-            "Money saved",
-            "PUT",
-            "/api/admin/seasons/setup/money",
-            {
+      <p className="lead">Set up {season.name}</p>
+      <p>
+        <span>{`Step ${view + 1} of ${wizardSteps.length}`}</span>
+        {" · Your progress is saved with this season."}
+      </p>
+      <ol className="progress" aria-label="Setup progress">
+        {wizardSteps.map((title, index) => (
+          <li key={title} aria-current={index === view ? "step" : undefined}>
+            {index < Math.min(season.setupStep, wizardSteps.length)
+              ? "✓ "
+              : index === view
+                ? "● "
+                : "○ "}
+            {title}
+          </li>
+        ))}
+      </ol>
+      {view === 0 && (
+        <Card
+          title="Basics"
+          notice={notices[0]}
+          action="Save & continue"
+          onSubmit={() =>
+            void saveAndContinue(0, "/api/admin/seasons/setup", {
+              year: Number(year),
+              name,
+              isSimulation,
+            })
+          }
+        >
+          <Field label="Season year">
+            <input
+              type="number"
+              value={year}
+              onChange={(event) => setYear(event.target.value)}
+            />
+          </Field>
+          <Field label="Season name">
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Field>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={isSimulation}
+              onChange={(event) => setIsSimulation(event.target.checked)}
+            />
+            Simulation season
+          </label>
+        </Card>
+      )}
+      {view === 1 && (
+        <Card
+          title="Money"
+          notice={notices[1]}
+          action="Save & continue"
+          onBack={back}
+          onSubmit={() =>
+            void saveAndContinue(1, "/api/admin/seasons/setup/money", {
               buyIn: Number(buyIn),
               main: Number(stakes.Main),
               dog: Number(stakes.Dog),
               regularSeason: Number(stakes["Regular Season"]),
               playoff: Number(stakes.Playoff),
-            },
-          )
-        }
-      >
-        <Field label="Buy-in">
-          <input
-            type="number"
-            step="0.01"
-            value={buyIn}
-            onChange={(event) => setBuyIn(event.target.value)}
-          />
-        </Field>
-        {stakeNames.map((pool) => (
-          <Field key={pool} label={pool}>
+            })
+          }
+        >
+          <Field label="Buy-in">
             <input
               type="number"
               step="0.01"
-              value={stakes[pool]}
-              onChange={(event) =>
-                setStakes({ ...stakes, [pool]: event.target.value })
-              }
+              value={buyIn}
+              onChange={(event) => setBuyIn(event.target.value)}
             />
           </Field>
-        ))}
-        <span className="total">{`Pool total ${dollars(poolTotal)}`}</span>
-      </Card>
-      <Card
-        title="Weekly deadline"
-        notice={notices.deadline}
-        action="Save deadline"
-        onSubmit={() =>
-          save(
-            "deadline",
-            "Deadline saved",
-            "PUT",
-            "/api/admin/seasons/setup/deadline",
-            { teamPickDeadlineEastern: `${deadline}:00` },
-          )
-        }
-      >
-        <Field label="Team picks lock Sundays at">
-          <input
-            type="time"
-            value={deadline}
-            onChange={(event) => setDeadline(event.target.value)}
-          />
-        </Field>
-        <span>Eastern Time</span>
-      </Card>
+          {stakeNames.map((pool) => (
+            <Field key={pool} label={pool}>
+              <input
+                type="number"
+                step="0.01"
+                value={stakes[pool]}
+                onChange={(event) =>
+                  setStakes({ ...stakes, [pool]: event.target.value })
+                }
+              />
+            </Field>
+          ))}
+          <span className="total">{`Pool total ${dollars(poolTotal)}`}</span>
+        </Card>
+      )}
+      {view === 2 && (
+        <Card
+          title="Weekly deadline"
+          notice={notices[2]}
+          action="Save & continue"
+          onBack={back}
+          onSubmit={() =>
+            void saveAndContinue(2, "/api/admin/seasons/setup/deadline", {
+              teamPickDeadlineEastern: `${deadline}:00`,
+            })
+          }
+        >
+          <Field label="Team picks lock Sundays at">
+            <input
+              type="time"
+              value={deadline}
+              onChange={(event) => setDeadline(event.target.value)}
+            />
+          </Field>
+          <span>Eastern Time</span>
+        </Card>
+      )}
+      <p>Coming next: {upcoming.join(" → ")}</p>
     </>
   );
 }
