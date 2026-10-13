@@ -191,6 +191,21 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Contains("2027 Season", audit.Details);
     }
 
+    [Fact]
+    public async Task RepeatingAnAppliedEditSucceedsWithoutAppendingASecondAuditEntry()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        // The second call sees exactly what an execution-strategy retry sees after a commit whose acknowledgement was lost.
+        var first = await Run(service => service.UpdateSetupBasicsAsync(Admin, 2027, "2027 Season", isSimulation: true));
+        var replay = await Run(service => service.UpdateSetupBasicsAsync(Admin, 2027, "2027 Season", isSimulation: true));
+
+        Assert.True(first.IsSuccess);
+        Assert.Equal((2027, "2027 Season", true), (replay.Value!.Year, replay.Value.Name, replay.Value.IsSimulation));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.updated")));
+    }
+
     [Theory]
     [InlineData("", 2027, "season.name")]
     [InlineData("2027", 2101, "season.year")]

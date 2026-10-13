@@ -60,6 +60,8 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
             var updated = season.UpdateBasics(year, name, isSimulation);
             if (!updated.IsSuccess) return Result<SeasonSummary>.Failure(updated.Error!.Code, updated.Error.Message);
             var after = ToSummary(season);
+            // Nothing changed: also what a retry sees after a commit whose acknowledgement was lost, so it must not append a second audit entry.
+            if ((before.Year, before.Name, before.IsSimulation) == (after.Year, after.Name, after.IsSimulation)) return Result<SeasonSummary>.Success(after);
             await audit.AppendAsync(actor, "season.setup.updated", after.Id.Value.ToString(), before, after, cancellationToken: cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return Result<SeasonSummary>.Success(after);
