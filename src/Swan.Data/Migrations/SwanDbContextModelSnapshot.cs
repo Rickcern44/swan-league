@@ -199,6 +199,23 @@ namespace Swan.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsSimulation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("Pools")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValueSql("'[]'");
+
                     b.Property<string>("Settings")
                         .IsRequired()
                         .HasColumnType("text");
@@ -206,7 +223,17 @@ namespace Swan.Data.Migrations
                     b.Property<int>("State")
                         .HasColumnType("integer");
 
+                    b.Property<int>("Year")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.HasKey("Id");
+
+                    b.HasIndex("State")
+                        .IsUnique()
+                        .HasDatabaseName("ux_seasons_single_setup")
+                        .HasFilter("\"State\" = 0");
 
                     b.ToTable("seasons", "league");
                 });

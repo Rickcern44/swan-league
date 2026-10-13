@@ -392,7 +392,10 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
-        database.Seasons.Add(new Season(season, new SeasonSettings(Money.Create(100m, "USD").Value!, 3), []));
+        // Live, because only one season may be in Setup at a time.
+        var created = Season.CreateBlank(season, 2026, "Test season", isSimulation: false).Value!;
+        Assert.True(created.Activate().IsSuccess);
+        database.Seasons.Add(created);
         await database.SaveChangesAsync();
     }
 

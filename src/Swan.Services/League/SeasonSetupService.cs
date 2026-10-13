@@ -1,0 +1,49 @@
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using Swan.Core.Common;
+using Swan.Core.League;
+using Swan.Data;
+using Swan.Services.Platform;
+
+namespace Swan.Services.League;
+
+public sealed record SeasonSummary(SeasonId Id, int Year, string Name, bool IsSimulation, SeasonState State, SeasonSettings Settings, IReadOnlyList<PoolDefinition> Pools);
+
+public interface ISeasonSetupService
+{
+    Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
+    Task<Result<SeasonSummary>> GetSetupAsync(CancellationToken cancellationToken = default);
+}
+
+public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit) : ISeasonSetupService
+{
+    // Only one Setup season may exist; Live and Completed seasons are never touched. Stakes and settings are PRD defaults, not caller input.
+    public async Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default)
+    {
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), year, name, isSimulation);
+        if (!season.IsSuccess) return Result<SeasonSummary>.Failure(season.Error!.Code, season.Error.Message);
+        if (await database.Seasons.AnyAsync(value => value.State == SeasonState.Setup, cancellationToken)) return Result<SeasonSummary>.Failure("season.setup.exists", "A season is already in Setup.");
+        database.Seasons.Add(season.Value!);
+        var summary = ToSummary(season.Value!);
+        try
+        {
+            // AuditService saves the shared context, so the season and its audit entry commit together.
+            await audit.AppendAsync(actor, "season.setup.created", summary.Id.Value.ToString(), before: null, after: summary, cancellationToken: cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "ux_seasons_single_setup" })
+        {
+            // A concurrent create won the unique index; nothing from this attempt was saved.
+            database.ChangeTracker.Clear();
+            return Result<SeasonSummary>.Failure("season.setup.exists", "A season is already in Setup.");
+        }
+
+        return Result<SeasonSummary>.Success(summary);
+    }
+
+    public async Task<Result<SeasonSummary>> GetSetupAsync(CancellationToken cancellationToken = default) =>
+        await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken) is { } setup
+            ? Result<SeasonSummary>.Success(ToSummary(setup))
+            : Result<SeasonSummary>.Failure("season.missing", "No season is in Setup.");
+
+    private static SeasonSummary ToSummary(Season season) => new(season.Id, season.Year, season.Name, season.IsSimulation, season.State, season.Settings, season.Pools);
+}

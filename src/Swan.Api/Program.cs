@@ -30,6 +30,7 @@ app.MapGet("/api/ping", () => Results.Ok(new { message = "pong" })).AllowAnonymo
 app.MapIdentityEndpoints();
 app.MapAuditEndpoints();
 app.MapWeekEndpoints();
+app.MapSeasonEndpoints();
 
 app.Run();
 
