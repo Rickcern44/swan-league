@@ -45,12 +45,15 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
         Money[] stakes = [main, dog, regularSeason, playoff];
         if (buyIn.Currency != "USD" || stakes.Any(stake => stake.Currency != "USD")) return Result<bool>.Failure("season.money", "Buy-in and stakes must be in USD.");
-        if (buyIn.Amount <= 0 || stakes.Any(stake => stake.Amount <= 0)) return Result<bool>.Failure("season.money", "Buy-in and every pool stake must be greater than zero.");
+        // Whole cents up to a sane ceiling; this also keeps the stake sum below from overflowing decimal.
+        if (!IsValidAmount(buyIn) || stakes.Any(stake => !IsValidAmount(stake))) return Result<bool>.Failure("season.money", "Buy-in and every pool stake must be greater than zero, at most 1,000,000, in whole cents.");
         if (stakes.Sum(stake => stake.Amount) != buyIn.Amount) return Result<bool>.Failure("season.money", "Pool stakes must add up to the buy-in.");
         Settings = Settings with { BuyIn = buyIn };
         Pools = [new("Main", main), new("Dog", dog), new("Regular Season", regularSeason), new("Playoff", playoff)];
         return Result<bool>.Success(true);
     }
+
+    private static bool IsValidAmount(Money money) => money.Amount is > 0 and <= 1_000_000m && decimal.Round(money.Amount, 2) == money.Amount;
 
     private static Error? ValidateBasics(int year, string name) =>
         string.IsNullOrWhiteSpace(name) ? new Error("season.name", "Season name is required.")

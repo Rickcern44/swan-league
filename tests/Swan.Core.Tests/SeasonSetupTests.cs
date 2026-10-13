@@ -102,6 +102,8 @@ public sealed class SeasonSetupTests
     [InlineData(-100, 60, 20, 10, 10)]
     [InlineData(100, 70, 20, 10, 0)]
     [InlineData(100, 80, 30, -10, 0)]
+    [InlineData(0.004, 0.001, 0.001, 0.001, 0.001)]
+    [InlineData(4_000_000, 1_000_000, 1_000_000, 1_000_000, 1_000_000)]
     public void InvalidMoneyIsRejectedAndLeavesTheSeasonUnchanged(decimal buyIn, decimal main, decimal dog, decimal regular, decimal playoff)
     {
         var season = Blank();
@@ -112,6 +114,17 @@ public sealed class SeasonSetupTests
         Assert.Equal("season.money", updated.Error!.Code);
         Assert.Equal(settings, season.Settings);
         Assert.Equal(pools, season.Pools);
+    }
+
+    [Fact]
+    public void AmountsThatWouldOverflowDecimalAreRejectedNotThrown()
+    {
+        var season = Blank();
+        var max = Usd(decimal.MaxValue);
+
+        var updated = season.UpdateMoney(Usd(100m), max, max, max, max);
+
+        Assert.Equal("season.money", updated.Error!.Code);
     }
 
     [Fact]
