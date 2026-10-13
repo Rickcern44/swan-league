@@ -200,6 +200,25 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.Equal(0, await Run((service, database) => database.WeekScores.CountAsync()));
     }
 
+    [Fact]
+    public async Task DuplicateBallotsForOneMemberBlockScoringWithoutChangingTheWeek()
+    {
+        var seeded = await SeedLockedWeek();
+        await using (var database = CreateDatabase())
+        {
+            database.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), seeded.Membership, seeded.Week));
+            await database.SaveChangesAsync();
+        }
+
+        foreach (var game in seeded.Games) await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, game, 1, 0));
+        var finalized = await Run(service => service.FinalizeAsync(Admin, seeded.Week));
+
+        Assert.Equal("week.ballots", finalized.Error!.Code);
+        Assert.Equal(WeekState.Locked, (await Run(service => service.GetAsync(seeded.Week))).Value!.State);
+        Assert.Equal(0, await Run((service, database) => database.WeekScores.CountAsync()));
+        Assert.DoesNotContain("week.finalized", await Run((service, database) => database.AuditEntries.Select(entry => entry.Action).ToListAsync()));
+    }
+
     private sealed record LockedWeek(WeekId Week, List<GameId> Games, MembershipId Membership);
 
     private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular)

@@ -81,6 +81,8 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
     private async Task<Result<bool>> RebuildScoresAsync(Week week, CancellationToken cancellationToken)
     {
         var ballots = await database.Ballots.Where(ballot => ballot.WeekId == week.Id).ToListAsync(cancellationToken);
+        // Nothing enforces one ballot per member and week, so refuse to guess which duplicate counts.
+        if (ballots.GroupBy(ballot => ballot.MembershipId).Any(group => group.Count() > 1)) return Result<bool>.Failure("week.ballots", "A member has more than one ballot for this week.");
         var scores = await database.WeekScores.Where(score => score.WeekId == week.Id).ToListAsync(cancellationToken);
         var games = week.Games.Select(game => new ScoredGame(game.Id, game.HomeTeamId, game.AwayTeamId, game.Result, game.ApprovedLine)).ToList();
         foreach (var ballot in ballots)
