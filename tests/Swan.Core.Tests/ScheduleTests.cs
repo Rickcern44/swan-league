@@ -58,6 +58,80 @@ public sealed class ScheduleTests
         Assert.True(week.ConfirmResult(gameId, result).IsSuccess);
     }
 
+    [Fact]
+    public void GeneratedDogOptionsFollowTheHomePerspectiveSpread()
+    {
+        var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
+        var (homeDog, awayDog, pickem, excluded) = (AddGame(week, 3m), AddGame(week, -3m), AddGame(week, 0m), AddGame(week, 7m, excluded: true));
+
+        Assert.True(week.GenerateDogOptions().IsSuccess);
+
+        Assert.Equal(Ids(homeDog.Home, awayDog.Away), Ids(week.DogOptions.Select(option => option.TeamId)));
+        Assert.DoesNotContain(week.DogOptions, option => option.TeamId == pickem.Home || option.TeamId == pickem.Away || option.TeamId == excluded.Home || option.TeamId == excluded.Away);
+    }
+
+    [Fact]
+    public void DogOptionsAreNotGeneratedFromPartialLinesOrOutsideDraft()
+    {
+        var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
+        var approved = AddGame(week, 3m);
+        week.SetDogOptions([new DogOption(approved.Away)]);
+        var unapproved = new Game(new GameId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow));
+        week.AddGame(unapproved);
+        week.AddLine(unapproved.Id, new Spread(2m));
+
+        Assert.Equal("week.lines", week.GenerateDogOptions().Error!.Code);
+        Assert.Equal([approved.Away], week.DogOptions.Select(option => option.TeamId));
+        week.ApproveLatestLine(unapproved.Id);
+        week.ApproveLines();
+        week.Publish();
+        Assert.Equal("week.state", week.GenerateDogOptions().Error!.Code);
+    }
+
+    [Fact]
+    public void ReplacingDogOptionsAllowsEitherSideOfAnIncludedGameButNothingElse()
+    {
+        var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
+        var first = AddGame(week, 3m);
+        var second = AddGame(week, -3m);
+        var excluded = AddGame(week, 1m, excluded: true);
+        Assert.True(week.GenerateDogOptions().IsSuccess);
+
+        Assert.Equal("week.dogs", week.ReplaceDogOptions([first.Home, first.Home]).Error!.Code);
+        Assert.Equal("week.dogs", week.ReplaceDogOptions([new TeamId(Guid.NewGuid())]).Error!.Code);
+        Assert.Equal("week.dogs", week.ReplaceDogOptions([excluded.Home]).Error!.Code);
+        Assert.Equal(Ids(first.Home, second.Away), Ids(week.DogOptions.Select(option => option.TeamId)));
+
+        Assert.True(week.ReplaceDogOptions([first.Away, second.Home]).IsSuccess);
+        Assert.Equal(Ids(first.Away, second.Home), Ids(week.DogOptions.Select(option => option.TeamId)));
+        week.ApproveLines();
+        week.Publish();
+        Assert.Equal("week.state", week.ReplaceDogOptions([first.Home]).Error!.Code);
+    }
+
+    [Fact]
+    public void ApprovingAndPublishingDoNotRequireADogList()
+    {
+        var week = CreateWeek(out var gameId);
+        week.AddLine(gameId, new Spread(1m));
+        week.ApproveLatestLine(gameId);
+        Assert.True(week.ApproveLines().IsSuccess);
+        Assert.Empty(week.DogOptions);
+        Assert.True(week.Publish().IsSuccess);
+    }
+
+    private static IEnumerable<Guid> Ids(params TeamId[] teams) => Ids(teams.AsEnumerable());
+    private static IEnumerable<Guid> Ids(IEnumerable<TeamId> teams) => teams.Select(team => team.Value).Order().ToList();
+
+    private static (TeamId Home, TeamId Away) AddGame(Week week, decimal spread, bool excluded = false)
+    {
+        var game = new Game(new GameId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow), excluded);
+        week.AddGame(game);
+        week.AddLine(game.Id, new Spread(spread));
+        week.ApproveLatestLine(game.Id);
+        return (game.HomeTeamId, game.AwayTeamId);
+    }
+
     private static Week CreateWeek(out GameId gameId)
     {
         gameId = new GameId(Guid.NewGuid());

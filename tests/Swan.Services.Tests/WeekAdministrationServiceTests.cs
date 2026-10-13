@@ -307,6 +307,85 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.Equal(0, Assert.Single(Assert.Single(await LoadScores(bad.Week)).Lines, line => line.Source == ScoreSource.DogPick).Points);
     }
 
+    [Fact]
+    public async Task GenerateDogOptionsPersistsHomePerspectiveUnderdogsAndAudits()
+    {
+        var seeded = await SeedDraftWeek(3m, -3m, 0m, 7m); // pick'em game 2 yields no option
+
+        var generated = await Run(service => service.GenerateDogOptionsAsync(Admin, seeded.Week));
+
+        Assert.True(generated.IsSuccess);
+        var expected = new[] { seeded.Games[0].Home, seeded.Games[1].Away, seeded.Games[3].Home }.Select(team => team.Value).Order();
+        Assert.Equal(expected, (await Run(service => service.GetAsync(seeded.Week))).Value!.DogOptions.Select(team => team.Value).Order());
+        Assert.Equal(["week.dog-options.generated"], await Run((service, database) => database.AuditEntries.Select(entry => entry.Action).ToListAsync()));
+    }
+
+    [Fact]
+    public async Task RejectedGenerationAndReplacementLeaveThePersistedListAndAuditUntouched()
+    {
+        var seeded = await SeedDraftWeek(3m, null);
+        var original = new[] { seeded.Games[0].Away };
+        await Run(service => service.ReplaceDogOptionsAsync(Admin, seeded.Week, original));
+
+        var partial = await Run(service => service.GenerateDogOptionsAsync(Admin, seeded.Week));
+        var duplicate = await Run(service => service.ReplaceDogOptionsAsync(Admin, seeded.Week, [seeded.Games[0].Home, seeded.Games[0].Home]));
+        var outside = await Run(service => service.ReplaceDogOptionsAsync(Admin, seeded.Week, [new TeamId(Guid.NewGuid())]));
+        var missing = await Run(service => service.GenerateDogOptionsAsync(Admin, new WeekId(Guid.NewGuid())));
+
+        Assert.Equal("week.lines", partial.Error!.Code);
+        Assert.Equal("week.dogs", duplicate.Error!.Code);
+        Assert.Equal("week.dogs", outside.Error!.Code);
+        Assert.Equal("week.missing", missing.Error!.Code);
+        Assert.Equal(original, (await Run(service => service.GetAsync(seeded.Week))).Value!.DogOptions);
+        Assert.Equal(["week.dog-options.replaced"], await Run((service, database) => database.AuditEntries.Select(entry => entry.Action).ToListAsync()));
+    }
+
+    [Fact]
+    public async Task AdminCanReplaceWithEitherSideAndDogOptionsFreezeOncePublished()
+    {
+        var seeded = await SeedDraftWeek(3m, -3m);
+        await Run(service => service.GenerateDogOptionsAsync(Admin, seeded.Week));
+
+        var replaced = await Run(service => service.ReplaceDogOptionsAsync(Admin, seeded.Week, [seeded.Games[0].Away, seeded.Games[1].Home]));
+        await Run(service => service.ApproveLinesAsync(Admin, seeded.Week));
+        await Run(service => service.PublishAsync(Admin, seeded.Week));
+        var frozenReplace = await Run(service => service.ReplaceDogOptionsAsync(Admin, seeded.Week, [seeded.Games[0].Home]));
+        var frozenGenerate = await Run(service => service.GenerateDogOptionsAsync(Admin, seeded.Week));
+
+        Assert.True(replaced.IsSuccess);
+        Assert.Equal("week.state", frozenReplace.Error!.Code);
+        Assert.Equal("week.state", frozenGenerate.Error!.Code);
+        Assert.Equal(new[] { seeded.Games[0].Away, seeded.Games[1].Home }.Select(team => team.Value).Order(), (await Run(service => service.GetAsync(seeded.Week))).Value!.DogOptions.Select(team => team.Value).Order());
+    }
+
+    private sealed record DraftGame(GameId Id, TeamId Home, TeamId Away);
+    private sealed record DraftWeek(WeekId Week, List<DraftGame> Games);
+
+    // A null spread leaves that game without an approved line.
+    private async Task<DraftWeek> SeedDraftWeek(params decimal?[] spreads)
+    {
+        await using var database = CreateDatabase();
+        await database.Database.MigrateAsync();
+        var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
+        var games = new List<DraftGame>();
+        foreach (var spread in spreads)
+        {
+            var game = new Game(new GameId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow.AddDays(3)));
+            week.AddGame(game);
+            if (spread is { } value)
+            {
+                Assert.True(week.AddLine(game.Id, new Spread(value)).IsSuccess);
+                Assert.True(week.ApproveLatestLine(game.Id).IsSuccess);
+            }
+
+            games.Add(new DraftGame(game.Id, game.HomeTeamId, game.AwayTeamId));
+        }
+
+        database.Weeks.Add(week);
+        await database.SaveChangesAsync();
+        return new DraftWeek(week.Id, games);
+    }
+
     private sealed record LockedWeek(WeekId Week, List<GameId> Games, MembershipId Membership);
 
     private async Task SeedSeason(SeasonId season)
