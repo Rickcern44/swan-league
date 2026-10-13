@@ -15,6 +15,8 @@ public static class WeekEndpoints
             ToResult(await service.GetAsync(new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/games/{gameId:guid}/lines", (Guid weekId, Guid gameId, AddLineRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.AddLineAsync(actor, new WeekId(weekId), new GameId(gameId), request.Spread, request.Approve, cancellationToken)));
+        weeks.MapPost("/games/{gameId:guid}/lines/approve-latest", (Guid weekId, Guid gameId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.ApproveLatestLineAsync(actor, new WeekId(weekId), new GameId(gameId), cancellationToken)));
         weeks.MapPost("/lines/approve", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.ApproveLinesAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/publish", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>

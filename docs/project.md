@@ -28,7 +28,7 @@ Evidence levels used below:
 | 0. Foundations | Implemented; end-to-end acceptance pending. CI is deferred by a prior project decision. | [[SWAN-1-baseline-ui-api]] (superseded), [[SWAN-2-solution-restructure]], [[SWAN-3-domain-model]], [[SWAN-4-phase-0]] |
 | 1. Scoring core | Implemented (R1–R14 policies, fixtures, standings). Tied coaches share a rank under competition ranking (`1, 1, 1, 4`); no secondary tiebreak is applied. | [[SWAN-5-scoring]] |
 | 1b. Hosting research | Not started. | — |
-| 2. Admin week workflow, scores import, simulation | In progress. 2.1 admin week lifecycle API (`/api/admin/weeks/{weekId}`) is built; a line can only be approved in the request that adds it (`approve` on add-line) or all at once (`lines/approve`), because per-game line history is not persisted. Next schema slice: persist per-game line history, then add a standalone approve-latest. | — |
+| 2. Admin week workflow, scores import, simulation | In progress. Admin week lifecycle API (`/api/admin/weeks/{weekId}`) is built, and per-game line history is persisted so a line can be added and later approved via `lines/approve-latest`. Scores import and simulation remain. | — |
 | 3. Coach picks | After Phase 2. | — |
 | 4. Notifications | After Phase 3. | — |
 | 5–9 (milestones 2 and 3) | Not started. | — |

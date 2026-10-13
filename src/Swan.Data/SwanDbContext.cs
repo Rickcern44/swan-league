@@ -139,7 +139,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 game.Property(value => value.Excluded);
                 game.Property(value => value.ApprovedLine).HasConversion(new ValueConverter<Spread?, decimal?>(value => value == null ? null : value.Value, value => value == null ? null : new Spread(value.Value)));
                 game.Property(value => value.Result).HasConversion(new ValueConverter<GameResult?, string?>(value => value == null ? null : $"{value.HomeScore}:{value.AwayScore}", value => value == null ? null : ParseResult(value)));
-                game.Ignore(value => value.LineHistory);
+                game.PrimitiveCollection(value => value.LineHistory).HasField("lineHistory").ElementType().HasConversion(new ValueConverter<Spread, decimal>(value => value.Value, value => new Spread(value)));
             });
             entity.OwnsMany<DogOption>(nameof(DogOption), nameof(Week.DogOptions), option =>
             {
