@@ -356,6 +356,22 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
     }
 
+    [Fact]
+    public async Task LegacySetupSeasonWithoutPoolsCanHaveItsMoneySet()
+    {
+        await Migrate();
+        var id = Guid.NewGuid();
+        await using (var database = CreateDatabase())
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+
+        var updated = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
+
+        Assert.True(updated.IsSuccess);
+        var stored = await Run((service, database) => database.Seasons.SingleAsync());
+        Assert.Equal([("Main", 90m), ("Dog", 30m), ("Regular Season", 15m), ("Playoff", 15m)], stored.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.money.updated")));
+    }
+
     private async Task Migrate()
     {
         await using var database = CreateDatabase();

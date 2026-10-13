@@ -79,7 +79,14 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         });
     }
 
-    private static SetupMoney ToMoney(Season season) => new(season.Settings.BuyIn, season.Pools[0].Stake, season.Pools[1].Stake, season.Pools[2].Stake, season.Pools[3].Stake);
+    // Pools are looked up by name: a Setup row that predates persisted pools has none, and the first money edit must still be able to set them.
+    private static MoneyAudit ToMoney(Season season)
+    {
+        Money? Stake(string name) => season.Pools.FirstOrDefault(pool => pool.Name == name)?.Stake;
+        return new(season.Settings.BuyIn, Stake("Main"), Stake("Dog"), Stake("Regular Season"), Stake("Playoff"));
+    }
+
+    private sealed record MoneyAudit(Money BuyIn, Money? Main, Money? Dog, Money? RegularSeason, Money? Playoff);
 
     private static SeasonSummary ToSummary(Season season) => new(season.Id, season.Year, season.Name, season.IsSimulation, season.State, season.Settings, season.Pools);
 }
