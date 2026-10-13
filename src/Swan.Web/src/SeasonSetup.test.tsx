@@ -129,13 +129,12 @@ test("the pool total follows the stakes as they are typed", async () => {
   expect(screen.getByText("Pool total $105.50")).toBeVisible();
 });
 
-test("saving a card sends its API payload and refreshes every card from the reply", async () => {
+test("saving a card sends its API payload, shows the reply, and keeps unsaved edits in other cards", async () => {
   stubApi("Admin");
   replies["GET /api/admin/seasons/setup"] = { status: 200, body: season() };
   replies["PUT /api/admin/seasons/setup/money"] = {
     status: 200,
     body: season({
-      name: "Renamed elsewhere",
       settings: {
         buyIn: money(150),
         doubleDogWeeks: 3,
@@ -150,6 +149,9 @@ test("saving a card sends its API payload and refreshes every card from the repl
     }),
   };
   render(<App />);
+  fireEvent.change(await screen.findByLabelText("Season name"), {
+    target: { value: "Unsaved name" },
+  });
   for (const [label, value] of [
     ["Buy-in", "150"],
     ["Main", "90"],
@@ -169,7 +171,7 @@ test("saving a card sends its API payload and refreshes every card from the repl
     method: "PUT",
     body: { buyIn: 150, main: 90, dog: 30, regularSeason: 15, playoff: 15 },
   });
-  expect(screen.getByLabelText("Season name")).toHaveValue("Renamed elsewhere");
+  expect(screen.getByLabelText("Season name")).toHaveValue("Unsaved name");
 });
 
 test("saving basics and the deadline use their own endpoints", async () => {

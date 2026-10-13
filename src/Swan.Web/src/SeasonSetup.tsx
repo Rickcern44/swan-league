@@ -205,23 +205,27 @@ function SetupCards({
   );
   const [notices, setNotices] = useState<Record<string, Notice>>({});
 
-  // A saved reply is the truth for every card, so the whole form state is rebuilt from it.
+  // Only the saved card takes the reply's values: another card's unsaved edits are not the reply's to discard.
   function resync(saved: Season, card: string, text: string) {
-    setYear(String(saved.year));
-    setName(saved.name);
-    setIsSimulation(saved.isSimulation);
-    setBuyIn(String(saved.settings.buyIn.amount));
-    setStakes(
-      Object.fromEntries(
-        stakeNames.map((pool) => [
-          pool,
-          String(saved.pools.find((p) => p.name === pool)?.stake.amount ?? 0),
-        ]),
-      ),
-    );
-    setDeadline(
-      (saved.settings.teamPickDeadlineEastern ?? defaultDeadline).slice(0, 5),
-    );
+    if (card === "basics") {
+      setYear(String(saved.year));
+      setName(saved.name);
+      setIsSimulation(saved.isSimulation);
+    } else if (card === "money") {
+      setBuyIn(String(saved.settings.buyIn.amount));
+      setStakes(
+        Object.fromEntries(
+          stakeNames.map((pool) => [
+            pool,
+            String(saved.pools.find((p) => p.name === pool)?.stake.amount ?? 0),
+          ]),
+        ),
+      );
+    } else {
+      setDeadline(
+        (saved.settings.teamPickDeadlineEastern ?? defaultDeadline).slice(0, 5),
+      );
+    }
     setNotices({ [card]: { kind: "saved", text } });
     onSeason(saved);
   }
@@ -323,7 +327,7 @@ function SetupCards({
             />
           </Field>
         ))}
-        <output>{`Pool total ${dollars(poolTotal)}`}</output>
+        <span className="total">{`Pool total ${dollars(poolTotal)}`}</span>
       </Card>
       <Card
         title="Weekly deadline"

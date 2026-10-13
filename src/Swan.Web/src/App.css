@@ -126,7 +126,7 @@ button {
 
   .card h3,
   .card .actions,
-  .card output,
+  .card .total,
   .card label.check {
     grid-column: 1 / -1;
   }
