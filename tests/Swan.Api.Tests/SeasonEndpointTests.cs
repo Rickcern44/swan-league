@@ -23,6 +23,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("GET", "/api/admin/seasons/setup")]
     [InlineData("PUT", "/api/admin/seasons/setup")]
     [InlineData("PUT", "/api/admin/seasons/setup/money")]
+    [InlineData("PUT", "/api/admin/seasons/setup/deadline")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -153,6 +154,60 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains(code, await response.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task AdminEditsTheSetupSeasonDeadline()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00", ignored = 1 });
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(["deadline:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:11:30:00"], service.Calls);
+    }
+
+    [Fact]
+    public async Task AnonymousCannotEditTheSetupSeasonDeadline()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00" });
+
+        Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"teamPickDeadlineEastern":null}""")]
+    [InlineData("""{"teamPickDeadlineEastern":"not a time"}""")]
+    [InlineData("""{"teamPickDeadlineEastern":"25:00:00"}""")]
+    [InlineData("""{"teamPickDeadlineEastern":1130}""")]
+    public async Task MissingNullOrMalformedDeadlineIsBadRequestAndNeverReachesTheService(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsync("/api/admin/seasons/setup/deadline", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("season.locked", HttpStatusCode.Conflict)]
+    public async Task DeadlineRejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00" });
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Contains(code, await response.Content.ReadAsStringAsync());
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -204,6 +259,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         public Task<Result<SeasonSummary>> UpdateSetupMoneyAsync(UserId actor, SetupMoney money, CancellationToken cancellationToken = default)
         {
             Calls.Add($"money:{actor.Value}:{money.BuyIn.Amount}/{money.Main.Amount}/{money.Dog.Amount}/{money.RegularSeason.Amount}/{money.Playoff.Amount}:{money.BuyIn.Currency}");
+            return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Ok());
+        }
+
+        public Task<Result<SeasonSummary>> UpdateSetupDeadlineAsync(UserId actor, TimeOnly deadlineEastern, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"deadline:{actor.Value}:{deadlineEastern:HH:mm:ss}");
             return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Ok());
         }
 

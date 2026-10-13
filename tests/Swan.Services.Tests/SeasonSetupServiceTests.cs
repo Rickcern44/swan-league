@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Swan.Core.Common;
 using Swan.Core.League;
+using Swan.Core.Picks;
 using Swan.Data;
 using Swan.Services.League;
 using Swan.Services.Platform;
@@ -370,6 +371,83 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var stored = await Run((service, database) => database.Seasons.SingleAsync());
         Assert.Equal([("Main", 90m), ("Dog", 30m), ("Regular Season", 15m), ("Playoff", 15m)], stored.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
         Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.money.updated")));
+    }
+
+    [Fact]
+    public async Task EditingTheSetupDeadlinePersistsAuditsBeforeAndAfterAndKeepsEverythingElse()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: true));
+
+        var updated = await Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)));
+        var reloaded = await Run(service => service.GetSetupAsync());
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(new TimeOnly(11, 30), reloaded.Value!.Settings.TeamPickDeadlineEastern);
+        Assert.Equal((created.Value!.Id, 2026, "2026 Season", true, SeasonState.Setup), (reloaded.Value.Id, reloaded.Value.Year, reloaded.Value.Name, reloaded.Value.IsSimulation, reloaded.Value.State));
+        Assert.Equal(created.Value.Settings with { TeamPickDeadlineEastern = new TimeOnly(11, 30) }, reloaded.Value.Settings);
+        Assert.Equal(created.Value.Pools, reloaded.Value.Pools);
+        var weekStart = new DateTimeOffset(2025, 10, 6, 0, 0, 0, TimeSpan.Zero);
+        Assert.Equal(new DateTimeOffset(2025, 10, 12, 15, 30, 0, TimeSpan.Zero), LockPolicy.WeekDeadline(reloaded.Value.Settings, weekStart));
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.deadline.updated"));
+        Assert.Equal((Admin, created.Value.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("13:00", audit.Details);
+        Assert.Contains("11:30", audit.Details);
+    }
+
+    [Fact]
+    public async Task RepeatingAnAppliedDeadlineEditSucceedsWithoutASecondAuditEntry()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var first = await Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)));
+        var replay = await Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)));
+        var secondReplay = await Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)));
+
+        Assert.True(first.IsSuccess && replay.IsSuccess && secondReplay.IsSuccess);
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.deadline.updated")));
+    }
+
+    [Fact]
+    public async Task DeadlineEditWithNoSetupSeasonIsMissingAndALiveSeasonIsNeverChanged()
+    {
+        await Migrate();
+        var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
+        Assert.True(live.Activate().IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(live);
+            await database.SaveChangesAsync();
+        }
+
+        var result = await Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)));
+
+        Assert.Equal("season.missing", result.Error!.Code);
+        var stored = await Run((service, database) => database.Seasons.SingleAsync());
+        Assert.Equal(new TimeOnly(13, 0), stored.Settings.TeamPickDeadlineEastern);
+        Assert.Equal(0, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task DeadlineEditWaitsForAnInFlightActivationAndThenLeavesTheLiveSeasonUntouched()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        await using var activating = CreateDatabase();
+        await using var transaction = await activating.Database.BeginTransactionAsync();
+        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""");
+
+        var edit = Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)));
+        await Task.Delay(500);
+        Assert.False(edit.IsCompleted);
+        await transaction.CommitAsync();
+        var result = await edit;
+
+        Assert.False(result.IsSuccess);
+        var stored = await Run((service, database) => database.Seasons.SingleAsync());
+        Assert.Equal((new TimeOnly(13, 0), SeasonState.Live), (stored.Settings.TeamPickDeadlineEastern, stored.State));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
     }
 
     private async Task Migrate()

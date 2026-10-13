@@ -10,6 +10,8 @@ public sealed record UpdateSeasonRequest(int Year, string? Name, bool IsSimulati
 
 public sealed record UpdateSeasonMoneyRequest(decimal BuyIn, decimal Main, decimal Dog, decimal RegularSeason, decimal Playoff);
 
+public sealed record UpdateSeasonDeadlineRequest(TimeOnly? TeamPickDeadlineEastern);
+
 public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
@@ -50,6 +52,17 @@ public static class SeasonEndpoints
                     { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
                     var rejected => Results.Conflict(rejected.Error)
                 });
+        seasons.MapPut("/setup/deadline", async (UpdateSeasonDeadlineRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            request.TeamPickDeadlineEastern is not { } deadline
+                ? Results.BadRequest(new Error("season.deadline", "A team-pick deadline in Eastern Time is required."))
+                : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                    ? Results.Unauthorized()
+                    : await service.UpdateSetupDeadlineAsync(new UserId(actor), deadline, cancellationToken) switch
+                    {
+                        { IsSuccess: true } updated => Results.Ok(updated.Value),
+                        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
+                        var rejected => Results.Conflict(rejected.Error)
+                    });
         return endpoints;
     }
 

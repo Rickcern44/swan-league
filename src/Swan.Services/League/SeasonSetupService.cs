@@ -17,6 +17,7 @@ public interface ISeasonSetupService
     Task<Result<SeasonSummary>> GetSetupAsync(CancellationToken cancellationToken = default);
     Task<Result<SeasonSummary>> UpdateSetupBasicsAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
     Task<Result<SeasonSummary>> UpdateSetupMoneyAsync(UserId actor, SetupMoney money, CancellationToken cancellationToken = default);
+    Task<Result<SeasonSummary>> UpdateSetupDeadlineAsync(UserId actor, TimeOnly deadlineEastern, CancellationToken cancellationToken = default);
 }
 
 public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit) : ISeasonSetupService
@@ -55,6 +56,9 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
     public Task<Result<SeasonSummary>> UpdateSetupMoneyAsync(UserId actor, SetupMoney money, CancellationToken cancellationToken = default) =>
         EditSetupAsync(actor, "season.setup.money.updated", season => season.UpdateMoney(money.BuyIn, money.Main, money.Dog, money.RegularSeason, money.Playoff), ToMoney, value => value, cancellationToken);
 
+    public Task<Result<SeasonSummary>> UpdateSetupDeadlineAsync(UserId actor, TimeOnly deadlineEastern, CancellationToken cancellationToken = default) =>
+        EditSetupAsync(actor, "season.setup.deadline.updated", season => season.UpdateDeadline(deadlineEastern), season => new DeadlineAudit(season.Settings.TeamPickDeadlineEastern), value => value, cancellationToken);
+
     // Edits the one Setup season under a row lock; `audited` is what the audit entry records and `changeKey` decides whether anything changed.
     private async Task<Result<SeasonSummary>> EditSetupAsync<TAudited, TKey>(UserId actor, string action, Func<Season, Result<bool>> edit, Func<Season, TAudited> audited, Func<TAudited, TKey> changeKey, CancellationToken cancellationToken)
         where TKey : IEquatable<TKey>
@@ -85,6 +89,8 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         Money? Stake(string name) => season.Pools.FirstOrDefault(pool => pool.Name == name)?.Stake;
         return new(season.Settings.BuyIn, Stake("Main"), Stake("Dog"), Stake("Regular Season"), Stake("Playoff"));
     }
+
+    private sealed record DeadlineAudit(TimeOnly? TeamPickDeadlineEastern);
 
     private sealed record MoneyAudit(Money BuyIn, Money? Main, Money? Dog, Money? RegularSeason, Money? Playoff);
 

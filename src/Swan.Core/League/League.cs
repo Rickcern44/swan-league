@@ -60,6 +60,14 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         return Result<bool>.Success(true);
     }
 
+    // The Sunday team-pick deadline, in Eastern Time; LockPolicy converts it to UTC.
+    public Result<bool> UpdateDeadline(TimeOnly deadlineEastern)
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
+        Settings = Settings with { TeamPickDeadlineEastern = deadlineEastern };
+        return Result<bool>.Success(true);
+    }
+
     private static bool IsValidAmount(Money money) => money.Amount > 0 && decimal.Round(money.Amount, 2) == money.Amount;
 
     private static Error? ValidateBasics(int year, string name) =>

@@ -1,5 +1,6 @@
 using Swan.Core.Common;
 using Swan.Core.League;
+using Swan.Core.Picks;
 using Xunit;
 
 namespace Swan.Core.Tests;
@@ -150,5 +151,46 @@ public sealed class SeasonSetupTests
         Assert.Equal("season.locked", updated.Error!.Code);
         Assert.Equal(Usd(100m), season.Settings.BuyIn);
         Assert.Equal(60m, season.Pools.Single(pool => pool.Name == "Main").Stake.Amount);
+    }
+
+    [Fact]
+    public void SetupDeadlineCanBeRevisedAndOnlyTheDeadlineChanges()
+    {
+        var season = Blank();
+        var (settings, pools, id) = (season.Settings, season.Pools, season.Id);
+
+        var updated = season.UpdateDeadline(new TimeOnly(11, 30));
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(settings with { TeamPickDeadlineEastern = new TimeOnly(11, 30) }, season.Settings);
+        Assert.Equal(pools, season.Pools);
+        Assert.Equal((id, 2026, "2026 Season", false, SeasonState.Setup), (season.Id, season.Year, season.Name, season.IsSimulation, season.State));
+        Assert.True(season.Activate().IsSuccess);
+    }
+
+    [Fact]
+    public void LiveSeasonRejectsADeadlineUpdate()
+    {
+        var season = Blank();
+        Assert.True(season.Activate().IsSuccess);
+
+        var updated = season.UpdateDeadline(new TimeOnly(11, 30));
+
+        Assert.Equal("season.locked", updated.Error!.Code);
+        Assert.Equal(new TimeOnly(13, 0), season.Settings.TeamPickDeadlineEastern);
+    }
+
+    [Fact]
+    public void ConfiguredDeadlineChangesTheLockPolicyDeadline()
+    {
+        var season = Blank();
+        var weekStart = new DateTimeOffset(2025, 10, 6, 0, 0, 0, TimeSpan.Zero);
+        Assert.Equal(new DateTimeOffset(2025, 10, 12, 17, 0, 0, TimeSpan.Zero), LockPolicy.WeekDeadline(season.Settings, weekStart));
+
+        Assert.True(season.UpdateDeadline(new TimeOnly(11, 30)).IsSuccess);
+
+        Assert.Equal(new DateTimeOffset(2025, 10, 12, 15, 30, 0, TimeSpan.Zero), LockPolicy.WeekDeadline(season.Settings, weekStart));
+        var lateSunday = new DateTimeOffset(2025, 10, 12, 20, 25, 0, TimeSpan.Zero);
+        Assert.Equal(new DateTimeOffset(2025, 10, 12, 15, 30, 0, TimeSpan.Zero), LockPolicy.TeamPickLockTime(lateSunday, season.Settings, weekStart));
     }
 }
