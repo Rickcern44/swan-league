@@ -30,17 +30,61 @@ async function signIn(page: import("@playwright/test").Page, email: string) {
   await page.goto(link);
 }
 
-test("seeded admin and coach complete the magic-link flow", async ({
+// Sign-in links are limited to one per address per minute, so each address signs in once.
+test("seeded admin sets up the season and coach sees no admin controls", async ({
   page,
 }) => {
   await signIn(page, "admin@swan.local");
   await expect(page.getByText("Signed in as Swan Admin · Admin")).toBeVisible();
-  await expect(page.getByText("Admin", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Season setup" }),
+  ).toBeVisible();
+
+  // The seeded database may or may not already hold a Setup season.
+  const start = page.getByRole("form", { name: "Start a new season" });
+  if (await start.isVisible()) {
+    await start.getByLabel("Season year").fill("2027");
+    await start.getByLabel("Season name").fill("2027 Swan League");
+    await start.getByRole("button", { name: "Create season" }).click();
+  }
+
+  const basics = page.getByRole("form", { name: "Basics" });
+  await expect(basics).toBeVisible();
+  await basics.getByLabel("Season name").fill("E2E Swan League");
+  await basics.getByLabel("Simulation season").check();
+  await basics.getByRole("button", { name: "Save basics" }).click();
+  await expect(basics.getByText("Basics saved")).toBeVisible();
+
+  const money = page.getByRole("form", { name: "Money" });
+  await money.getByLabel("Buy-in").fill("150");
+  await money.getByLabel("Main", { exact: true }).fill("90");
+  await money.getByLabel("Dog").fill("30");
+  await money.getByLabel("Regular Season").fill("15");
+  await money.getByLabel("Playoff").fill("15");
+  await expect(money.getByText("Pool total $150.00")).toBeVisible();
+  await money.getByRole("button", { name: "Save money" }).click();
+  await expect(money.getByText("Money saved")).toBeVisible();
+
+  const deadline = page.getByRole("form", { name: "Weekly deadline" });
+  await deadline.getByLabel("Team picks lock Sundays at").fill("11:30");
+  await deadline.getByRole("button", { name: "Save deadline" }).click();
+  await expect(deadline.getByText("Deadline saved")).toBeVisible();
+
+  await money.getByLabel("Playoff").fill("5");
+  await money.getByRole("button", { name: "Save money" }).click();
+  await expect(money.getByRole("alert")).toContainText("add up");
+
+  await page.reload();
+  await expect(page.getByLabel("Season name")).toHaveValue("E2E Swan League");
+  await expect(page.getByLabel("Buy-in")).toHaveValue("150");
+  await expect(page.getByLabel("Team picks lock Sundays at")).toHaveValue(
+    "11:30",
+  );
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByLabel("Email")).toBeVisible();
 
   await signIn(page, "coach1@swan.local");
   await expect(page.getByText("Signed in as Coach 1 · Coach")).toBeVisible();
-  await expect(page.getByText("Admin", { exact: true })).not.toBeVisible();
+  await expect(page.getByText("Season setup")).not.toBeVisible();
 });

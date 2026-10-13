@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import SeasonSetup from "./SeasonSetup";
 
 type CurrentUser = { id: string; name: string; role: "Admin" | "Coach" };
 
@@ -56,8 +57,8 @@ export default function App() {
         <p>
           Signed in as {user.name} · {user.role}
         </p>
-        {user.role === "Admin" && <strong>Admin</strong>}
         <button onClick={() => void signOut()}>Sign out</button>
+        {user.role === "Admin" && <SeasonSetup />}
       </main>
     );
   }
