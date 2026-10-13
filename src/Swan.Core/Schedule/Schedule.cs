@@ -45,7 +45,7 @@ public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type
     public IReadOnlyCollection<Game> Games => games.AsReadOnly();
     public IReadOnlyCollection<DogOption> DogOptions => dogOptions.AsReadOnly();
     public void AddGame(Game game) => games.Add(game);
-    public void SetDogOptions(IEnumerable<DogOption> options) { dogOptions.Clear(); dogOptions.AddRange(options); }
+    private void SetDogOptions(IEnumerable<DogOption> options) { dogOptions.Clear(); dogOptions.AddRange(options); }
     // Spread is signed from the home team's perspective: +x makes the home team the underdog, -x the away team, 0 has none.
     public Result<bool> GenerateDogOptions()
     {

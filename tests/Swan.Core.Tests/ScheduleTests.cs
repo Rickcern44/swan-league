@@ -75,7 +75,7 @@ public sealed class ScheduleTests
     {
         var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
         var approved = AddGame(week, 3m);
-        week.SetDogOptions([new DogOption(approved.Away)]);
+        Assert.True(week.ReplaceDogOptions([approved.Away]).IsSuccess);
         var unapproved = new Game(new GameId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow));
         week.AddGame(unapproved);
         week.AddLine(unapproved.Id, new Spread(2m));

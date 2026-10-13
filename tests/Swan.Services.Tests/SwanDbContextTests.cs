@@ -123,7 +123,7 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         week.AddGame(new Game(gameId, team, new TeamId(Guid.NewGuid()), Kickoff.Create(DateTimeOffset.UtcNow).Value!));
         week.AddLine(gameId, Spread.Create(-3.5m).Value!);
         week.ApproveLatestLine(gameId);
-        week.SetDogOptions([new DogOption(team)]);
+        Assert.True(week.ReplaceDogOptions([team]).IsSuccess);
 
         await using var database = await CreateMigratedDatabase();
         database.Weeks.Add(week);
