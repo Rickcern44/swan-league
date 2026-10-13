@@ -21,6 +21,7 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     private static readonly Guid WeekGuid = Guid.NewGuid();
     private static readonly Guid GameGuid = Guid.NewGuid();
     private static readonly Guid SeasonGuid = Guid.NewGuid();
+    private static readonly Guid TeamGuid = Guid.NewGuid();
 
     [Theory]
     [InlineData("GET", "")]
@@ -32,11 +33,13 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     [InlineData("POST", "/games/00000000-0000-0000-0000-000000000001/result")]
     [InlineData("POST", "/finalize")]
     [InlineData("POST", "/recompute")]
+    [InlineData("POST", "/dog-options/generate")]
+    [InlineData("PUT", "/dog-options")]
     public async Task CoachIsForbiddenFromEveryWeekEndpoint(string method, string suffix)
     {
         using var client = CreateClient("Coach", new FakeWeekService());
 
-        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), $"/api/admin/weeks/{WeekGuid}{suffix}") { Content = method == "POST" ? JsonContent.Create(new { spread = 1 }) : null });
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), $"/api/admin/weeks/{WeekGuid}{suffix}") { Content = method != "GET" ? JsonContent.Create(new { spread = 1, teamIds = new Guid[0] }) : null });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -60,6 +63,20 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         Assert.Equal(0, payload.RootElement.GetProperty("failed").GetArrayLength());
         Assert.Equal([$"season:{SeasonGuid}"], service.Calls);
         Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"teamIds\":null}")]
+    public async Task ReplaceDogOptionsWithoutATeamListIsABadRequest(string body)
+    {
+        var service = new FakeWeekService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
     }
 
     [Fact]
@@ -88,9 +105,11 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         var result = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result", new { homeScore = 21, awayScore = 21 });
         var finalize = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null);
         var recompute = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null);
+        var generate = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null);
+        var replace = await client.PutAsJsonAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new { teamIds = new[] { TeamGuid } });
 
-        Assert.All(new[] { line, latest, approve, publish, @lock, result, finalize, recompute }, response => response.EnsureSuccessStatusCode());
-        Assert.Equal([$"line:{GameGuid}:-3.5:True", $"latest:{GameGuid}", "approve", "publish", "lock", $"result:{GameGuid}:21:21", "finalize", "recompute"], service.Calls);
+        Assert.All(new[] { line, latest, approve, publish, @lock, result, finalize, recompute, generate, replace }, response => response.EnsureSuccessStatusCode());
+        Assert.Equal([$"line:{GameGuid}:-3.5:True", $"latest:{GameGuid}", "approve", "publish", "lock", $"result:{GameGuid}:21:21", "finalize", "recompute", "generate", $"replace:{TeamGuid}"], service.Calls);
         Assert.All(service.Actors, actor => Assert.Equal(new UserId(Guid.Parse("9c9b2c10-a312-4b77-a26a-ef546e87f3c9")), actor));
     }
 
@@ -113,6 +132,10 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         using var notLocked = CreateClient("Admin", new FakeWeekService { Failure = new Error("week.results", "Every included game needs a result.") });
         Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PutAsJsonAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new { teamIds = new[] { TeamGuid } })).StatusCode);
+        using var missingWeek = CreateClient("Admin", new FakeWeekService { Failure = new Error("week.missing", "Week does not exist.") });
+        Assert.Equal(HttpStatusCode.NotFound, (await missingWeek.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null)).StatusCode);
     }
 
     private HttpClient CreateClient(string role, FakeWeekService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
@@ -164,6 +187,8 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
                 : Result<SeasonRecomputeSummary>.Success(new SeasonRecomputeSummary(seasonId, [new RecomputedWeek(new WeekId(Guid.NewGuid()), 1), new RecomputedWeek(new WeekId(Guid.NewGuid()), 2)], [])));
         }
 
+        public Task<Result<WeekDashboard>> GenerateDogOptionsAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "generate");
+        public Task<Result<WeekDashboard>> ReplaceDogOptionsAsync(UserId actor, WeekId weekId, IReadOnlyCollection<TeamId> teamIds, CancellationToken cancellationToken = default) => Record(actor, weekId, $"replace:{string.Join(",", teamIds.Select(team => team.Value))}");
         public Task<Result<WeekDashboard>> ApproveLinesAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "approve");
         public Task<Result<WeekDashboard>> PublishAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "publish");
         public Task<Result<WeekDashboard>> LockAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "lock");
@@ -175,6 +200,6 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
             return Task.FromResult(Failure is { } error ? Result<WeekDashboard>.Failure(error.Code, error.Message) : Ok(weekId));
         }
 
-        private static Result<WeekDashboard> Ok(WeekId weekId) => Result<WeekDashboard>.Success(new WeekDashboard(weekId, new SeasonId(Guid.NewGuid()), 1, WeekKind.Regular, WeekState.Draft, []));
+        private static Result<WeekDashboard> Ok(WeekId weekId) => Result<WeekDashboard>.Success(new WeekDashboard(weekId, new SeasonId(Guid.NewGuid()), 1, WeekKind.Regular, WeekState.Draft, [], []));
     }
 }

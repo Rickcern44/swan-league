@@ -6,6 +6,7 @@ namespace Swan.Api.Endpoints.Admin;
 
 public sealed record AddLineRequest(decimal Spread, bool Approve = false);
 public sealed record ConfirmResultRequest(int HomeScore, int AwayScore);
+public sealed record ReplaceDogOptionsRequest(IReadOnlyList<Guid> TeamIds);
 
 public static class WeekEndpoints
 {
@@ -18,6 +19,12 @@ public static class WeekEndpoints
             Act(principal, actor => service.AddLineAsync(actor, new WeekId(weekId), new GameId(gameId), request.Spread, request.Approve, cancellationToken)));
         weeks.MapPost("/games/{gameId:guid}/lines/approve-latest", (Guid weekId, Guid gameId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.ApproveLatestLineAsync(actor, new WeekId(weekId), new GameId(gameId), cancellationToken)));
+        weeks.MapPost("/dog-options/generate", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.GenerateDogOptionsAsync(actor, new WeekId(weekId), cancellationToken)));
+        weeks.MapPut("/dog-options", (Guid weekId, ReplaceDogOptionsRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            request.TeamIds is null
+                ? Task.FromResult(Results.BadRequest(new Error("week.dogs", "teamIds is required.")))
+                : Act(principal, actor => service.ReplaceDogOptionsAsync(actor, new WeekId(weekId), request.TeamIds.Select(id => new TeamId(id)).ToList(), cancellationToken)));
         weeks.MapPost("/lines/approve", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.ApproveLinesAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/publish", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
