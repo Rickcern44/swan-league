@@ -193,4 +193,54 @@ public sealed class SeasonSetupTests
         var lateSunday = new DateTimeOffset(2025, 10, 12, 20, 25, 0, TimeSpan.Zero);
         Assert.Equal(new DateTimeOffset(2025, 10, 12, 15, 30, 0, TimeSpan.Zero), LockPolicy.TeamPickLockTime(lateSunday, season.Settings, weekStart));
     }
+
+    [Fact]
+    public void ABlankSeasonResumesAtBasics()
+    {
+        Assert.Equal(SetupStep.Basics, Blank().SetupStep);
+    }
+
+    [Theory]
+    [InlineData(SetupStep.Money)]
+    [InlineData(SetupStep.WeeklyDeadline)]
+    [InlineData(SetupStep.TeamsAndPoints)]
+    [InlineData(SetupStep.Basics)]
+    public void SetupResumeStepCanBeSavedAndOnlyItChanges(SetupStep step)
+    {
+        var season = Blank();
+        var (settings, pools, year, name) = (season.Settings, season.Pools, season.Year, season.Name);
+
+        var saved = season.SaveSetupStep(step);
+
+        Assert.True(saved.IsSuccess);
+        Assert.Equal(step, season.SetupStep);
+        Assert.Equal((settings, pools, year, name, SeasonState.Setup), (season.Settings, season.Pools, season.Year, season.Name, season.State));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(4)]
+    [InlineData(99)]
+    public void UnknownSetupStepIsRejectedAndLeavesTheStep(int value)
+    {
+        var season = Blank();
+        Assert.True(season.SaveSetupStep(SetupStep.Money).IsSuccess);
+
+        var saved = season.SaveSetupStep((SetupStep)value);
+
+        Assert.Equal("season.step", saved.Error!.Code);
+        Assert.Equal(SetupStep.Money, season.SetupStep);
+    }
+
+    [Fact]
+    public void LiveSeasonRejectsASetupStepUpdate()
+    {
+        var season = Blank();
+        Assert.True(season.Activate().IsSuccess);
+
+        var saved = season.SaveSetupStep(SetupStep.Money);
+
+        Assert.Equal("season.locked", saved.Error!.Code);
+        Assert.Equal(SetupStep.Basics, season.SetupStep);
+    }
 }

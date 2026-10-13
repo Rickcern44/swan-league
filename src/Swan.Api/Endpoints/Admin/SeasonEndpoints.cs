@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Swan.Core.Common;
+using Swan.Core.League;
 using Swan.Services.League;
 
 namespace Swan.Api.Endpoints.Admin;
@@ -11,6 +12,8 @@ public sealed record UpdateSeasonRequest(int Year, string? Name, bool IsSimulati
 public sealed record UpdateSeasonMoneyRequest(decimal BuyIn, decimal Main, decimal Dog, decimal RegularSeason, decimal Playoff);
 
 public sealed record UpdateSeasonDeadlineRequest(TimeOnly? TeamPickDeadlineEastern);
+
+public sealed record UpdateSeasonStepRequest(SetupStep? Step);
 
 public static class SeasonEndpoints
 {
@@ -60,6 +63,18 @@ public static class SeasonEndpoints
                     : await service.UpdateSetupDeadlineAsync(new UserId(actor), deadline, cancellationToken) switch
                     {
                         { IsSuccess: true } updated => Results.Ok(updated.Value),
+                        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
+                        var rejected => Results.Conflict(rejected.Error)
+                    });
+        seasons.MapPut("/setup/step", async (UpdateSeasonStepRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            request.Step is not { } step
+                ? Results.BadRequest(new Error("season.step", "A setup step is required."))
+                : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                    ? Results.Unauthorized()
+                    : await service.UpdateSetupStepAsync(new UserId(actor), step, cancellationToken) switch
+                    {
+                        { IsSuccess: true } updated => Results.Ok(updated.Value),
+                        { Error.Code: "season.step" } invalid => Results.BadRequest(invalid.Error),
                         { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
                         var rejected => Results.Conflict(rejected.Error)
                     });

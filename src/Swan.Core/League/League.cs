@@ -3,6 +3,8 @@ using Swan.Core.Common;
 namespace Swan.Core.League;
 
 public enum SeasonState { Setup, Live, Completed }
+// Where the Setup wizard resumes; TeamsAndPoints is the first step that is not built yet, so it means every implemented step is done.
+public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints }
 public enum MembershipRole { Commissioner, Administrator, Coach }
 public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null) : ITeamPickLockSettings;
 public sealed record PlayoffRules(bool PicksRequired);
@@ -19,6 +21,7 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     public int Year { get; private set; }
     public string Name { get; private set; } = "";
     public bool IsSimulation { get; private set; }
+    public SetupStep SetupStep { get; private set; } = SetupStep.Basics;
     public IReadOnlyList<PoolDefinition> Pools { get; private set; } = pools.ToList();
 
     // A blank season carries only the PRD defaults (W2): $100 buy-in split Main 60 / Dog 20 / Regular Season 10 / Playoff 10, three double-dog weeks, Sunday 1:00 PM ET deadline.
@@ -65,6 +68,15 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     {
         if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
         Settings = Settings with { TeamPickDeadlineEastern = deadlineEastern };
+        return Result<bool>.Success(true);
+    }
+
+    // Saving a resume step records progress only; it never touches the season's configuration.
+    public Result<bool> SaveSetupStep(SetupStep step)
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
+        if (!Enum.IsDefined(step)) return Result<bool>.Failure("season.step", "Unknown setup step.");
+        SetupStep = step;
         return Result<bool>.Success(true);
     }
 

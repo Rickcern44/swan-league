@@ -450,6 +450,108 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
     }
 
+    [Fact]
+    public async Task ANewSeasonOpensAtBasicsAndTheResumeStepPersistsAuditsAndKeepsEverythingElse()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: true));
+        Assert.Equal(SetupStep.Basics, created.Value!.SetupStep);
+
+        var saved = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Money));
+        var reloaded = await Run(service => service.GetSetupAsync());
+
+        Assert.True(saved.IsSuccess);
+        Assert.Equal(SetupStep.Money, reloaded.Value!.SetupStep);
+        Assert.Equal((created.Value.Id, 2026, "2026 Season", true, SeasonState.Setup, created.Value.Settings), (reloaded.Value.Id, reloaded.Value.Year, reloaded.Value.Name, reloaded.Value.IsSimulation, reloaded.Value.State, reloaded.Value.Settings));
+        Assert.Equal(created.Value.Pools, reloaded.Value.Pools);
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.step.updated"));
+        Assert.Equal((Admin, created.Value.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("Basics", audit.Details);
+        Assert.Contains("Money", audit.Details);
+    }
+
+    [Fact]
+    public async Task RepeatingAResumeStepSucceedsWithoutASecondAuditEntry()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var first = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.WeeklyDeadline));
+        var replay = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.WeeklyDeadline));
+
+        Assert.True(first.IsSuccess && replay.IsSuccess);
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.step.updated")));
+    }
+
+    [Fact]
+    public async Task AnUnknownResumeStepIsRejectedWithoutChangingOrAuditing()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var result = await Run(service => service.UpdateSetupStepAsync(Admin, (SetupStep)42));
+
+        Assert.Equal("season.step", result.Error!.Code);
+        Assert.Equal(SetupStep.Basics, (await Run(service => service.GetSetupAsync())).Value!.SetupStep);
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task ResumeStepWithNoSetupSeasonIsMissingAndALiveSeasonIsNeverChanged()
+    {
+        await Migrate();
+        var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
+        Assert.True(live.Activate().IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(live);
+            await database.SaveChangesAsync();
+        }
+
+        var result = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Money));
+
+        Assert.Equal("season.missing", result.Error!.Code);
+        Assert.Equal(SetupStep.Basics, (await Run((service, database) => database.Seasons.SingleAsync())).SetupStep);
+        Assert.Equal(0, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task ResumeStepWaitsForAnInFlightActivationAndThenLeavesTheLiveSeasonUntouched()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        await using var activating = CreateDatabase();
+        await using var transaction = await activating.Database.BeginTransactionAsync();
+        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""");
+
+        var edit = Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Money));
+        await Task.Delay(500);
+        Assert.False(edit.IsCompleted);
+        await transaction.CommitAsync();
+        var result = await edit;
+
+        Assert.False(result.IsSuccess);
+        var stored = await Run((service, database) => database.Seasons.SingleAsync());
+        Assert.Equal((SetupStep.Basics, SeasonState.Live), (stored.SetupStep, stored.State));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task ASetupSeasonSavedBeforeTheResumeColumnExistedOpensAtBasics()
+    {
+        await Migrate();
+        var id = Guid.NewGuid();
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+        }
+
+        var found = await Run(service => service.GetSetupAsync());
+
+        Assert.Equal(SetupStep.Basics, found.Value!.SetupStep);
+        Assert.True((await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Money))).IsSuccess);
+    }
+
     private async Task Migrate()
     {
         await using var database = CreateDatabase();

@@ -87,6 +87,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(season => season.Year).HasDefaultValue(0);
             entity.Property(season => season.Name).HasDefaultValue("");
             entity.Property(season => season.IsSimulation).HasDefaultValue(false);
+            entity.Property(season => season.SetupStep).HasDefaultValue(SetupStep.Basics);
             entity.Property(season => season.Pools)
                 .HasConversion(value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null), value => JsonSerializer.Deserialize<List<PoolDefinition>>(value, (JsonSerializerOptions?)null)!,
                     new ValueComparer<IReadOnlyList<PoolDefinition>>((left, right) => left!.SequenceEqual(right!), value => value.Aggregate(0, (hash, pool) => HashCode.Combine(hash, pool)), value => value.ToList()))

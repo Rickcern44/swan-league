@@ -7,7 +7,7 @@ using Swan.Services.Platform;
 
 namespace Swan.Services.League;
 
-public sealed record SeasonSummary(SeasonId Id, int Year, string Name, bool IsSimulation, SeasonState State, SeasonSettings Settings, IReadOnlyList<PoolDefinition> Pools);
+public sealed record SeasonSummary(SeasonId Id, int Year, string Name, bool IsSimulation, SeasonState State, SeasonSettings Settings, IReadOnlyList<PoolDefinition> Pools, SetupStep SetupStep = SetupStep.Basics);
 
 public sealed record SetupMoney(Money BuyIn, Money Main, Money Dog, Money RegularSeason, Money Playoff);
 
@@ -18,6 +18,7 @@ public interface ISeasonSetupService
     Task<Result<SeasonSummary>> UpdateSetupBasicsAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
     Task<Result<SeasonSummary>> UpdateSetupMoneyAsync(UserId actor, SetupMoney money, CancellationToken cancellationToken = default);
     Task<Result<SeasonSummary>> UpdateSetupDeadlineAsync(UserId actor, TimeOnly deadlineEastern, CancellationToken cancellationToken = default);
+    Task<Result<SeasonSummary>> UpdateSetupStepAsync(UserId actor, SetupStep step, CancellationToken cancellationToken = default);
 }
 
 public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit) : ISeasonSetupService
@@ -59,6 +60,9 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
     public Task<Result<SeasonSummary>> UpdateSetupDeadlineAsync(UserId actor, TimeOnly deadlineEastern, CancellationToken cancellationToken = default) =>
         EditSetupAsync(actor, "season.setup.deadline.updated", season => season.UpdateDeadline(deadlineEastern), season => new DeadlineAudit(season.Settings.TeamPickDeadlineEastern), value => value, cancellationToken);
 
+    public Task<Result<SeasonSummary>> UpdateSetupStepAsync(UserId actor, SetupStep step, CancellationToken cancellationToken = default) =>
+        EditSetupAsync(actor, "season.setup.step.updated", season => season.SaveSetupStep(step), season => new StepAudit(season.SetupStep.ToString()), value => value, cancellationToken);
+
     // Edits the one Setup season under a row lock; `audited` is what the audit entry records and `changeKey` decides whether anything changed.
     private async Task<Result<SeasonSummary>> EditSetupAsync<TAudited, TKey>(UserId actor, string action, Func<Season, Result<bool>> edit, Func<Season, TAudited> audited, Func<TAudited, TKey> changeKey, CancellationToken cancellationToken)
         where TKey : IEquatable<TKey>
@@ -90,9 +94,11 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         return new(season.Settings.BuyIn, Stake("Main"), Stake("Dog"), Stake("Regular Season"), Stake("Playoff"));
     }
 
+    private sealed record StepAudit(string SetupStep);
+
     private sealed record DeadlineAudit(TimeOnly? TeamPickDeadlineEastern);
 
     private sealed record MoneyAudit(Money BuyIn, Money? Main, Money? Dog, Money? RegularSeason, Money? Playoff);
 
-    private static SeasonSummary ToSummary(Season season) => new(season.Id, season.Year, season.Name, season.IsSimulation, season.State, season.Settings, season.Pools);
+    private static SeasonSummary ToSummary(Season season) => new(season.Id, season.Year, season.Name, season.IsSimulation, season.State, season.Settings, season.Pools, season.SetupStep);
 }
