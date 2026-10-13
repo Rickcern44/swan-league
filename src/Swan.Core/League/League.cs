@@ -39,6 +39,29 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         return Result<bool>.Success(true);
     }
 
+    // Money is the buy-in plus the four fixed pool stakes (names and order are canonical); the stakes must add up to the buy-in exactly.
+    public Result<bool> UpdateMoney(Money buyIn, Money main, Money dog, Money regularSeason, Money playoff)
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
+        Money[] stakes = [main, dog, regularSeason, playoff];
+        if (buyIn.Currency != "USD" || stakes.Any(stake => stake.Currency != "USD")) return Result<bool>.Failure("season.money", "Buy-in and stakes must be in USD.");
+        if (!IsValidAmount(buyIn) || stakes.Any(stake => !IsValidAmount(stake))) return Result<bool>.Failure("season.money", "Buy-in and every pool stake must be greater than zero and in whole cents.");
+        // Subtracting from the buy-in, rather than summing the stakes, cannot overflow decimal however large the amounts are.
+        var remaining = buyIn.Amount;
+        foreach (var stake in stakes)
+        {
+            if (stake.Amount > remaining) return Result<bool>.Failure("season.money", "Pool stakes must add up to the buy-in.");
+            remaining -= stake.Amount;
+        }
+
+        if (remaining != 0) return Result<bool>.Failure("season.money", "Pool stakes must add up to the buy-in.");
+        Settings = Settings with { BuyIn = buyIn };
+        Pools = [new("Main", main), new("Dog", dog), new("Regular Season", regularSeason), new("Playoff", playoff)];
+        return Result<bool>.Success(true);
+    }
+
+    private static bool IsValidAmount(Money money) => money.Amount > 0 && decimal.Round(money.Amount, 2) == money.Amount;
+
     private static Error? ValidateBasics(int year, string name) =>
         string.IsNullOrWhiteSpace(name) ? new Error("season.name", "Season name is required.")
         : year is < 2000 or > 2100 ? new Error("season.year", "Season year must be between 2000 and 2100.")

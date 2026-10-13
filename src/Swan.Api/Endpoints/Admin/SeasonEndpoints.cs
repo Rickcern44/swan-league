@@ -8,6 +8,8 @@ public sealed record CreateSeasonRequest(int Year, string? Name, bool IsSimulati
 
 public sealed record UpdateSeasonRequest(int Year, string? Name, bool IsSimulation = false);
 
+public sealed record UpdateSeasonMoneyRequest(decimal BuyIn, decimal Main, decimal Dog, decimal RegularSeason, decimal Playoff);
+
 public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
@@ -38,6 +40,18 @@ public static class SeasonEndpoints
                     { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
                     var rejected => Results.Conflict(rejected.Error)
                 });
+        seasons.MapPut("/setup/money", async (UpdateSeasonMoneyRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                ? Results.Unauthorized()
+                : await service.UpdateSetupMoneyAsync(new UserId(actor), new SetupMoney(Usd(request.BuyIn), Usd(request.Main), Usd(request.Dog), Usd(request.RegularSeason), Usd(request.Playoff)), cancellationToken) switch
+                {
+                    { IsSuccess: true } updated => Results.Ok(updated.Value),
+                    { Error.Code: "season.money" } invalid => Results.BadRequest(invalid.Error),
+                    { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
+                    var rejected => Results.Conflict(rejected.Error)
+                });
         return endpoints;
     }
+
+    private static Money Usd(decimal amount) => new(amount, "USD");
 }
