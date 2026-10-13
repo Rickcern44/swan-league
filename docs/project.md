@@ -26,7 +26,7 @@ Evidence levels used below:
 | Phase | Status | Records |
 | --- | --- | --- |
 | 0. Foundations | Implemented; end-to-end acceptance pending. CI is deferred by a prior project decision. | [[SWAN-1-baseline-ui-api]] (superseded), [[SWAN-2-solution-restructure]], [[SWAN-3-domain-model]], [[SWAN-4-phase-0]] |
-| 1. Scoring core | Implemented (R1–R14 policies, fixtures, standings). Tiebreak ordering is not implemented; it needs the league rules document. | [[SWAN-5-scoring]] |
+| 1. Scoring core | Implemented (R1–R14 policies, fixtures, standings). Tied coaches share a rank under competition ranking (`1, 1, 1, 4`); no secondary tiebreak is applied. | [[SWAN-5-scoring]] |
 | 1b. Hosting research | Not started. | — |
 | 2. Admin week workflow, scores import, simulation | Next. | — |
 | 3. Coach picks | After Phase 2. | — |
@@ -35,5 +35,4 @@ Evidence levels used below:
 
 ## Open items
 
-- **Tiebreak ordering** ([[SWAN-5.7-tiebreak]]): blocked on the league rules document with per-pool tiebreakers. Standings mark ties as unbroken until then. This does not block Phases 2–4.
 - **Phase 0 acceptance**: run `aspire run` and the Playwright sign-in flow, and record the evidence in [[SWAN-4-phase-0]].
