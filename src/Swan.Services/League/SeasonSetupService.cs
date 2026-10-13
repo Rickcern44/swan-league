@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Swan.Core.Common;
 using Swan.Core.League;
 using Swan.Data;
@@ -24,8 +25,18 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         if (await database.Seasons.AnyAsync(value => value.State == SeasonState.Setup, cancellationToken)) return Result<SeasonSummary>.Failure("season.setup.exists", "A season is already in Setup.");
         database.Seasons.Add(season.Value!);
         var summary = ToSummary(season.Value!);
-        // AuditService saves the shared context, so the season and its audit entry commit together.
-        await audit.AppendAsync(actor, "season.setup.created", summary.Id.Value.ToString(), before: null, after: summary, cancellationToken: cancellationToken);
+        try
+        {
+            // AuditService saves the shared context, so the season and its audit entry commit together.
+            await audit.AppendAsync(actor, "season.setup.created", summary.Id.Value.ToString(), before: null, after: summary, cancellationToken: cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "ux_seasons_single_setup" })
+        {
+            // A concurrent create won the unique index; nothing from this attempt was saved.
+            database.ChangeTracker.Clear();
+            return Result<SeasonSummary>.Failure("season.setup.exists", "A season is already in Setup.");
+        }
+
         return Result<SeasonSummary>.Success(summary);
     }
 

@@ -82,6 +82,8 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.HasKey(season => season.Id);
             entity.Property(season => season.Id).HasConversion(id => id.Value, value => new SeasonId(value));
             entity.Ignore(season => season.DomainEvents);
+            // State 0 is Setup: the database, not just the service, allows only one Setup season.
+            entity.HasIndex(season => season.State).IsUnique().HasFilter("\"State\" = 0").HasDatabaseName("ux_seasons_single_setup");
             entity.Property(season => season.Year).HasDefaultValue(0);
             entity.Property(season => season.Name).HasDefaultValue("");
             entity.Property(season => season.IsSimulation).HasDefaultValue(false);

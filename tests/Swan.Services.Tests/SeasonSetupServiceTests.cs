@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Swan.Core.Common;
 using Swan.Core.League;
 using Swan.Data;
@@ -106,6 +108,67 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(code, result.Error!.Code);
         Assert.Equal(0, await Run((service, database) => database.Seasons.CountAsync()));
         Assert.Equal(0, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task PostgresRejectsASecondSetupSeasonButAllowsManyLiveOnes()
+    {
+        await Migrate();
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", isSimulation: false).Value!);
+            await database.SaveChangesAsync();
+        }
+
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2027, "2027 Season", isSimulation: false).Value!);
+            var rejected = await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+            Assert.IsType<Npgsql.PostgresException>(rejected.InnerException);
+        }
+
+        await using (var database = CreateDatabase())
+        {
+            foreach (var year in new[] { 2024, 2025 })
+            {
+                var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), year, $"{year} Season", isSimulation: false).Value!;
+                Assert.True(live.Activate().IsSuccess);
+                database.Seasons.Add(live);
+            }
+
+            await database.SaveChangesAsync();
+            Assert.Equal(3, await database.Seasons.CountAsync());
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentCreatesYieldExactlyOneSetupSeasonAndOneAuditRow()
+    {
+        await Migrate();
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(index => Run(service => service.CreateBlankAsync(Admin, 2026 + index, $"Season {index}", isSimulation: false))));
+
+        Assert.Equal(1, results.Count(result => result.IsSuccess));
+        Assert.All(results.Where(result => !result.IsSuccess), result => Assert.Equal("season.setup.exists", result.Error!.Code));
+        Assert.Equal(1, await Run((service, database) => database.Seasons.CountAsync(season => season.State == SeasonState.Setup)));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task MigrationRefusesToRunOverExistingDuplicateSetupSeasonsAndLeavesThemUntouched()
+    {
+        await using (var database = CreateDatabase())
+        {
+            await database.GetService<IMigrator>().MigrateAsync("20261013132526_AddSeasonIdentityAndPools");
+            foreach (var id in new[] { Guid.NewGuid(), Guid.NewGuid() })
+                await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+        }
+
+        await using var upgrading = CreateDatabase();
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => upgrading.Database.MigrateAsync());
+
+        Assert.Contains("more than one Setup season", failure.ToString());
+        Assert.Equal(2, await upgrading.Seasons.CountAsync(season => season.State == SeasonState.Setup));
     }
 
     private async Task Migrate()

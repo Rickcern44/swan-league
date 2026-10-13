@@ -230,6 +230,11 @@ namespace Swan.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("State")
+                        .IsUnique()
+                        .HasDatabaseName("ux_seasons_single_setup")
+                        .HasFilter("\"State\" = 0");
+
                     b.ToTable("seasons", "league");
                 });
 
