@@ -3,7 +3,7 @@ using Swan.Core.Common;
 namespace Swan.Core.Scoring;
 
 public sealed record ScoredGame(GameId GameId, TeamId HomeTeamId, TeamId AwayTeamId, GameResult? Result, Spread? ApprovedSpread);
-public sealed record RegularScoringSettings(bool DogsContributeToMainPool = false, bool TeamMayAlsoBeDog = true);
+public sealed record RegularScoringSettings(bool TeamMayAlsoBeDog = true);
 public sealed record RegularScoreResult(IReadOnlyList<ScoreLine> Lines, bool GoingPerfect, bool GoingOhFor);
 
 public static class RegularScoringPolicy
@@ -39,7 +39,7 @@ public static class RegularScoringPolicy
             };
             var collisionDisallowed = !settings.TeamMayAlsoBeDog && ballot.ScoringPicks.Any(pick => pick.TeamId == dog.TeamId);
             var points = won && !collisionDisallowed ? decimal.ToInt32(decimal.Ceiling(Math.Abs(game.ApprovedSpread.Value))) : 0;
-            lines.Add(new ScoreLine(dog.TeamId, settings.DogsContributeToMainPool ? points : 0, ScoreSource.DogPick, dog.GameId.Value.ToString()));
+            lines.Add(new ScoreLine(dog.TeamId, points, ScoreSource.DogPick, dog.GameId.Value.ToString()));
         }
 
         if (ballot.ScoringPicks.Count == 3 && teamWins == 3)

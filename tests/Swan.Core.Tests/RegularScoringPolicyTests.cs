@@ -27,14 +27,24 @@ public sealed class RegularScoringPolicyTests
     }
 
     [Fact]
-    public void DogRoundsSpreadUpAndSettingsControlMainPoolAndCollisions()
+    public void DogRoundsSpreadUpAndCollisionSettingControlsDogPoints()
     {
         var team = new TeamId(Guid.NewGuid()); var game = new GameId(Guid.NewGuid()); var now = DateTimeOffset.UtcNow;
         var ballot = new Ballot(new BallotId(Guid.NewGuid()), new MembershipId(Guid.NewGuid()), new WeekId(Guid.NewGuid()), [team]);
         ballot.AddPick(new TeamPick(team, game, now.AddHours(1)), now); ballot.AddDog(new DogPick(team, game, now.AddHours(1)), false, now);
         var games = new[] { new ScoredGame(game, team, new TeamId(Guid.NewGuid()), new GameResult(21, 10), new Spread(2.5m)) };
-        Assert.Equal(3, RegularScoringPolicy.Recompute(ballot, games, new(true, true)).Lines.Single(line => line.Source == ScoreSource.DogPick).Points);
-        Assert.Equal(0, RegularScoringPolicy.Recompute(ballot, games, new(true, false)).Lines.Single(line => line.Source == ScoreSource.DogPick).Points);
+        Assert.Equal(3, RegularScoringPolicy.Recompute(ballot, games, new(true)).Lines.Single(line => line.Source == ScoreSource.DogPick).Points);
+        Assert.Equal(0, RegularScoringPolicy.Recompute(ballot, games, new(false)).Lines.Single(line => line.Source == ScoreSource.DogPick).Points);
+    }
+
+    [Fact]
+    public void WinningDogKeepsItsPointsInTheStoredLine()
+    {
+        var team = new TeamId(Guid.NewGuid()); var game = new GameId(Guid.NewGuid()); var now = DateTimeOffset.UtcNow;
+        var ballot = new Ballot(new BallotId(Guid.NewGuid()), new MembershipId(Guid.NewGuid()), new WeekId(Guid.NewGuid()));
+        ballot.AddDog(new DogPick(team, game, now.AddHours(1)), false, now);
+        var games = new[] { new ScoredGame(game, team, new TeamId(Guid.NewGuid()), new GameResult(21, 10), new Spread(6.5m)) };
+        Assert.Equal(7, RegularScoringPolicy.Recompute(ballot, games, new()).Lines.Single(line => line.Source == ScoreSource.DogPick).Points);
     }
 
     [Fact]

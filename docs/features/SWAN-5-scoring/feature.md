@@ -24,7 +24,7 @@ Phase 1 scope per PRD §11 is R1–R14, the fixture suite, and standings for all
 R1–R14 policies, fixtures and standings are implemented. Tied coaches use competition ranking (`1, 1, 1, 4`) with no secondary tiebreak ([[SWAN-5.7-tiebreak]]). Not part of this claim:
 
 - **Adjacent policies** implemented and tested but not Phase 1 exit criteria: R20 lock times ([[SWAN-5.1-lock-policy]]) and R21 pick visibility ([[SWAN-5.2-visibility]]).
-- **Settings** R15 and R17 are covered by the scoring and standings tests ([[SWAN-5.3-scoring-regular]], [[SWAN-5.6-standings]]).
+- **Settings** R17 is covered by the scoring tests, and R15 (dog points count only in the Dog pool, fixed) by the standings tests ([[SWAN-5.3-scoring-regular]], [[SWAN-5.6-standings]]).
 - **R16** core invariant is represented in the domain (`Ballot.AddDog` allows the same team as a dog across weeks and rejects a repeated team or game within one ballot); coach pick-flow validation is Phase 3.
 - **Not implemented here:** R18 color-tier configuration and R19 (records, Phase 8).
 
