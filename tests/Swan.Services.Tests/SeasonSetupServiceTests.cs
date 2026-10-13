@@ -262,5 +262,5 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         return await action(new SeasonSetupService(database, new AuditService(database, new SystemClock())), database);
     }
 
-    private SwanDbContext CreateDatabase() => new(new DbContextOptionsBuilder<SwanDbContext>().UseNpgsql(postgres.GetConnectionString()).Options);
+    private SwanDbContext CreateDatabase() => new(new DbContextOptionsBuilder<SwanDbContext>().UseNpgsql(postgres.GetConnectionString(), npgsql => npgsql.EnableRetryOnFailure()).Options);
 }
