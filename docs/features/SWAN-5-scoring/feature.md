@@ -26,7 +26,8 @@ R1–R14 policies, fixtures and standings are implemented. Not part of this clai
 - **Tiebreak ordering** (SWAN-5.7) is not implemented; it needs the league rules document. Standings mark ties as unbroken. This does not block Phases 2–4.
 - **Adjacent policies** implemented and tested but not Phase 1 exit criteria: R20 lock times ([[SWAN-5.1-lock-policy]]) and R21 pick visibility ([[SWAN-5.2-visibility]]).
 - **Settings** R15 and R17 are covered by the scoring and standings tests ([[SWAN-5.3-scoring-regular]], [[SWAN-5.6-standings]]).
-- **Not implemented here:** R18 (needs the tiebreak rules doc), R16 (pick validation, Phase 3) and R19 (records, Phase 8).
+- **R16** core invariant is represented in the domain (`Ballot.AddDog` allows the same team as a dog across weeks and rejects a repeated team or game within one ballot); coach pick-flow validation is Phase 3.
+- **Not implemented here:** R18 (needs the tiebreak rules doc) and R19 (records, Phase 8).
 
 ## Out of scope
 
