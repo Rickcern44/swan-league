@@ -61,7 +61,7 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
     public Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) =>
         ActAsync(actor, weekId, "week.finalized", async week => UnsupportedScoring(week) ?? await Finalize(week, cancellationToken), cancellationToken);
 
-    // Only a Final week can be rescored; a corrected source (result or ballot) is picked up by calling this again.
+    // Only a Final week can be rescored. Results are frozen once Final (no reopen yet), so today this picks up corrected ballots.
     public Task<Result<WeekDashboard>> RecomputeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) =>
         ActAsync(actor, weekId, "week.recomputed", async week =>
         {
