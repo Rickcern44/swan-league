@@ -1,0 +1,126 @@
+using Microsoft.EntityFrameworkCore;
+using Swan.Core.Common;
+using Swan.Core.League;
+using Swan.Data;
+using Swan.Services.League;
+using Swan.Services.Platform;
+using Testcontainers.PostgreSql;
+using Xunit;
+
+namespace Swan.Services.Tests;
+
+public sealed class SeasonSetupServiceTests : IAsyncLifetime
+{
+    private static readonly UserId Admin = new(Guid.Parse("9c9b2c10-a312-4b77-a26a-ef546e87f3c9"));
+    private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:18.3").Build();
+
+    public Task InitializeAsync() => postgres.StartAsync();
+
+    public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
+
+    [Fact]
+    public async Task SeasonIdentityPoolsAndSetupStateRoundTripThroughPostgres()
+    {
+        await Migrate();
+        var id = new SeasonId(Guid.NewGuid());
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(Season.CreateBlank(id, 2026, "2026 Season", isSimulation: true).Value!);
+            await database.SaveChangesAsync();
+        }
+
+        await using var reloaded = CreateDatabase();
+        var season = await reloaded.Seasons.SingleAsync(value => value.Id == id);
+        Assert.Equal((2026, "2026 Season", true, SeasonState.Setup), (season.Year, season.Name, season.IsSimulation, season.State));
+        Assert.Equal([("Main", 60m), ("Dog", 20m), ("Regular Season", 10m), ("Playoff", 10m)], season.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
+        Assert.Equal(new TimeOnly(13, 0), season.Settings.TeamPickDeadlineEastern);
+        Assert.True(season.Activate().IsSuccess);
+    }
+
+    [Fact]
+    public async Task RowsWrittenBeforeTheColumnsExistedReadWithSafeDefaults()
+    {
+        await Migrate();
+        var id = Guid.NewGuid();
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 1)""");
+        }
+
+        await using var reloaded = CreateDatabase();
+        var legacy = await reloaded.Seasons.SingleAsync(value => value.Id == new SeasonId(id));
+        Assert.Equal((0, "", false, SeasonState.Live), (legacy.Year, legacy.Name, legacy.IsSimulation, legacy.State));
+        Assert.Empty(legacy.Pools);
+    }
+
+    [Fact]
+    public async Task CreateBlankSeasonPersistsAuditsAndIsFoundAsTheOnlySetupSeason()
+    {
+        await Migrate();
+
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var found = await Run(service => service.GetSetupAsync());
+
+        Assert.True(created.IsSuccess);
+        Assert.Equal(created.Value!.Id, found.Value!.Id);
+        Assert.Equal((2026, "2026 Season", false, SeasonState.Setup), (found.Value.Year, found.Value.Name, found.Value.IsSimulation, found.Value.State));
+        Assert.Equal(4, found.Value.Pools.Count);
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync());
+        Assert.Equal(("season.setup.created", Admin, created.Value.Id.Value.ToString()), (audit.Action, audit.UserId, audit.ResourceId));
+        Assert.Contains("Main", audit.Details);
+    }
+
+    [Fact]
+    public async Task SecondSetupSeasonIsRejectedAndALiveSeasonIsLeftAlone()
+    {
+        await Migrate();
+        var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
+        Assert.True(live.Activate().IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(live);
+            await database.SaveChangesAsync();
+        }
+
+        var noSetupYet = await Run(service => service.GetSetupAsync());
+        var first = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var second = await Run(service => service.CreateBlankAsync(Admin, 2027, "2027 Season", isSimulation: false));
+
+        Assert.Equal("season.missing", noSetupYet.Error!.Code);
+        Assert.True(first.IsSuccess);
+        Assert.Equal("season.setup.exists", second.Error!.Code);
+        Assert.Equal([SeasonState.Live, SeasonState.Setup], await Run((service, database) => database.Seasons.OrderBy(season => season.Year).Select(season => season.State).ToListAsync()));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Theory]
+    [InlineData("", 2026, "season.name")]
+    [InlineData("   ", 2026, "season.name")]
+    [InlineData("2026", 1999, "season.year")]
+    public async Task InvalidInputIsRejectedWithoutPersistingOrAuditing(string name, int year, string code)
+    {
+        await Migrate();
+
+        var result = await Run(service => service.CreateBlankAsync(Admin, year, name, isSimulation: false));
+
+        Assert.Equal(code, result.Error!.Code);
+        Assert.Equal(0, await Run((service, database) => database.Seasons.CountAsync()));
+        Assert.Equal(0, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    private async Task Migrate()
+    {
+        await using var database = CreateDatabase();
+        await database.Database.MigrateAsync();
+    }
+
+    private Task<T> Run<T>(Func<SeasonSetupService, Task<T>> action) => Run((service, _) => action(service));
+
+    private async Task<T> Run<T>(Func<SeasonSetupService, SwanDbContext, Task<T>> action)
+    {
+        await using var database = CreateDatabase();
+        return await action(new SeasonSetupService(database, new AuditService(database, new SystemClock())), database);
+    }
+
+    private SwanDbContext CreateDatabase() => new(new DbContextOptionsBuilder<SwanDbContext>().UseNpgsql(postgres.GetConnectionString()).Options);
+}

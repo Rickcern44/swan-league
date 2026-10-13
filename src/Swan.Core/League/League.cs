@@ -16,7 +16,22 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     public SeasonId Id { get; } = id;
     public SeasonSettings Settings { get; private set; } = initialSettings;
     public SeasonState State { get; private set; } = SeasonState.Setup;
-    public Result<bool> Activate() => State != SeasonState.Setup || Settings.DoubleDogWeeks < 3 || Settings.DoubleDogWeeks > 4 || pools.Sum(pool => pool.Stake.Amount) != Settings.BuyIn.Amount
+    public int Year { get; private set; }
+    public string Name { get; private set; } = "";
+    public bool IsSimulation { get; private set; }
+    public IReadOnlyList<PoolDefinition> Pools { get; private set; } = pools.ToList();
+
+    // A blank season carries only the PRD defaults (W2): $100 buy-in split Main 60 / Dog 20 / Regular Season 10 / Playoff 10, three double-dog weeks, Sunday 1:00 PM ET deadline.
+    public static Result<Season> CreateBlank(SeasonId id, int year, string name, bool isSimulation)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return Result<Season>.Failure("season.name", "Season name is required.");
+        if (year is < 2000 or > 2100) return Result<Season>.Failure("season.year", "Season year must be between 2000 and 2100.");
+        var buyIn = new Money(100m, "USD");
+        PoolDefinition[] pools = [new("Main", new Money(60m, "USD")), new("Dog", new Money(20m, "USD")), new("Regular Season", new Money(10m, "USD")), new("Playoff", new Money(10m, "USD"))];
+        return Result<Season>.Success(new Season(id, new SeasonSettings(buyIn, 3, new TimeOnly(13, 0)), pools) { Year = year, Name = name.Trim(), IsSimulation = isSimulation });
+    }
+
+    public Result<bool> Activate() => State != SeasonState.Setup || Settings.DoubleDogWeeks < 3 || Settings.DoubleDogWeeks > 4 || Pools.Sum(pool => pool.Stake.Amount) != Settings.BuyIn.Amount
         ? Result<bool>.Failure("season.invalid", "Season settings cannot activate.")
         : ActivateInternal();
     private Result<bool> ActivateInternal() { State = SeasonState.Live; Raise(new SeasonActivated(Id)); return Result<bool>.Success(true); }

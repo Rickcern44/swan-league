@@ -6,6 +6,7 @@ using Swan.Data.Seed;
 using Swan.Core.Integrations;
 using Swan.Services.Integrations;
 using Swan.Services.Identity;
+using Swan.Services.League;
 using Swan.Services.Platform;
 using Swan.Services.Schedule;
 using Swan.Services.Scoring;
@@ -28,6 +29,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddScoped<SessionService>();
         builder.Services.AddScoped<IAuditService, AuditService>();
         builder.Services.AddScoped<IWeekAdministrationService, WeekAdministrationService>();
+        builder.Services.AddScoped<ISeasonSetupService, SeasonSetupService>();
         builder.Services.AddScoped<StandingsService>();
         return builder;
     }

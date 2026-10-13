@@ -1,0 +1,121 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Swan.Core.Common;
+using Swan.Core.League;
+using Swan.Services.League;
+using Xunit;
+
+namespace Swan.Api.Tests;
+
+public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
+    : IClassFixture<WebApplicationFactory<Program>>
+{
+    [Theory]
+    [InlineData("POST", "/api/admin/seasons")]
+    [InlineData("GET", "/api/admin/seasons/setup")]
+    public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Coach", service);
+
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method == "POST" ? JsonContent.Create(new { year = 2026, name = "x" }) : null });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
+    [Fact]
+    public async Task AdminCreatesAndReadsTheSetupSeason()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var created = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "2026 Season", isSimulation = true, buyIn = 1 });
+        var read = await client.GetAsync("/api/admin/seasons/setup");
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        read.EnsureSuccessStatusCode();
+        Assert.Equal(["create:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:2026:2026 Season:True", "get"], service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.name", HttpStatusCode.BadRequest)]
+    [InlineData("season.year", HttpStatusCode.BadRequest)]
+    [InlineData("season.setup.exists", HttpStatusCode.Conflict)]
+    public async Task RejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
+
+        var response = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "x" });
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Contains(code, await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task MissingNameIsTreatedAsBlankAndNoSetupSeasonIs404()
+    {
+        var service = new FakeSeasonService { Failure = new Error("season.missing", "No season is in Setup.") };
+        using var client = CreateClient("Admin", service);
+
+        var read = await client.GetAsync("/api/admin/seasons/setup");
+        var create = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026 });
+
+        Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
+        Assert.Contains("create:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:2026::False", service.Calls);
+        Assert.NotEqual(HttpStatusCode.InternalServerError, create.StatusCode);
+    }
+
+    private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+    {
+        services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = "Test";
+            options.DefaultChallengeScheme = "Test";
+            options.DefaultForbidScheme = "Test";
+        }).AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", options => options.ClaimsIssuer = role);
+        services.AddSingleton<ISeasonSetupService>(service);
+    })).CreateClient();
+
+    private sealed class TestAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            var identity = new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.NameIdentifier, "9c9b2c10-a312-4b77-a26a-ef546e87f3c9"),
+                new Claim(ClaimTypes.Role, Options.ClaimsIssuer!)
+            ], Scheme.Name);
+            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
+        }
+    }
+
+    private sealed class FakeSeasonService : ISeasonSetupService
+    {
+        public List<string> Calls { get; } = [];
+        public Error? Failure { get; init; }
+
+        public Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"create:{actor.Value}:{year}:{name}:{isSimulation}");
+            return Task.FromResult(Failure is { } error && error.Code != "season.missing" ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Ok());
+        }
+
+        public Task<Result<SeasonSummary>> GetSetupAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("get");
+            return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Ok());
+        }
+
+        private static Result<SeasonSummary> Ok() => Result<SeasonSummary>.Success(new SeasonSummary(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", false, SeasonState.Setup, new SeasonSettings(new Money(100m, "USD"), 3), []));
+    }
+}

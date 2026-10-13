@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Swan.Core.Communication;
 using Swan.Core.Common;
@@ -80,6 +82,13 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.HasKey(season => season.Id);
             entity.Property(season => season.Id).HasConversion(id => id.Value, value => new SeasonId(value));
             entity.Ignore(season => season.DomainEvents);
+            entity.Property(season => season.Year).HasDefaultValue(0);
+            entity.Property(season => season.Name).HasDefaultValue("");
+            entity.Property(season => season.IsSimulation).HasDefaultValue(false);
+            entity.Property(season => season.Pools)
+                .HasConversion(value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null), value => JsonSerializer.Deserialize<List<PoolDefinition>>(value, (JsonSerializerOptions?)null)!,
+                    new ValueComparer<IReadOnlyList<PoolDefinition>>((left, right) => left!.SequenceEqual(right!), value => value.Aggregate(0, (hash, pool) => HashCode.Combine(hash, pool)), value => value.ToList()))
+                .HasDefaultValueSql("'[]'");
             entity.Property(season => season.Settings).HasConversion(value => $"{value.BuyIn.Amount}|{value.BuyIn.Currency}|{value.DoubleDogWeeks}|{value.TeamPickDeadlineEastern}", value => ParseSeasonSettings(value));
         });
         modelBuilder.Entity<Membership>(entity =>
