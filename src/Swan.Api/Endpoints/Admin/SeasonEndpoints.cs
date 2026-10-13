@@ -6,6 +6,8 @@ namespace Swan.Api.Endpoints.Admin;
 
 public sealed record CreateSeasonRequest(int Year, string? Name, bool IsSimulation = false);
 
+public sealed record UpdateSeasonRequest(int Year, string? Name, bool IsSimulation = false);
+
 public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
@@ -26,6 +28,16 @@ public static class SeasonEndpoints
                 { IsSuccess: true } found => Results.Ok(found.Value),
                 var missing => Results.NotFound(missing.Error)
             });
+        seasons.MapPut("/setup", async (UpdateSeasonRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                ? Results.Unauthorized()
+                : await service.UpdateSetupBasicsAsync(new UserId(actor), request.Year, request.Name ?? "", request.IsSimulation, cancellationToken) switch
+                {
+                    { IsSuccess: true } updated => Results.Ok(updated.Value),
+                    { Error.Code: "season.name" or "season.year" } invalid => Results.BadRequest(invalid.Error),
+                    { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
+                    var rejected => Results.Conflict(rejected.Error)
+                });
         return endpoints;
     }
 }

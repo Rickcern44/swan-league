@@ -21,12 +21,13 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [Theory]
     [InlineData("POST", "/api/admin/seasons")]
     [InlineData("GET", "/api/admin/seasons/setup")]
+    [InlineData("PUT", "/api/admin/seasons/setup")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
         using var client = CreateClient("Coach", service);
 
-        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method == "POST" ? JsonContent.Create(new { year = 2026, name = "x" }) : null });
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method != "GET" ? JsonContent.Create(new { year = 2026, name = "x" }) : null });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -74,6 +75,45 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.NotEqual(HttpStatusCode.InternalServerError, create.StatusCode);
     }
 
+    [Fact]
+    public async Task AdminEditsTheSetupSeasonBasics()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "2027 Season", isSimulation = true, buyIn = 1 });
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(["update:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:2027:2027 Season:True"], service.Calls);
+    }
+
+    [Fact]
+    public async Task AnonymousCannotEditTheSetupSeason()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "x" });
+
+        Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.name", HttpStatusCode.BadRequest)]
+    [InlineData("season.year", HttpStatusCode.BadRequest)]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("season.locked", HttpStatusCode.Conflict)]
+    public async Task EditRejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "x" });
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Contains(code, await response.Content.ReadAsStringAsync());
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -113,6 +153,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         public Task<Result<SeasonSummary>> GetSetupAsync(CancellationToken cancellationToken = default)
         {
             Calls.Add("get");
+            return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Ok());
+        }
+
+        public Task<Result<SeasonSummary>> UpdateSetupBasicsAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"update:{actor.Value}:{year}:{name}:{isSimulation}");
             return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Ok());
         }
 
