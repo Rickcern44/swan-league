@@ -83,6 +83,8 @@ npx playwright install chromium
 E2E_BASE_URL=http://localhost:<web-port> npm run test:e2e
 ```
 
+The E2E test edits the Setup season and puts it back. If none exists it creates one, and because there is no delete endpoint it then needs `E2E_RESET_SETUP_SEASON_CMD` to remove the row, for example `podman exec <postgres container> psql -U postgres -d swan -c 'delete from league.seasons where "State" = 0'`; without it the run fails rather than leave the season behind. Sign-in links are limited to one per address per minute, so wait a minute between runs.
+
 ## Troubleshooting
 
 After a sandboxed .NET build, run `dotnet build-server shutdown` before starting the AppHost; AppHost builds require permission to write their user-level runfile cache.

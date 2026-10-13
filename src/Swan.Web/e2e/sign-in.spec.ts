@@ -1,6 +1,10 @@
+import { execSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 
 const mailpitUrl = process.env.E2E_MAILPIT_URL;
+// There is no delete endpoint; this command removes the Setup season row so a run that had to create one leaves no trace, e.g.
+// podman exec <postgres container> psql -U postgres -d swan -c 'delete from league.seasons where "State" = 0'
+const resetSetupSeason = process.env.E2E_RESET_SETUP_SEASON_CMD;
 
 async function signIn(page: import("@playwright/test").Page, email: string) {
   if (!mailpitUrl)
@@ -40,7 +44,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     page.getByRole("heading", { name: "Season setup" }),
   ).toBeVisible();
 
-  // There is no delete endpoint, so the test puts back whatever Setup season it found (or the fresh-season defaults if it had to create one).
+  // The test puts back the Setup season it found, or removes the one it had to create (no delete endpoint exists, so that needs the reset command).
   const existing = await page.request.get("/api/admin/seasons/setup");
   const original = existing.ok()
     ? ((await existing.json()) as {
@@ -54,6 +58,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
         pools: { name: string; stake: { amount: number } }[];
       })
     : undefined;
+  let leftBehind = false;
   try {
     // The seeded database may or may not already hold a Setup season.
     const start = page.getByRole("form", { name: "Start a new season" });
@@ -96,26 +101,32 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
       "11:30",
     );
   } finally {
-    const stake = (name: string, fallback: number) =>
-      original?.pools.find((pool) => pool.name === name)?.stake.amount ??
-      fallback;
-    const put = (url: string, data: unknown) => page.request.put(url, { data });
-    await put("/api/admin/seasons/setup", {
-      year: original?.year ?? 2027,
-      name: original?.name ?? "2027 Swan League",
-      isSimulation: original?.isSimulation ?? false,
-    });
-    await put("/api/admin/seasons/setup/money", {
-      buyIn: original?.settings.buyIn.amount ?? 100,
-      main: stake("Main", 60),
-      dog: stake("Dog", 20),
-      regularSeason: stake("Regular Season", 10),
-      playoff: stake("Playoff", 10),
-    });
-    await put("/api/admin/seasons/setup/deadline", {
-      teamPickDeadlineEastern:
-        original?.settings.teamPickDeadlineEastern ?? "13:00:00",
-    });
+    if (!original) {
+      // The test created the season, so leaving it would change what the next run finds.
+      if (resetSetupSeason) execSync(resetSetupSeason, { stdio: "inherit" });
+      else leftBehind = true;
+    } else {
+      const stake = (name: string) =>
+        original.pools.find((pool) => pool.name === name)!.stake.amount;
+      const put = (url: string, data: unknown) =>
+        page.request.put(url, { data });
+      await put("/api/admin/seasons/setup", {
+        year: original.year,
+        name: original.name,
+        isSimulation: original.isSimulation,
+      });
+      await put("/api/admin/seasons/setup/money", {
+        buyIn: original.settings.buyIn.amount,
+        main: stake("Main"),
+        dog: stake("Dog"),
+        regularSeason: stake("Regular Season"),
+        playoff: stake("Playoff"),
+      });
+      await put("/api/admin/seasons/setup/deadline", {
+        teamPickDeadlineEastern:
+          original.settings.teamPickDeadlineEastern ?? "13:00:00",
+      });
+    }
   }
 
   await page.getByRole("button", { name: "Sign out" }).click();
@@ -124,4 +135,10 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
   await signIn(page, "coach1@swan.local");
   await expect(page.getByText("Signed in as Coach 1 · Coach")).toBeVisible();
   await expect(page.getByText("Season setup")).not.toBeVisible();
+
+  // Checked last so it never hides a real failure above.
+  expect(
+    leftBehind,
+    "The test created a Setup season and cannot remove it: set E2E_RESET_SETUP_SEASON_CMD (see the top of this file).",
+  ).toBe(false);
 });
