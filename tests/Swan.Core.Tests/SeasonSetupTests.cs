@@ -75,4 +75,66 @@ public sealed class SeasonSetupTests
         Assert.Equal("season.locked", updated.Error!.Code);
         Assert.Equal((2026, "2026 Season", false), (season.Year, season.Name, season.IsSimulation));
     }
+
+    private static Money Usd(decimal amount) => new(amount, "USD");
+
+    private static Season Blank() => Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", isSimulation: false).Value!;
+
+    [Fact]
+    public void SetupMoneyCanBeRevisedAndStillActivates()
+    {
+        var season = Blank();
+        var deadline = season.Settings.TeamPickDeadlineEastern;
+
+        var updated = season.UpdateMoney(Usd(150m), Usd(90m), Usd(30m), Usd(15m), Usd(15m));
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(Usd(150m), season.Settings.BuyIn);
+        Assert.Equal([("Main", 90m), ("Dog", 30m), ("Regular Season", 15m), ("Playoff", 15m)], season.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
+        Assert.Equal((3, deadline, SeasonState.Setup), (season.Settings.DoubleDogWeeks, season.Settings.TeamPickDeadlineEastern, season.State));
+        Assert.True(season.Activate().IsSuccess);
+    }
+
+    [Theory]
+    [InlineData(100, 60, 20, 10, 5)]
+    [InlineData(100, 60, 20, 10, 15)]
+    [InlineData(0, 0, 0, 0, 0)]
+    [InlineData(-100, 60, 20, 10, 10)]
+    [InlineData(100, 70, 20, 10, 0)]
+    [InlineData(100, 80, 30, -10, 0)]
+    public void InvalidMoneyIsRejectedAndLeavesTheSeasonUnchanged(decimal buyIn, decimal main, decimal dog, decimal regular, decimal playoff)
+    {
+        var season = Blank();
+        var (settings, pools) = (season.Settings, season.Pools);
+
+        var updated = season.UpdateMoney(Usd(buyIn), Usd(main), Usd(dog), Usd(regular), Usd(playoff));
+
+        Assert.Equal("season.money", updated.Error!.Code);
+        Assert.Equal(settings, season.Settings);
+        Assert.Equal(pools, season.Pools);
+    }
+
+    [Fact]
+    public void NonUsdMoneyIsRejected()
+    {
+        var season = Blank();
+
+        var updated = season.UpdateMoney(new Money(100m, "EUR"), new Money(60m, "EUR"), new Money(20m, "EUR"), new Money(10m, "EUR"), new Money(10m, "EUR"));
+
+        Assert.Equal("season.money", updated.Error!.Code);
+        Assert.Equal(Usd(100m), season.Settings.BuyIn);
+    }
+
+    [Fact]
+    public void LiveSeasonRejectsAnyMoneyUpdate()
+    {
+        var season = Blank();
+        Assert.True(season.Activate().IsSuccess);
+
+        var updated = season.UpdateMoney(Usd(150m), Usd(90m), Usd(30m), Usd(15m), Usd(15m));
+
+        Assert.Equal("season.locked", updated.Error!.Code);
+        Assert.Equal(Usd(100m), season.Settings.BuyIn);
+        Assert.Equal(60m, season.Pools.Single(pool => pool.Name == "Main").Stake.Amount);
+    }
 }

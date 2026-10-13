@@ -263,6 +263,99 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
     }
 
+    private static readonly SetupMoney NewMoney = new(new Money(150m, "USD"), new Money(90m, "USD"), new Money(30m, "USD"), new Money(15m, "USD"), new Money(15m, "USD"));
+
+    [Fact]
+    public async Task EditingSetupMoneyPersistsAuditsOldAndNewAndKeepsEverythingElse()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: true));
+
+        var updated = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
+        var reloaded = await Run(service => service.GetSetupAsync());
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(new Money(150m, "USD"), reloaded.Value!.Settings.BuyIn);
+        Assert.Equal([("Main", 90m), ("Dog", 30m), ("Regular Season", 15m), ("Playoff", 15m)], reloaded.Value.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
+        Assert.Equal((created.Value!.Id, 2026, "2026 Season", true, SeasonState.Setup), (reloaded.Value.Id, reloaded.Value.Year, reloaded.Value.Name, reloaded.Value.IsSimulation, reloaded.Value.State));
+        Assert.Equal((created.Value.Settings.DoubleDogWeeks, created.Value.Settings.TeamPickDeadlineEastern), (reloaded.Value.Settings.DoubleDogWeeks, reloaded.Value.Settings.TeamPickDeadlineEastern));
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.money.updated"));
+        Assert.Equal((Admin, created.Value.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("100", audit.Details);
+        Assert.Contains("150", audit.Details);
+    }
+
+    [Fact]
+    public async Task InvalidMoneyIsRejectedWithoutChangingOrAuditing()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var result = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney with { Playoff = new Money(10m, "USD") }));
+
+        Assert.Equal("season.money", result.Error!.Code);
+        var found = await Run(service => service.GetSetupAsync());
+        Assert.Equal(new Money(100m, "USD"), found.Value!.Settings.BuyIn);
+        Assert.Equal(60m, found.Value.Pools.Single(pool => pool.Name == "Main").Stake.Amount);
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task RepeatingAnAppliedMoneyEditSucceedsWithoutASecondAuditEntry()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var first = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
+        var replay = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
+        var unchangedDefaults = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
+
+        Assert.True(first.IsSuccess && replay.IsSuccess && unchangedDefaults.IsSuccess);
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.money.updated")));
+    }
+
+    [Fact]
+    public async Task MoneyEditWithNoSetupSeasonIsMissingAndALiveSeasonIsNeverChanged()
+    {
+        await Migrate();
+        var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
+        Assert.True(live.Activate().IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(live);
+            await database.SaveChangesAsync();
+        }
+
+        var result = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
+
+        Assert.Equal("season.missing", result.Error!.Code);
+        var stored = await Run((service, database) => database.Seasons.SingleAsync());
+        Assert.Equal(new Money(100m, "USD"), stored.Settings.BuyIn);
+        Assert.Equal(60m, stored.Pools.Single(pool => pool.Name == "Main").Stake.Amount);
+        Assert.Equal(0, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Fact]
+    public async Task MoneyEditWaitsForAnInFlightActivationAndThenLeavesTheLiveSeasonUntouched()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        await using var activating = CreateDatabase();
+        await using var transaction = await activating.Database.BeginTransactionAsync();
+        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""");
+
+        var edit = Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
+        await Task.Delay(500);
+        Assert.False(edit.IsCompleted);
+        await transaction.CommitAsync();
+        var result = await edit;
+
+        Assert.False(result.IsSuccess);
+        var stored = await Run((service, database) => database.Seasons.SingleAsync());
+        Assert.Equal((new Money(100m, "USD"), SeasonState.Live), (stored.Settings.BuyIn, stored.State));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
     private async Task Migrate()
     {
         await using var database = CreateDatabase();

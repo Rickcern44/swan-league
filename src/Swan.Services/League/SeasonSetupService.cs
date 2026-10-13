@@ -9,11 +9,14 @@ namespace Swan.Services.League;
 
 public sealed record SeasonSummary(SeasonId Id, int Year, string Name, bool IsSimulation, SeasonState State, SeasonSettings Settings, IReadOnlyList<PoolDefinition> Pools);
 
+public sealed record SetupMoney(Money BuyIn, Money Main, Money Dog, Money RegularSeason, Money Playoff);
+
 public interface ISeasonSetupService
 {
     Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
     Task<Result<SeasonSummary>> GetSetupAsync(CancellationToken cancellationToken = default);
     Task<Result<SeasonSummary>> UpdateSetupBasicsAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
+    Task<Result<SeasonSummary>> UpdateSetupMoneyAsync(UserId actor, SetupMoney money, CancellationToken cancellationToken = default);
 }
 
 public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit) : ISeasonSetupService
@@ -46,7 +49,15 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
             ? Result<SeasonSummary>.Success(ToSummary(setup))
             : Result<SeasonSummary>.Failure("season.missing", "No season is in Setup.");
 
-    public async Task<Result<SeasonSummary>> UpdateSetupBasicsAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default)
+    public Task<Result<SeasonSummary>> UpdateSetupBasicsAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default) =>
+        EditSetupAsync(actor, "season.setup.updated", season => season.UpdateBasics(year, name, isSimulation), ToSummary, summary => (summary.Year, summary.Name, summary.IsSimulation), cancellationToken);
+
+    public Task<Result<SeasonSummary>> UpdateSetupMoneyAsync(UserId actor, SetupMoney money, CancellationToken cancellationToken = default) =>
+        EditSetupAsync(actor, "season.setup.money.updated", season => season.UpdateMoney(money.BuyIn, money.Main, money.Dog, money.RegularSeason, money.Playoff), ToMoney, value => value, cancellationToken);
+
+    // Edits the one Setup season under a row lock; `audited` is what the audit entry records and `changeKey` decides whether anything changed.
+    private async Task<Result<SeasonSummary>> EditSetupAsync<TAudited, TKey>(UserId actor, string action, Func<Season, Result<bool>> edit, Func<Season, TAudited> audited, Func<TAudited, TKey> changeKey, CancellationToken cancellationToken)
+        where TKey : IEquatable<TKey>
     {
         // The app's retrying execution strategy only allows a user transaction inside ExecuteAsync, which may rerun the whole delegate.
         return await database.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
@@ -56,17 +67,19 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
             await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
             var season = (await database.Seasons.FromSqlInterpolated($"""select * from league.seasons where "State" = {(int)SeasonState.Setup} for update""").ToListAsync(cancellationToken)).FirstOrDefault();
             if (season is null) return Result<SeasonSummary>.Failure("season.missing", "No season is in Setup.");
-            var before = ToSummary(season);
-            var updated = season.UpdateBasics(year, name, isSimulation);
-            if (!updated.IsSuccess) return Result<SeasonSummary>.Failure(updated.Error!.Code, updated.Error.Message);
-            var after = ToSummary(season);
+            var before = audited(season);
+            var edited = edit(season);
+            if (!edited.IsSuccess) return Result<SeasonSummary>.Failure(edited.Error!.Code, edited.Error.Message);
+            var after = audited(season);
             // Nothing changed: also what a retry sees after a commit whose acknowledgement was lost, so it must not append a second audit entry.
-            if ((before.Year, before.Name, before.IsSimulation) == (after.Year, after.Name, after.IsSimulation)) return Result<SeasonSummary>.Success(after);
-            await audit.AppendAsync(actor, "season.setup.updated", after.Id.Value.ToString(), before, after, cancellationToken: cancellationToken);
+            if (changeKey(before).Equals(changeKey(after))) return Result<SeasonSummary>.Success(ToSummary(season));
+            await audit.AppendAsync(actor, action, season.Id.Value.ToString(), before, after, cancellationToken: cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return Result<SeasonSummary>.Success(after);
+            return Result<SeasonSummary>.Success(ToSummary(season));
         });
     }
+
+    private static SetupMoney ToMoney(Season season) => new(season.Settings.BuyIn, season.Pools[0].Stake, season.Pools[1].Stake, season.Pools[2].Stake, season.Pools[3].Stake);
 
     private static SeasonSummary ToSummary(Season season) => new(season.Id, season.Year, season.Name, season.IsSimulation, season.State, season.Settings, season.Pools);
 }
