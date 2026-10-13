@@ -22,7 +22,9 @@ public static class WeekEndpoints
         weeks.MapPost("/dog-options/generate", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.GenerateDogOptionsAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPut("/dog-options", (Guid weekId, ReplaceDogOptionsRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
-            Act(principal, actor => service.ReplaceDogOptionsAsync(actor, new WeekId(weekId), request.TeamIds.Select(id => new TeamId(id)).ToList(), cancellationToken)));
+            request.TeamIds is null
+                ? Task.FromResult(Results.BadRequest(new Error("week.dogs", "teamIds is required.")))
+                : Act(principal, actor => service.ReplaceDogOptionsAsync(actor, new WeekId(weekId), request.TeamIds.Select(id => new TeamId(id)).ToList(), cancellationToken)));
         weeks.MapPost("/lines/approve", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.ApproveLinesAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/publish", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>

@@ -65,6 +65,20 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"teamIds\":null}")]
+    public async Task ReplaceDogOptionsWithoutATeamListIsABadRequest(string body)
+    {
+        var service = new FakeWeekService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
     [Fact]
     public async Task AdminReadsDashboardAndMissingWeekIs404()
     {
