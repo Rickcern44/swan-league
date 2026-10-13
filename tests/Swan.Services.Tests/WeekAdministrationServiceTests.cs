@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Swan.Core.Common;
+using Swan.Core.League;
 using Swan.Core.Picks;
 using Swan.Core.Schedule;
 using Swan.Core.Scoring;
@@ -244,13 +245,83 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.Equal(2, points[StandingPool.RegularSeason]);
     }
 
+    [Fact]
+    public async Task SeasonRecomputeCorrectsOnlyFinalRegularWeeksAndIsIdempotent()
+    {
+        var season = new SeasonId(Guid.NewGuid());
+        await SeedSeason(season);
+        var first = await SeedLockedWeek(withDog: true, season: season, number: 1, final: true);
+        var second = await SeedLockedWeek(withDog: true, season: season, number: 2, final: true);
+        var playoff = await SeedLockedWeek(WeekKind.Playoff, withDog: true, season: season, number: 19, final: true);
+        var locked = await SeedLockedWeek(withDog: true, season: season, number: 3);
+        var otherSeason = await SeedLockedWeek(withDog: true, number: 1, final: true);
+
+        var summary = await Run(service => service.RecomputeSeasonAsync(Admin, season));
+        var repeat = await Run(service => service.RecomputeSeasonAsync(Admin, season));
+
+        Assert.True(summary.IsSuccess);
+        Assert.Equal([1, 2], summary.Value!.Recomputed.Select(week => week.Number));
+        Assert.Empty(summary.Value.Failed);
+        Assert.Equal([1, 2], repeat.Value!.Recomputed.Select(week => week.Number));
+        foreach (var week in new[] { first, second })
+        {
+            var score = Assert.Single(await LoadScores(week.Week));
+            Assert.Equal(4, score.Lines.Count);
+            Assert.Equal(3, Assert.Single(score.Lines, line => line.Source == ScoreSource.DogPick).Points);
+        }
+
+        // Playoff, locked and other-season weeks are left exactly as they were.
+        Assert.Equal(0, Assert.Single(Assert.Single(await LoadScores(playoff.Week)).Lines, line => line.Source == ScoreSource.DogPick).Points);
+        Assert.Empty(await LoadScores(locked.Week));
+        Assert.Equal(0, Assert.Single(Assert.Single(await LoadScores(otherSeason.Week)).Lines, line => line.Source == ScoreSource.DogPick).Points);
+        Assert.Equal(4, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "week.recomputed")));
+        Assert.Equal(4, await Run((service, database) => database.WeekScores.CountAsync()));
+    }
+
+    [Fact]
+    public async Task SeasonRecomputeReportsEmptySeasonsAndMissingSeasonsAndKeepsGoingPastABadWeek()
+    {
+        var empty = new SeasonId(Guid.NewGuid());
+        await SeedSeason(empty);
+        var season = new SeasonId(Guid.NewGuid());
+        await SeedSeason(season);
+        var bad = await SeedLockedWeek(withDog: true, season: season, number: 1, final: true);
+        var good = await SeedLockedWeek(withDog: true, season: season, number: 2, final: true);
+        await using (var database = CreateDatabase())
+        {
+            database.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), bad.Membership, bad.Week));
+            await database.SaveChangesAsync();
+        }
+
+        var none = await Run(service => service.RecomputeSeasonAsync(Admin, empty));
+        var missing = await Run(service => service.RecomputeSeasonAsync(Admin, new SeasonId(Guid.NewGuid())));
+        var mixed = await Run(service => service.RecomputeSeasonAsync(Admin, season));
+
+        Assert.True(none.IsSuccess);
+        Assert.Empty(none.Value!.Recomputed);
+        Assert.Equal("season.missing", missing.Error!.Code);
+        Assert.Equal([2], mixed.Value!.Recomputed.Select(week => week.Number));
+        var failure = Assert.Single(mixed.Value.Failed);
+        Assert.Equal((1, "week.ballots"), (failure.Number, failure.Code));
+        Assert.Equal(3, Assert.Single(Assert.Single(await LoadScores(good.Week)).Lines, line => line.Source == ScoreSource.DogPick).Points);
+        Assert.Equal(0, Assert.Single(Assert.Single(await LoadScores(bad.Week)).Lines, line => line.Source == ScoreSource.DogPick).Points);
+    }
+
     private sealed record LockedWeek(WeekId Week, List<GameId> Games, MembershipId Membership);
 
-    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular, bool withDog = false)
+    private async Task SeedSeason(SeasonId season)
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
-        var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(kind, kind == WeekKind.Regular ? null : "WC", true));
+        database.Seasons.Add(new Season(season, new SeasonSettings(Money.Create(100m, "USD").Value!, 3), []));
+        await database.SaveChangesAsync();
+    }
+
+    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular, bool withDog = false, SeasonId? season = null, int number = 1, bool final = false)
+    {
+        await using var database = CreateDatabase();
+        await database.Database.MigrateAsync();
+        var week = new Week(new WeekId(Guid.NewGuid()), season ?? new SeasonId(Guid.NewGuid()), number, new WeekType(kind, kind == WeekKind.Regular ? null : "WC", true));
         var ballot = new Ballot(new BallotId(Guid.NewGuid()), new MembershipId(Guid.NewGuid()), week.Id);
         var games = new List<GameId>();
         for (var index = 0; index < 3; index++)
@@ -269,6 +340,17 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.True(week.Lock().IsSuccess);
         database.Weeks.Add(week);
         database.Ballots.Add(ballot);
+        if (final)
+        {
+            // Final with the scores the pre-Phase-2.4 build stored: the winning dog (game 0 away) was zeroed.
+            Assert.True(week.ConfirmResult(games[0], new GameResult(7, 14)).IsSuccess);
+            foreach (var game in games.Skip(1)) Assert.True(week.ConfirmResult(game, new GameResult(1, 0)).IsSuccess);
+            Assert.True(week.FinalizeResults().IsSuccess);
+            var legacy = new WeekScore(new WeekScoreId(Guid.NewGuid()), week.SeasonId, ballot.MembershipId, week.Id);
+            legacy.ReplaceLines([.. games.Select(game => new ScoreLine(new TeamId(Guid.NewGuid()), 0, ScoreSource.TeamPick, game.Value.ToString())), new ScoreLine(new TeamId(Guid.NewGuid()), 0, ScoreSource.DogPick, games[0].Value.ToString())]);
+            database.WeekScores.Add(legacy);
+        }
+
         await database.SaveChangesAsync();
         return new LockedWeek(week.Id, games, ballot.MembershipId);
     }

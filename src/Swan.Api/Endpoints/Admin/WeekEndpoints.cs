@@ -30,16 +30,18 @@ public static class WeekEndpoints
             Act(principal, actor => service.RecomputeAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/lock", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.LockAsync(actor, new WeekId(weekId), cancellationToken)));
+        endpoints.MapPost("/api/admin/seasons/{seasonId:guid}/weeks/recompute", (Guid seasonId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.RecomputeSeasonAsync(actor, new SeasonId(seasonId), cancellationToken))).RequireAuthorization("Admin");
         return endpoints;
     }
 
-    private static async Task<IResult> Act(ClaimsPrincipal principal, Func<UserId, Task<Result<WeekDashboard>>> action) =>
+    private static async Task<IResult> Act<T>(ClaimsPrincipal principal, Func<UserId, Task<Result<T>>> action) =>
         Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor) ? ToResult(await action(new UserId(actor))) : Results.Unauthorized();
 
-    private static IResult ToResult(Result<WeekDashboard> result) => result switch
+    private static IResult ToResult<T>(Result<T> result) => result switch
     {
         { IsSuccess: true } => Results.Ok(result.Value),
-        { Error.Code: "week.missing" or "game.missing" } => Results.NotFound(result.Error),
+        { Error.Code: "week.missing" or "game.missing" or "season.missing" } => Results.NotFound(result.Error),
         _ => Results.Conflict(result.Error)
     };
 }

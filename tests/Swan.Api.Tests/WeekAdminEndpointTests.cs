@@ -20,6 +20,7 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
 {
     private static readonly Guid WeekGuid = Guid.NewGuid();
     private static readonly Guid GameGuid = Guid.NewGuid();
+    private static readonly Guid SeasonGuid = Guid.NewGuid();
 
     [Theory]
     [InlineData("GET", "")]
@@ -38,6 +39,27 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), $"/api/admin/weeks/{WeekGuid}{suffix}") { Content = method == "POST" ? JsonContent.Create(new { spread = 1 }) : null });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SeasonRecomputeIsAdminOnlyAndReportsSummaryOr404ForMissingSeason()
+    {
+        var service = new FakeWeekService();
+        using var coach = CreateClient("Coach", service);
+        using var admin = CreateClient("Admin", service);
+        using var missing = CreateClient("Admin", new FakeWeekService { SeasonFailure = new Error("season.missing", "Season does not exist.") });
+        var url = $"/api/admin/seasons/{SeasonGuid}/weeks/recompute";
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await coach.PostAsync(url, null)).StatusCode);
+        var ok = await admin.PostAsync(url, null);
+        var notFound = await missing.PostAsync(url, null);
+
+        ok.EnsureSuccessStatusCode();
+        using var payload = System.Text.Json.JsonDocument.Parse(await ok.Content.ReadAsStringAsync());
+        Assert.Equal(2, payload.RootElement.GetProperty("recomputed").GetArrayLength());
+        Assert.Equal(0, payload.RootElement.GetProperty("failed").GetArrayLength());
+        Assert.Equal([$"season:{SeasonGuid}"], service.Calls);
+        Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
     }
 
     [Fact]
@@ -123,6 +145,7 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         public List<string> Calls { get; } = [];
         public List<UserId> Actors { get; } = [];
         public Error? Failure { get; init; }
+        public Error? SeasonFailure { get; init; }
 
         public Task<Result<WeekDashboard>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default) =>
             Task.FromResult(weekId.Value == WeekGuid ? Ok(weekId) : Result<WeekDashboard>.Failure("week.missing", "Week does not exist."));
@@ -132,6 +155,15 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         public Task<Result<WeekDashboard>> ConfirmResultAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, CancellationToken cancellationToken = default) => Record(actor, weekId, $"result:{gameId.Value}:{homeScore}:{awayScore}");
         public Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "finalize");
         public Task<Result<WeekDashboard>> RecomputeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "recompute");
+        public Task<Result<SeasonRecomputeSummary>> RecomputeSeasonAsync(UserId actor, SeasonId seasonId, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"season:{seasonId.Value}");
+            Actors.Add(actor);
+            return Task.FromResult(SeasonFailure is { } error
+                ? Result<SeasonRecomputeSummary>.Failure(error.Code, error.Message)
+                : Result<SeasonRecomputeSummary>.Success(new SeasonRecomputeSummary(seasonId, [new RecomputedWeek(new WeekId(Guid.NewGuid()), 1), new RecomputedWeek(new WeekId(Guid.NewGuid()), 2)], [])));
+        }
+
         public Task<Result<WeekDashboard>> ApproveLinesAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "approve");
         public Task<Result<WeekDashboard>> PublishAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "publish");
         public Task<Result<WeekDashboard>> LockAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "lock");

@@ -10,6 +10,10 @@ namespace Swan.Services.Schedule;
 public sealed record GameDashboard(GameId Id, TeamId HomeTeamId, TeamId AwayTeamId, DateTimeOffset Kickoff, bool Excluded, decimal? ApprovedLine, IReadOnlyList<decimal> LineHistory, bool HasResult, int? HomeScore = null, int? AwayScore = null);
 public sealed record WeekDashboard(WeekId Id, SeasonId SeasonId, int Number, WeekKind Kind, WeekState State, IReadOnlyList<GameDashboard> Games);
 
+public sealed record RecomputedWeek(WeekId WeekId, int Number);
+public sealed record FailedWeek(WeekId WeekId, int Number, string Code);
+public sealed record SeasonRecomputeSummary(SeasonId SeasonId, IReadOnlyList<RecomputedWeek> Recomputed, IReadOnlyList<FailedWeek> Failed);
+
 public interface IWeekAdministrationService
 {
     Task<Result<WeekDashboard>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default);
@@ -21,6 +25,7 @@ public interface IWeekAdministrationService
     Task<Result<WeekDashboard>> ConfirmResultAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> RecomputeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
+    Task<Result<SeasonRecomputeSummary>> RecomputeSeasonAsync(UserId actor, SeasonId seasonId, CancellationToken cancellationToken = default);
 }
 
 public sealed class WeekAdministrationService(SwanDbContext database, IAuditService audit) : IWeekAdministrationService
@@ -68,6 +73,25 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
             if (week.State != WeekState.Final) return Result<bool>.Failure("week.state", "Only a finalized week can be recomputed.");
             return UnsupportedScoring(week) ?? await RebuildScoresAsync(week, cancellationToken);
         }, cancellationToken);
+
+    // Reuses RecomputeAsync per Final regular week, so each one is replaced, audited and saved on its own; a week that fails is reported and the rest continue.
+    public async Task<Result<SeasonRecomputeSummary>> RecomputeSeasonAsync(UserId actor, SeasonId seasonId, CancellationToken cancellationToken = default)
+    {
+        if (!await database.Seasons.AnyAsync(season => season.Id == seasonId, cancellationToken)) return Result<SeasonRecomputeSummary>.Failure("season.missing", "Season does not exist.");
+        var finals = (await database.Weeks.AsNoTracking().Where(week => week.SeasonId == seasonId && week.State == WeekState.Final).ToListAsync(cancellationToken))
+            .Where(week => week.Type.Kind == WeekKind.Regular).OrderBy(week => week.Number).ToList();
+        var recomputed = new List<RecomputedWeek>();
+        var failed = new List<FailedWeek>();
+        foreach (var week in finals)
+        {
+            var result = await RecomputeAsync(actor, week.Id, cancellationToken);
+            database.ChangeTracker.Clear();
+            if (result.IsSuccess) recomputed.Add(new RecomputedWeek(week.Id, week.Number));
+            else failed.Add(new FailedWeek(week.Id, week.Number, result.Error!.Code));
+        }
+
+        return Result<SeasonRecomputeSummary>.Success(new SeasonRecomputeSummary(seasonId, recomputed, failed));
+    }
 
     private static Result<bool>? UnsupportedScoring(Week week) => week.Type.Kind == WeekKind.Regular ? null : Result<bool>.Failure("week.scoring", "Only regular-season weeks can be scored here.");
 
