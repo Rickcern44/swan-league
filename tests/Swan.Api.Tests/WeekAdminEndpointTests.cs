@@ -28,6 +28,9 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     [InlineData("POST", "/games/00000000-0000-0000-0000-000000000001/lines/approve-latest")]
     [InlineData("POST", "/publish")]
     [InlineData("POST", "/lock")]
+    [InlineData("POST", "/games/00000000-0000-0000-0000-000000000001/result")]
+    [InlineData("POST", "/finalize")]
+    [InlineData("POST", "/recompute")]
     public async Task CoachIsForbiddenFromEveryWeekEndpoint(string method, string suffix)
     {
         using var client = CreateClient("Coach", new FakeWeekService());
@@ -60,9 +63,12 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         var approve = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lines/approve", null);
         var publish = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null);
         var @lock = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lock", null);
+        var result = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result", new { homeScore = 21, awayScore = 21 });
+        var finalize = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null);
+        var recompute = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null);
 
-        Assert.All(new[] { line, latest, approve, publish, @lock }, response => response.EnsureSuccessStatusCode());
-        Assert.Equal([$"line:{GameGuid}:-3.5:True", $"latest:{GameGuid}", "approve", "publish", "lock"], service.Calls);
+        Assert.All(new[] { line, latest, approve, publish, @lock, result, finalize, recompute }, response => response.EnsureSuccessStatusCode());
+        Assert.Equal([$"line:{GameGuid}:-3.5:True", $"latest:{GameGuid}", "approve", "publish", "lock", $"result:{GameGuid}:21:21", "finalize", "recompute"], service.Calls);
         Assert.All(service.Actors, actor => Assert.Equal(new UserId(Guid.Parse("9c9b2c10-a312-4b77-a26a-ef546e87f3c9")), actor));
     }
 
@@ -81,6 +87,10 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         using var noHistory = CreateClient("Admin", new FakeWeekService { Failure = new Error("game.line", "A line is required and must not be frozen.") });
         Assert.Equal(HttpStatusCode.Conflict, (await noHistory.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await missingGame.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await missingGame.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result", new { homeScore = 1, awayScore = 0 })).StatusCode);
+        using var notLocked = CreateClient("Admin", new FakeWeekService { Failure = new Error("week.results", "Every included game needs a result.") });
+        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null)).StatusCode);
     }
 
     private HttpClient CreateClient(string role, FakeWeekService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
@@ -119,6 +129,9 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
 
         public Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, bool approve, CancellationToken cancellationToken = default) => Record(actor, weekId, $"line:{gameId.Value}:{spread}:{approve}");
         public Task<Result<WeekDashboard>> ApproveLatestLineAsync(UserId actor, WeekId weekId, GameId gameId, CancellationToken cancellationToken = default) => Record(actor, weekId, $"latest:{gameId.Value}");
+        public Task<Result<WeekDashboard>> ConfirmResultAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, CancellationToken cancellationToken = default) => Record(actor, weekId, $"result:{gameId.Value}:{homeScore}:{awayScore}");
+        public Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "finalize");
+        public Task<Result<WeekDashboard>> RecomputeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "recompute");
         public Task<Result<WeekDashboard>> ApproveLinesAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "approve");
         public Task<Result<WeekDashboard>> PublishAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "publish");
         public Task<Result<WeekDashboard>> LockAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "lock");
