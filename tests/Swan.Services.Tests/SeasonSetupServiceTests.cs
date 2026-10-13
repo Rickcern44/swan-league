@@ -227,6 +227,27 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(0, await Run((service, database) => database.AuditEntries.CountAsync()));
     }
 
+    [Fact]
+    public async Task EditWaitsForAnInFlightActivationAndThenLeavesTheLiveSeasonUntouched()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        await using var activating = CreateDatabase();
+        await using var transaction = await activating.Database.BeginTransactionAsync();
+        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""");
+
+        var edit = Run(service => service.UpdateSetupBasicsAsync(Admin, 2030, "Changed", isSimulation: true));
+        await Task.Delay(500);
+        Assert.False(edit.IsCompleted);
+        await transaction.CommitAsync();
+        var result = await edit;
+
+        Assert.False(result.IsSuccess);
+        var stored = await Run((service, database) => database.Seasons.SingleAsync());
+        Assert.Equal((2026, "2026 Season", false, SeasonState.Live), (stored.Year, stored.Name, stored.IsSimulation, stored.State));
+        Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
     private async Task Migrate()
     {
         await using var database = CreateDatabase();
