@@ -135,23 +135,23 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await expect(teams).toBeVisible();
     await expect(page.getByText("Step 4 of 4")).toBeVisible();
 
-    // Two teams on the same finish in one division are explained and nothing is saved.
+    // Each division, one team per finish (wait for the catalog to load first: all() does not).
+    await expect(teams.getByRole("group")).toHaveCount(8);
     const east = teams.getByRole("group", { name: "AFC East" });
-    await east.getByRole("combobox").nth(0).selectOption("1");
-    await east.getByRole("combobox").nth(1).selectOption("1");
-    await east.getByRole("combobox").nth(2).selectOption("3");
-    await east.getByRole("combobox").nth(3).selectOption("4");
-    await teams.getByRole("button", { name: "Save & continue" }).click();
-    await expect(teams.getByRole("alert")).toContainText(
-      "AFC East needs exactly one team at each of 1st, 2nd, 3rd and 4th.",
-    );
-
-    // Each division, one team per finish.
     for (const group of await teams.getByRole("group").all()) {
       const selects = await group.getByRole("combobox").all();
       for (const [index, select] of selects.entries())
         await select.selectOption(String(index + 1));
     }
+
+    // Two teams on the same finish in one division are explained and nothing is saved.
+    await east.getByRole("combobox").nth(1).selectOption("1");
+    await teams.getByRole("button", { name: "Save & continue" }).click();
+    await expect(teams.getByRole("alert")).toContainText(
+      "AFC East needs exactly one team at each of 1st, 2nd, 3rd and 4th.",
+    );
+    await east.getByRole("combobox").nth(1).selectOption("2");
+
     await expect(east.getByText("Point value 3")).toBeVisible();
     await teams.getByRole("button", { name: "Save & continue" }).click();
     await expect(teams.getByText("Teams saved")).toBeVisible();

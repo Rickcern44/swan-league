@@ -603,7 +603,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.True(saved.IsSuccess);
         Assert.All(saved.Value!.Teams, team => Assert.Equal(team.FinishPosition, team.PointValue));
         var reloaded = await Run(service => service.GetSetupTeamsAsync());
-        Assert.Equal(Finishes(teams).Select(entry => (entry.TeamId, (int?)entry.Finish)).OrderBy(entry => entry.TeamId.Value), reloaded.Value!.Teams.Select(team => (team.TeamId, team.FinishPosition)).OrderBy(entry => entry.TeamId.Value));
+        Assert.Equal(Finishes(teams).Select(entry => (entry.TeamId.Value, (int?)entry.Finish)).OrderBy(entry => entry.Value), reloaded.Value!.Teams.Select(team => (team.TeamId, team.FinishPosition)).OrderBy(entry => entry.TeamId));
         Assert.Equal(32, await Run((service, database) => database.SeasonTeams.CountAsync(team => team.SeasonId == created.Value!.Id)));
         Assert.Equal(1, await Run((service, database) => database.SeasonTeams.CountAsync(team => team.SeasonId == live.Id)));
         var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.teams.updated"));
@@ -628,7 +628,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.True((await Run(service => service.UpdateSetupTeamsAsync(Admin, swapped))).IsSuccess);
 
         var reloaded = await Run(service => service.GetSetupTeamsAsync());
-        Assert.Equal(2, reloaded.Value!.Teams.Single(team => team.TeamId == east[0].Id).FinishPosition);
+        Assert.Equal(2, reloaded.Value!.Teams.Single(team => team.TeamId == east[0].Id.Value).FinishPosition);
         Assert.Equal(32, await Run((service, database) => database.SeasonTeams.CountAsync()));
         Assert.Equal(2, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.teams.updated")));
     }

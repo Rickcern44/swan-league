@@ -278,7 +278,9 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var response = await client.GetAsync("/api/admin/seasons/setup/teams");
 
         response.EnsureSuccessStatusCode();
-        Assert.Contains("\"division\":\"AFC East\"", await response.Content.ReadAsStringAsync());
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"division\":\"AFC East\"", body);
+        Assert.Contains("\"teamId\":\"11111111-1111-1111-1111-111111111111\"", body);
         Assert.Equal(["teams:get"], service.Calls);
     }
 
@@ -408,7 +410,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
             return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Ok());
         }
 
-        private static Result<SetupTeams> OkTeams(params SetupTeam[] teams) => Result<SetupTeams>.Success(new SetupTeams(teams.Length > 0 ? teams : [new SetupTeam(new TeamId(Guid.Parse("11111111-1111-1111-1111-111111111111")), "Bills", "AFC East", null, null)]));
+        private static Result<SetupTeams> OkTeams(params SetupTeam[] teams) => Result<SetupTeams>.Success(new SetupTeams(teams.Length > 0 ? teams : [new SetupTeam(Guid.Parse("11111111-1111-1111-1111-111111111111"), "Bills", "AFC East", null, null)]));
 
         public Task<Result<SetupTeams>> GetSetupTeamsAsync(CancellationToken cancellationToken = default)
         {
@@ -419,7 +421,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         public Task<Result<SetupTeams>> UpdateSetupTeamsAsync(UserId actor, IReadOnlyList<TeamFinish> finishes, CancellationToken cancellationToken = default)
         {
             Calls.Add($"teams:put:{actor.Value}:{string.Join(",", finishes.Select(entry => $"{entry.TeamId.Value}={entry.Finish}"))}");
-            return Task.FromResult(Failure is { } error ? Result<SetupTeams>.Failure(error.Code, error.Message) : OkTeams(finishes.Select(entry => new SetupTeam(entry.TeamId, "Bills", "AFC East", entry.Finish, entry.Finish)).ToArray()));
+            return Task.FromResult(Failure is { } error ? Result<SetupTeams>.Failure(error.Code, error.Message) : OkTeams(finishes.Select(entry => new SetupTeam(entry.TeamId.Value, "Bills", "AFC East", entry.Finish, entry.Finish)).ToArray()));
         }
 
         private static Result<SeasonSummary> Ok() => Result<SeasonSummary>.Success(new SeasonSummary(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", false, SeasonState.Setup, new SeasonSettings(new Money(100m, "USD"), 3), []));

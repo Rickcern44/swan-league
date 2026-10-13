@@ -467,9 +467,10 @@ function SetupCards({
                 type="number"
                 step="0.01"
                 value={stakes[pool]}
-                onChange={(event) =>
-                  setStakes({ ...stakes, [pool]: event.target.value })
-                }
+                onChange={(event) => {
+                  const { value } = event.target;
+                  setStakes((current) => ({ ...current, [pool]: value }));
+                }}
               />
             </Field>
           ))}
@@ -531,12 +532,13 @@ function SetupCards({
                       <select
                         aria-label={team.name}
                         value={picks[team.teamId] ?? ""}
-                        onChange={(event) =>
-                          setPicks({
-                            ...picks,
-                            [team.teamId]: event.target.value,
-                          })
-                        }
+                        onChange={(event) => {
+                          const { value } = event.target;
+                          setPicks((current) => ({
+                            ...current,
+                            [team.teamId]: value,
+                          }));
+                        }}
                       >
                         <option value="">Finish…</option>
                         {finishLabels.map((label, index) => (

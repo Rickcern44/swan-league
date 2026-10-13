@@ -12,7 +12,8 @@ public sealed record SeasonSummary(SeasonId Id, int Year, string Name, bool IsSi
 
 public sealed record SetupMoney(Money BuyIn, Money Main, Money Dog, Money RegularSeason, Money Playoff);
 
-public sealed record SetupTeam(TeamId TeamId, string Name, string Division, int? FinishPosition, int? PointValue);
+// TeamId is a plain Guid so it reaches JSON as a string rather than an id wrapper object.
+public sealed record SetupTeam(Guid TeamId, string Name, string Division, int? FinishPosition, int? PointValue);
 
 public sealed record SetupTeams(IReadOnlyList<SetupTeam> Teams);
 
@@ -101,7 +102,7 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         var finishes = await database.SeasonTeams.AsNoTracking().Where(team => team.SeasonId == seasonId).ToDictionaryAsync(team => team.TeamId, team => team.FinishPosition, cancellationToken);
         var catalog = await database.Teams.AsNoTracking().ToListAsync(cancellationToken);
         return new(catalog.OrderBy(team => team.Division, StringComparer.Ordinal).ThenBy(team => team.Name, StringComparer.Ordinal)
-            .Select(team => finishes.TryGetValue(team.Id, out var finish) ? new SetupTeam(team.Id, team.Name, team.Division, finish, SetupTeamFinishes.PointValueFor(finish)) : new SetupTeam(team.Id, team.Name, team.Division, null, null)).ToList());
+            .Select(team => finishes.TryGetValue(team.Id, out var finish) ? new SetupTeam(team.Id.Value, team.Name, team.Division, finish, SetupTeamFinishes.PointValueFor(finish)) : new SetupTeam(team.Id.Value, team.Name, team.Division, null, null)).ToList());
     }
 
     // Edits the one Setup season under a row lock; `audited` is what the audit entry records and `changeKey` decides whether anything changed.
