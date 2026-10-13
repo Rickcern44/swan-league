@@ -22,27 +22,45 @@ Use root-cause discipline, verify the real user path, and protect owner state. B
 <!-- END OpenRig MANAGED BLOCK: CULTURE-default.md -->
 
 <!-- BEGIN OpenRig MANAGED BLOCK: CULTURE.md -->
-# Flow team norms
+# Starter
 
-Token efficiency is a requirement.
+Work in the repository selected at launch. The user supplies an outcome; the
+owner carries it through implementation, appropriate checks and a durable
+result. Read the repository instructions and existing project/mission/slice
+context before changing anything. If there is no selected workflow, keep the
+path light. Do not install a release process for a first task.
 
-- Work moves plan -> docs -> dev through `rig queue handoff`. Chat text is not the work record.
-- Hand off POINTERS (file paths, task IDs), never pasted content.
-- The project's `docs/` folder is the shared memory. Two levels only: features and tasks.
-  `docs/project.md`                          (frontmatter `prefix: ABC` - the project key)
-  `docs/features/ABC-3-slug/feature.md`
-  `docs/features/ABC-3-slug/tasks/ABC-3.2-slug.md`
-- IDs are Linear-style: feature `ABC-3`, task `ABC-3.2`. Always refer to work by ID in queue items and messages.
-  Numbers are never reused or renumbered. Next number = highest existing + 1.
-- Read only the one file you need. Do not re-read the whole tree.
-- Be brief. No restating the assignment, no summaries of work you just did beyond the handoff note.
-- Do not publish, push, or run destructive operations without the user's explicit say-so.
+## Receiving work
 
-Seat addresses are `team-plan@<rig>`, `team-docs@<rig>`, `team-dev@<rig>`. The rig name is per project
-(e.g. `api-flow`); read yours from `rig whoami --json` and replace `<rig>` before addressing a teammate.
+Run `rig whoami --json` and check `rig queue list --owned --limit 1000`.
+Claim an assigned row before working. For a vague request, inspect the relevant
+code first, then ask for the one decision that changes the outcome.
+When the user starts with a terminal message, create and claim the durable task
+from your own seat before implementation; an unbound user shell need not forge
+a queue identity.
 
-Queue basics (see `rig queue --help` for syntax): `rig whoami --json`, `rig queue list --owned`,
-`rig queue claim <id>`, `rig queue handoff <id> --to <seat>`, `rig queue update <id> --state done --closure-reason <reason>`.
+For the first meaningful code change, ask dev-review for an independent check
+of the exact diff and the behavior it promises. Subsequent checks should match
+the consequence of the work. Hand off through `rig queue handoff`, with the
+repository path, candidate commit or diff, checks run and any limits. Consult
+`--help` for current syntax. Do not use chat text as the work record.
+
+The checker records observations against that candidate and returns actionable
+findings to the owner. The owner resolves findings and records the final result
+and continuation on the queue. Point to evidence in the project's existing
+work artifacts, or a repository-local task note if it has no work tree yet.
+Do not mark a change accepted because another row closed.
+
+## Boundaries and continuation
+
+Keep local edits and commits within the assigned change. Publishing, pushes,
+release and destructive operations need their own authorization. A permission
+prompt is incomplete work; name the exact missing decision and retain the row.
+
+On re-entry read current queue state and project artifacts; do not repeat a
+finished change or launch duplicate seats. Explain the result in terms the
+user can exercise, state what was not checked, and name the next useful action.
+Leave the project ready for another outcome at the same owner address.
 
 <!-- END OpenRig MANAGED BLOCK: CULTURE.md -->
 
@@ -274,7 +292,3 @@ were handed and what counts as done. If you are setting up a world pack for your
 `rig context get world-example` has a fill-in template.
 
 <!-- END OpenRig MANAGED BLOCK: openrig-onboarding-02.md -->
-
-
-
-
