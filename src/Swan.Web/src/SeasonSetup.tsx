@@ -16,23 +16,40 @@ type Notice = { kind: "saved" | "error"; text: string } | undefined;
 type Loaded =
   | { status: "loading" }
   | { status: "none" }
+  | { status: "failed"; error: string }
   | { status: "ready"; season: Season };
 
 const stakeNames = ["Main", "Dog", "Regular Season", "Playoff"] as const;
 const defaultDeadline = "13:00";
 
-async function send(method: string, url: string, body?: unknown) {
-  const response = await fetch(url, {
-    method,
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (response.ok) return { season: (await response.json()) as Season };
-  const error = (await response.json().catch(() => undefined)) as
-    | { message?: string; title?: string }
-    | undefined;
-  return { error: error?.message ?? error?.title ?? "The request failed." };
+type Result = { season: Season } | { error: string; missing?: boolean };
+
+async function send(
+  method: string,
+  url: string,
+  body?: unknown,
+): Promise<Result> {
+  try {
+    const response = await fetch(url, {
+      method,
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (response.ok) return { season: (await response.json()) as Season };
+    const error = (await response.json().catch(() => undefined)) as
+      | { message?: string; title?: string }
+      | undefined;
+    return {
+      error:
+        error?.message ??
+        error?.title ??
+        `The request failed (${response.status}).`,
+      missing: response.status === 404,
+    };
+  } catch {
+    return { error: "Could not reach the server." };
+  }
 }
 
 const toCents = (value: string) => Math.round(Number(value) * 100);
@@ -44,9 +61,11 @@ export default function SeasonSetup() {
   useEffect(() => {
     void send("GET", "/api/admin/seasons/setup").then((result) =>
       setLoaded(
-        result.season
+        "season" in result
           ? { status: "ready", season: result.season }
-          : { status: "none" },
+          : result.missing
+            ? { status: "none" }
+            : { status: "failed", error: result.error },
       ),
     );
   }, []);
@@ -57,6 +76,9 @@ export default function SeasonSetup() {
     <section className="setup">
       <h2>Season setup</h2>
       <p>Set the foundation for the next Swan League season.</p>
+      {loaded.status === "failed" && (
+        <p role="alert">Could not load the Setup season: {loaded.error}</p>
+      )}
       {loaded.status === "none" && <StartCard onSeason={apply} />}
       {loaded.status === "ready" && (
         <SetupCards season={loaded.season} onSeason={apply} />
@@ -134,9 +156,9 @@ function StartCard({ onSeason }: { onSeason: (season: Season) => void }) {
           name,
           isSimulation,
         }).then((result) =>
-          result.season
+          "season" in result
             ? onSeason(result.season)
-            : setNotice({ kind: "error", text: result.error! }),
+            : setNotice({ kind: "error", text: result.error }),
         )
       }
     >
@@ -212,11 +234,11 @@ function SetupCards({
     body: unknown,
   ) =>
     void send(method, url, body).then((result) =>
-      result.season
+      "season" in result
         ? resync(result.season, card, text)
         : setNotices((current) => ({
             ...current,
-            [card]: { kind: "error", text: result.error! },
+            [card]: { kind: "error", text: result.error },
           })),
     );
 

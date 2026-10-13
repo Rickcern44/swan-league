@@ -269,6 +269,40 @@ test("a failed create shows its error in the start card", async () => {
   );
 });
 
+test("a failed load shows an error instead of offering to create a season", async () => {
+  stubApi("Admin");
+  replies["GET /api/admin/seasons/setup"] = {
+    status: 500,
+    body: { title: "Boom" },
+  };
+  render(<App />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not load the Setup season: Boom",
+  );
+  expect(
+    screen.queryByRole("form", { name: "Start a new season" }),
+  ).not.toBeInTheDocument();
+});
+
+test("a network failure on load is shown as an error", async () => {
+  stubApi("Admin");
+  const api = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (url, init) => {
+    if (String(url) === "/api/admin/seasons/setup")
+      throw new TypeError("offline");
+    return api(url, init);
+  });
+  render(<App />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not reach the server.",
+  );
+  expect(
+    screen.queryByRole("form", { name: "Start a new season" }),
+  ).not.toBeInTheDocument();
+});
+
 test("a coach sees no admin controls and the app never asks for the setup season", async () => {
   stubApi("Coach");
   render(<App />);

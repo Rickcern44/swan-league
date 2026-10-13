@@ -40,46 +40,83 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     page.getByRole("heading", { name: "Season setup" }),
   ).toBeVisible();
 
-  // The seeded database may or may not already hold a Setup season.
-  const start = page.getByRole("form", { name: "Start a new season" });
-  if (await start.isVisible()) {
-    await start.getByLabel("Season year").fill("2027");
-    await start.getByLabel("Season name").fill("2027 Swan League");
-    await start.getByRole("button", { name: "Create season" }).click();
+  // There is no delete endpoint, so the test puts back whatever Setup season it found (or the fresh-season defaults if it had to create one).
+  const existing = await page.request.get("/api/admin/seasons/setup");
+  const original = existing.ok()
+    ? ((await existing.json()) as {
+        year: number;
+        name: string;
+        isSimulation: boolean;
+        settings: {
+          buyIn: { amount: number };
+          teamPickDeadlineEastern: string | null;
+        };
+        pools: { name: string; stake: { amount: number } }[];
+      })
+    : undefined;
+  try {
+    // The seeded database may or may not already hold a Setup season.
+    const start = page.getByRole("form", { name: "Start a new season" });
+    if (await start.isVisible()) {
+      await start.getByLabel("Season year").fill("2027");
+      await start.getByLabel("Season name").fill("2027 Swan League");
+      await start.getByRole("button", { name: "Create season" }).click();
+    }
+
+    const basics = page.getByRole("form", { name: "Basics" });
+    await expect(basics).toBeVisible();
+    await basics.getByLabel("Season name").fill("E2E Swan League");
+    await basics.getByLabel("Simulation season").check();
+    await basics.getByRole("button", { name: "Save basics" }).click();
+    await expect(basics.getByText("Basics saved")).toBeVisible();
+
+    const money = page.getByRole("form", { name: "Money" });
+    await money.getByLabel("Buy-in").fill("150");
+    await money.getByLabel("Main", { exact: true }).fill("90");
+    await money.getByLabel("Dog").fill("30");
+    await money.getByLabel("Regular Season").fill("15");
+    await money.getByLabel("Playoff").fill("15");
+    await expect(money.getByText("Pool total $150.00")).toBeVisible();
+    await money.getByRole("button", { name: "Save money" }).click();
+    await expect(money.getByText("Money saved")).toBeVisible();
+
+    const deadline = page.getByRole("form", { name: "Weekly deadline" });
+    await deadline.getByLabel("Team picks lock Sundays at").fill("11:30");
+    await deadline.getByRole("button", { name: "Save deadline" }).click();
+    await expect(deadline.getByText("Deadline saved")).toBeVisible();
+
+    await money.getByLabel("Playoff").fill("5");
+    await money.getByRole("button", { name: "Save money" }).click();
+    await expect(money.getByRole("alert")).toContainText("add up");
+
+    await page.reload();
+    await expect(page.getByLabel("Season name")).toHaveValue("E2E Swan League");
+    await expect(page.getByLabel("Buy-in")).toHaveValue("150");
+    await expect(page.getByLabel("Team picks lock Sundays at")).toHaveValue(
+      "11:30",
+    );
+  } finally {
+    const stake = (name: string, fallback: number) =>
+      original?.pools.find((pool) => pool.name === name)?.stake.amount ??
+      fallback;
+    const put = (url: string, data: unknown) => page.request.put(url, { data });
+    await put("/api/admin/seasons/setup", {
+      year: original?.year ?? 2027,
+      name: original?.name ?? "2027 Swan League",
+      isSimulation: original?.isSimulation ?? false,
+    });
+    await put("/api/admin/seasons/setup/money", {
+      buyIn: original?.settings.buyIn.amount ?? 100,
+      main: stake("Main", 60),
+      dog: stake("Dog", 20),
+      regularSeason: stake("Regular Season", 10),
+      playoff: stake("Playoff", 10),
+    });
+    await put("/api/admin/seasons/setup/deadline", {
+      teamPickDeadlineEastern:
+        original?.settings.teamPickDeadlineEastern ?? "13:00:00",
+    });
   }
-
-  const basics = page.getByRole("form", { name: "Basics" });
-  await expect(basics).toBeVisible();
-  await basics.getByLabel("Season name").fill("E2E Swan League");
-  await basics.getByLabel("Simulation season").check();
-  await basics.getByRole("button", { name: "Save basics" }).click();
-  await expect(basics.getByText("Basics saved")).toBeVisible();
-
-  const money = page.getByRole("form", { name: "Money" });
-  await money.getByLabel("Buy-in").fill("150");
-  await money.getByLabel("Main", { exact: true }).fill("90");
-  await money.getByLabel("Dog").fill("30");
-  await money.getByLabel("Regular Season").fill("15");
-  await money.getByLabel("Playoff").fill("15");
-  await expect(money.getByText("Pool total $150.00")).toBeVisible();
-  await money.getByRole("button", { name: "Save money" }).click();
-  await expect(money.getByText("Money saved")).toBeVisible();
-
-  const deadline = page.getByRole("form", { name: "Weekly deadline" });
-  await deadline.getByLabel("Team picks lock Sundays at").fill("11:30");
-  await deadline.getByRole("button", { name: "Save deadline" }).click();
-  await expect(deadline.getByText("Deadline saved")).toBeVisible();
-
-  await money.getByLabel("Playoff").fill("5");
-  await money.getByRole("button", { name: "Save money" }).click();
-  await expect(money.getByRole("alert")).toContainText("add up");
-
-  await page.reload();
-  await expect(page.getByLabel("Season name")).toHaveValue("E2E Swan League");
-  await expect(page.getByLabel("Buy-in")).toHaveValue("150");
-  await expect(page.getByLabel("Team picks lock Sundays at")).toHaveValue(
-    "11:30",
-  );
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByLabel("Email")).toBeVisible();
