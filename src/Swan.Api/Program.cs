@@ -29,6 +29,7 @@ app.UseAuthorization();
 app.MapGet("/api/ping", () => Results.Ok(new { message = "pong" })).AllowAnonymous();
 app.MapIdentityEndpoints();
 app.MapAuditEndpoints();
+app.MapWeekEndpoints();
 
 app.Run();
 
