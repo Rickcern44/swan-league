@@ -83,7 +83,13 @@ npx playwright install chromium
 E2E_BASE_URL=http://localhost:<web-port> npm run test:e2e
 ```
 
-The E2E test edits the Setup season and puts it back. If none exists it creates one, and because there is no delete endpoint it then needs `E2E_RESET_SETUP_SEASON_CMD` to remove the row, for example `podman exec <postgres container> psql -U postgres -d swan -c 'delete from league.seasons where "State" = 0'`; without it the run fails rather than leave the season behind. The generated Postgres password contains parentheses, so pass it as `PGPASSWORD='…'` in single quotes. Sign-in links are limited to one per address per minute, so wait a minute between runs.
+The E2E test edits the Setup season and puts it back, so run it only against a dedicated test database, never your development data (all `aspire run --isolated` stacks share one Postgres volume unless the AppHost names its own). There is no delete endpoint: if the test has to create the Setup season it removes it with `E2E_RESET_SETUP_SEASON_CMD`, and if it fills in teams on a season that had none it clears them with `E2E_RESET_SETUP_TEAMS_CMD`; without those commands the run fails rather than leave data behind. For example (the generated Postgres password contains parentheses, so keep `$POSTGRES_PASSWORD` inside the single-quoted `sh -c`):
+
+```sh
+export E2E_RESET_SETUP_TEAMS_CMD="podman exec <postgres container> sh -c 'PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -U postgres -d swan -c \"delete from schedule.season_teams where \\\"SeasonId\\\" in (select \\\"Id\\\" from league.seasons where \\\"State\\\" = 0)\"'"
+```
+
+`E2E_RESET_SETUP_SEASON_CMD` is the same with `...; delete from league.seasons where "State" = 0` appended. Sign-in links are limited to one per address per minute, so wait a minute between runs.
 
 ## Troubleshooting
 

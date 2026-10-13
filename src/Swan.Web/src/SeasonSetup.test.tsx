@@ -31,6 +31,28 @@ const season = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const divisions = [
+  "AFC East",
+  "AFC North",
+  "AFC South",
+  "AFC West",
+  "NFC East",
+  "NFC North",
+  "NFC South",
+  "NFC West",
+];
+const catalog = (finishes = false) => ({
+  teams: divisions.flatMap((division) =>
+    [1, 2, 3, 4].map((slot) => ({
+      teamId: `${division}-${slot}`,
+      name: `${division} Team ${slot}`,
+      division,
+      finishPosition: finishes ? slot : null,
+      pointValue: finishes ? slot : null,
+    })),
+  ),
+});
+
 type Reply = { status: number; body?: unknown };
 let replies: Record<string, Reply | ((body: { step: number }) => Reply)>;
 let calls: { method: string; url: string; body?: unknown }[];
@@ -71,12 +93,14 @@ function stubApi(role: "Admin" | "Coach") {
 afterEach(cleanup);
 
 beforeEach(() => {
-  replies = {};
+  replies = { [TEAMS]: { status: 200, body: catalog() } };
   calls = [];
   window.history.replaceState({}, "", "/");
 });
 
 const SETUP = "GET /api/admin/seasons/setup";
+const TEAMS = "GET /api/admin/seasons/setup/teams";
+const SAVE_TEAMS = "PUT /api/admin/seasons/setup/teams";
 const STEP = "PUT /api/admin/seasons/setup/step";
 const putCalls = () =>
   calls
@@ -108,7 +132,7 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
   fireEvent.click(within(card).getByRole("button", { name: "Create season" }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
-  expect(screen.getByText("Step 1 of 3")).toBeVisible();
+  expect(screen.getByText("Step 1 of 4")).toBeVisible();
   expect(screen.getByLabelText("Season name")).toHaveValue("2027 Swan League");
   expect(calls.find((call) => call.method === "POST")).toMatchObject({
     body: { year: 2027, name: "2027 Swan League", isSimulation: true },
@@ -120,10 +144,11 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
 });
 
 test.each([
-  [0, "Basics", "Step 1 of 3"],
-  [1, "Money", "Step 2 of 3"],
-  [2, "Weekly deadline", "Step 3 of 3"],
-  [3, "Weekly deadline", "Step 3 of 3"],
+  [0, "Basics", "Step 1 of 4"],
+  [1, "Money", "Step 2 of 4"],
+  [2, "Weekly deadline", "Step 3 of 4"],
+  [3, "Teams and point values", "Step 4 of 4"],
+  [4, "Teams and point values", "Step 4 of 4"],
 ])(
   "a fresh load resumes at the saved step %i",
   async (setupStep, form, position) => {
@@ -170,7 +195,7 @@ test("Save & continue on Basics saves it, records Money as the resume point and 
   fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
   expect(await screen.findByRole("form", { name: "Money" })).toBeVisible();
-  expect(screen.getByText("Step 2 of 3")).toBeVisible();
+  expect(screen.getByText("Step 2 of 4")).toBeVisible();
   expect(putCalls()).toEqual(["/", "/step"]);
   expect(
     calls.find(
@@ -232,14 +257,15 @@ test("Money then deadline walk the wizard and the last save records the next una
   });
   fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
-  expect(await screen.findByText("Deadline saved")).toBeVisible();
+  expect(
+    await screen.findByRole("form", { name: "Teams and point values" }),
+  ).toBeVisible();
   expect(calls.find((call) => call.url.endsWith("/deadline"))).toMatchObject({
     body: { teamPickDeadlineEastern: "11:30:00" },
   });
   expect(calls.filter((call) => call.url.endsWith("/step"))[1]).toMatchObject({
     body: { step: 3 },
   });
-  expect(screen.getByRole("form", { name: "Weekly deadline" })).toBeVisible();
 });
 
 test("saving an earlier page never moves the saved resume point backwards", async () => {
@@ -346,17 +372,17 @@ test("a failed resume-point save is reported and the page does not advance", asy
 
 test("later steps are listed as upcoming and cannot be opened", async () => {
   stubApi("Admin");
-  replies[SETUP] = { status: 200, body: season({ setupStep: 3 }) };
+  replies[SETUP] = { status: 200, body: season({ setupStep: 4 }) };
   render(<App />);
 
-  await screen.findByRole("form", { name: "Weekly deadline" });
+  await screen.findByRole("form", { name: "Teams and point values" });
   const next = screen.getByText(/Coming next/);
-  expect(next).toHaveTextContent("Teams and point values");
+  expect(next).not.toHaveTextContent("Teams and point values");
   expect(next).toHaveTextContent("Schedule import");
   expect(next).toHaveTextContent("Weeks and dogs");
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /schedule|teams|weeks/i }),
+    screen.queryByRole("button", { name: /schedule|weeks/i }),
   ).not.toBeInTheDocument();
 });
 
@@ -376,6 +402,118 @@ test("a failed create shows its error in the start card", async () => {
       "Season name is required.",
     ),
   );
+});
+
+test("the Teams page lists every team by division with its derived point value", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 3 }) };
+  replies[TEAMS] = { status: 200, body: catalog(true) };
+  render(<App />);
+
+  const form = await screen.findByRole("form", {
+    name: "Teams and point values",
+  });
+  expect(within(form).getAllByRole("group")).toHaveLength(8);
+  const east = within(form).getByRole("group", { name: "AFC East" });
+  expect(within(east).getAllByRole("combobox")).toHaveLength(4);
+  expect(within(east).getByLabelText("AFC East Team 3")).toHaveValue("3");
+  expect(within(east).getByText("Point value 3")).toBeVisible();
+  fireEvent.change(within(east).getByLabelText("AFC East Team 3"), {
+    target: { value: "1" },
+  });
+  expect(within(east).getAllByText("Point value 1")).toHaveLength(2);
+});
+
+test("an unfinished division is explained without a request and keeps the selections", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 3 }) };
+  replies[TEAMS] = { status: 200, body: catalog(true) };
+  render(<App />);
+
+  const east = within(await screen.findByRole("group", { name: "AFC East" }));
+  fireEvent.change(east.getByLabelText("AFC East Team 2"), {
+    target: { value: "1" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "AFC East needs exactly one team at each of 1st, 2nd, 3rd and 4th.",
+  );
+  expect(east.getByLabelText("AFC East Team 2")).toHaveValue("1");
+  expect(east.getByLabelText("AFC East Team 4")).toHaveValue("4");
+  expect(putCalls()).toEqual([]);
+});
+
+test("a team without a finish is reported before anything is sent", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 3 }) };
+  render(<App />);
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Choose a finish for every team",
+  );
+  expect(putCalls()).toEqual([]);
+});
+
+test("saving valid finishes sends the complete set, records Schedule import and keeps Teams on screen", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 3 }) };
+  replies[TEAMS] = { status: 200, body: catalog(true) };
+  replies[SAVE_TEAMS] = { status: 200, body: catalog(true) };
+  replies[STEP] = stepReply();
+  render(<App />);
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await screen.findByText("Teams saved")).toBeVisible();
+  const sent = calls.find(
+    (call) => call.method === "PUT" && call.url.endsWith("/teams"),
+  )!;
+  expect((sent.body as { teams: unknown[] }).teams).toHaveLength(32);
+  expect((sent.body as { teams: unknown[] }).teams[0]).toEqual({
+    teamId: "AFC East-1",
+    finishPosition: 1,
+  });
+  expect(JSON.stringify(sent.body)).not.toContain("pointValue");
+  expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
+    body: { step: 4 },
+  });
+  expect(
+    screen.getByRole("form", { name: "Teams and point values" }),
+  ).toBeVisible();
+  expect(screen.getByText(/Coming next/)).toHaveTextContent("Schedule import");
+  expect(
+    screen.queryByRole("form", { name: /schedule/i }),
+  ).not.toBeInTheDocument();
+});
+
+test("a server rejection of the finishes stays beside the page and does not record progress", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 3 }) };
+  replies[TEAMS] = { status: 200, body: catalog(true) };
+  replies[SAVE_TEAMS] = {
+    status: 400,
+    body: {
+      code: "season.teams",
+      message: "Submit each of the 32 teams exactly once.",
+    },
+  };
+  render(<App />);
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Submit each of the 32 teams exactly once.",
+  );
+  expect(putCalls()).toEqual(["/teams"]);
 });
 
 test("a failed load shows an error instead of offering to create a season", async () => {

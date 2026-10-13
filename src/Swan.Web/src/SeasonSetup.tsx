@@ -20,16 +20,33 @@ type Loaded =
   | { status: "failed"; error: string }
   | { status: "ready"; season: Season };
 
+type TeamRow = {
+  teamId: string;
+  name: string;
+  division: string;
+  finishPosition: number | null;
+  pointValue: number | null;
+};
+type TeamList = { teams: TeamRow[] };
+const finishLabels = ["1st", "2nd", "3rd", "4th"];
+const pickMap = (teams: TeamRow[]) =>
+  Object.fromEntries(
+    teams.map((team) => [
+      team.teamId,
+      team.finishPosition ? String(team.finishPosition) : "",
+    ]),
+  );
+
 const stakeNames = ["Main", "Dog", "Regular Season", "Playoff"] as const;
 const defaultDeadline = "13:00";
 
-type Result = { season: Season } | { error: string; missing?: boolean };
+type Result<T> = { value: T } | { error: string; missing?: boolean };
 
-async function send(
+async function send<T = Season>(
   method: string,
   url: string,
   body?: unknown,
-): Promise<Result> {
+): Promise<Result<T>> {
   try {
     const response = await fetch(url, {
       method,
@@ -37,7 +54,7 @@ async function send(
       headers: { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (response.ok) return { season: (await response.json()) as Season };
+    if (response.ok) return { value: (await response.json()) as T };
     const error = (await response.json().catch(() => undefined)) as
       | { message?: string; title?: string }
       | undefined;
@@ -62,8 +79,8 @@ export default function SeasonSetup() {
   useEffect(() => {
     void send("GET", "/api/admin/seasons/setup").then((result) =>
       setLoaded(
-        "season" in result
-          ? { status: "ready", season: result.season }
+        "value" in result
+          ? { status: "ready", season: result.value }
           : result.missing
             ? { status: "none" }
             : { status: "failed", error: result.error },
@@ -160,8 +177,8 @@ function StartCard({ onSeason }: { onSeason: (season: Season) => void }) {
           name,
           isSimulation,
         }).then((result) =>
-          "season" in result
-            ? onSeason(result.season)
+          "value" in result
+            ? onSeason(result.value)
             : setNotice({ kind: "error", text: result.error }),
         )
       }
@@ -188,14 +205,15 @@ function StartCard({ onSeason }: { onSeason: (season: Season) => void }) {
   );
 }
 
-const wizardSteps = ["Basics", "Money", "Weekly deadline"] as const;
-const lastStep = wizardSteps.length - 1;
-const stepSlugs = ["basics", "money", "deadline"];
-const upcoming = [
+const wizardSteps = [
+  "Basics",
+  "Money",
+  "Weekly deadline",
   "Teams and point values",
-  "Schedule import",
-  "Weeks and dogs",
-];
+] as const;
+const lastStep = wizardSteps.length - 1;
+const stepSlugs = ["basics", "money", "deadline", "teams"];
+const upcoming = ["Schedule import", "Weeks and dogs"];
 
 function SetupCards({
   season,
@@ -217,6 +235,9 @@ function SetupCards({
     (season.settings.teamPickDeadlineEastern ?? defaultDeadline).slice(0, 5),
   );
   const [notices, setNotices] = useState<Record<string, Notice>>({});
+  const [teams, setTeams] = useState<TeamRow[]>();
+  const [picks, setPicks] = useState<Record<string, string>>({});
+  const [teamsError, setTeamsError] = useState<string>();
   // A fresh load opens at the saved resume point; the step after the last built one still shows the last page.
   const [view, setView] = useState(() => Math.min(season.setupStep, lastStep));
   const available = useRef(Math.min(season.setupStep, lastStep));
@@ -238,6 +259,19 @@ function SetupCards({
     return () => window.removeEventListener("popstate", onPop);
     // The initial entry is recorded once.
   }, []);
+
+  // The team catalog is loaded the first time the Teams page opens.
+  useEffect(() => {
+    if (view !== 3 || teams || teamsError) return;
+    void send<TeamList>("GET", "/api/admin/seasons/setup/teams").then(
+      (result) => {
+        if ("value" in result) {
+          setTeams(result.value.teams);
+          setPicks(pickMap(result.value.teams));
+        } else setTeamsError(result.error);
+      },
+    );
+  }, [view, teams, teamsError]);
 
   function goTo(target: number) {
     window.history.pushState(
@@ -276,26 +310,70 @@ function SetupCards({
     const fail = (text: string) =>
       setNotices({ [step]: { kind: "error", text } });
     const saved = await send("PUT", url, body);
-    if (!("season" in saved)) return fail(saved.error);
-    resync(saved.season, step);
-    onSeason(saved.season);
-    const target = Math.max(saved.season.setupStep, step + 1);
-    let latest = saved.season;
+    if (!("value" in saved)) return fail(saved.error);
+    resync(saved.value, step);
+    onSeason(saved.value);
+    const target = Math.max(saved.value.setupStep, step + 1);
+    let latest = saved.value;
     if (target !== latest.setupStep) {
       const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
         step: target,
       });
-      if (!("season" in recorded))
+      if (!("value" in recorded))
         return fail(
           `Saved, but your progress could not be recorded: ${recorded.error}`,
         );
-      latest = recorded.season;
+      latest = recorded.value;
       onSeason(latest);
     }
     if (step < lastStep) {
       setNotices({});
       goTo(step + 1);
     } else setNotices({ [step]: { kind: "saved", text: "Deadline saved" } });
+  }
+
+  async function saveTeams() {
+    if (!teams) return;
+    const fail = (text: string) => setNotices({ 3: { kind: "error", text } });
+    if (teams.some((team) => !picks[team.teamId]))
+      return fail("Choose a finish for every team.");
+    for (const division of new Set(teams.map((team) => team.division)))
+      if (
+        teams
+          .filter((team) => team.division === division)
+          .map((team) => picks[team.teamId])
+          .sort()
+          .join() !== "1,2,3,4"
+      )
+        return fail(
+          `${division} needs exactly one team at each of 1st, 2nd, 3rd and 4th.`,
+        );
+    const saved = await send<TeamList>(
+      "PUT",
+      "/api/admin/seasons/setup/teams",
+      {
+        teams: teams.map((team) => ({
+          teamId: team.teamId,
+          finishPosition: Number(picks[team.teamId]),
+        })),
+      },
+    );
+    if (!("value" in saved)) return fail(saved.error);
+    setTeams(saved.value.teams);
+    setPicks(pickMap(saved.value.teams));
+    // The next unbuilt step (Schedule import) becomes the resume point, never moving it backwards.
+    const target = Math.max(season.setupStep, 4);
+    if (target !== season.setupStep) {
+      const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
+        step: target,
+      });
+      if (!("value" in recorded))
+        return fail(
+          `Saved, but your progress could not be recorded: ${recorded.error}`,
+        );
+      onSeason(recorded.value);
+    }
+    setNotices({ 3: { kind: "saved", text: "Teams saved" } });
   }
 
   const poolTotal = stakeNames.reduce(
@@ -418,6 +496,60 @@ function SetupCards({
             />
           </Field>
           <span>Eastern Time</span>
+        </Card>
+      )}
+      {view === 3 && (
+        <Card
+          title="Teams and point values"
+          notice={
+            notices[3] ??
+            (teamsError
+              ? {
+                  kind: "error",
+                  text: `Could not load the teams: ${teamsError}`,
+                }
+              : undefined)
+          }
+          action="Save & continue"
+          onBack={back}
+          onSubmit={() => void saveTeams()}
+        >
+          <span className="hint">
+            Set each team's prior-season division finish. Point values derive
+            automatically.
+          </span>
+          {!teams && !teamsError && <span>Loading teams…</span>}
+          {teams &&
+            [...new Set(teams.map((team) => team.division))].map((division) => (
+              <fieldset key={division} className="division">
+                <legend>{division}</legend>
+                {teams
+                  .filter((team) => team.division === division)
+                  .map((team) => (
+                    <div key={team.teamId} className="team-row">
+                      <span>{team.name}</span>
+                      <select
+                        aria-label={team.name}
+                        value={picks[team.teamId] ?? ""}
+                        onChange={(event) =>
+                          setPicks({
+                            ...picks,
+                            [team.teamId]: event.target.value,
+                          })
+                        }
+                      >
+                        <option value="">Finish…</option>
+                        {finishLabels.map((label, index) => (
+                          <option key={label} value={String(index + 1)}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <span>{`Point value ${picks[team.teamId] || "–"}`}</span>
+                    </div>
+                  ))}
+              </fieldset>
+            ))}
         </Card>
       )}
       <p>Coming next: {upcoming.join(" → ")}</p>

@@ -2,9 +2,12 @@ import { execSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 
 const mailpitUrl = process.env.E2E_MAILPIT_URL;
-// There is no delete endpoint; this command removes the Setup season row so a run that had to create one leaves no trace, e.g.
-// podman exec <postgres container> psql -U postgres -d swan -c 'delete from league.seasons where "State" = 0'
+// There is no delete endpoint, so a run that had to create the Setup season (or fill in its teams) removes its traces with a command, e.g.
+// E2E_RESET_SETUP_SEASON_CMD: psql -c 'delete from schedule.season_teams where "SeasonId" in (select "Id" from league.seasons where "State" = 0); delete from league.seasons where "State" = 0'
+// E2E_RESET_SETUP_TEAMS_CMD:  psql -c 'delete from schedule.season_teams where "SeasonId" in (select "Id" from league.seasons where "State" = 0)'
+// Run only against a dedicated test database.
 const resetSetupSeason = process.env.E2E_RESET_SETUP_SEASON_CMD;
+const resetSetupTeams = process.env.E2E_RESET_SETUP_TEAMS_CMD;
 
 async function signIn(page: import("@playwright/test").Page, email: string) {
   if (!mailpitUrl)
@@ -59,6 +62,15 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
         setupStep: number;
       })
     : undefined;
+  const teamsBefore = original
+    ? (
+        (await (
+          await page.request.get("/api/admin/seasons/setup/teams")
+        ).json()) as {
+          teams: { teamId: string; finishPosition: number | null }[];
+        }
+      ).teams
+    : [];
   let leftBehind = false;
   try {
     // The seeded database may or may not already hold a Setup season.
@@ -77,7 +89,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     const basics = page.getByRole("form", { name: "Basics" });
     await expect(basics).toBeVisible();
-    await expect(page.getByText("Step 1 of 3")).toBeVisible();
+    await expect(page.getByText("Step 1 of 4")).toBeVisible();
     await expect(page.getByRole("form", { name: "Money" })).toHaveCount(0);
     await basics.getByLabel("Season name").fill("E2E Swan League");
     await basics.getByLabel("Simulation season").check();
@@ -86,10 +98,10 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Closing the browser and coming back opens the saved step.
     const money = page.getByRole("form", { name: "Money" });
     await expect(money).toBeVisible();
-    await expect(page.getByText("Step 2 of 3")).toBeVisible();
+    await expect(page.getByText("Step 2 of 4")).toBeVisible();
     await page.reload();
     await expect(money).toBeVisible();
-    await expect(page.getByText("Step 2 of 3")).toBeVisible();
+    await expect(page.getByText("Step 2 of 4")).toBeVisible();
 
     // Back navigates without saving; reloading still resumes at Money.
     await money.getByRole("button", { name: "Back" }).click();
@@ -115,21 +127,54 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     const deadline = page.getByRole("form", { name: "Weekly deadline" });
     await expect(deadline).toBeVisible();
-    await expect(page.getByText("Step 3 of 3")).toBeVisible();
+    await expect(page.getByText("Step 3 of 4")).toBeVisible();
     await deadline.getByLabel("Team picks lock Sundays at").fill("11:30");
     await deadline.getByRole("button", { name: "Save & continue" }).click();
-    await expect(deadline.getByText("Deadline saved")).toBeVisible();
 
-    // Later steps are only listed, never reachable.
+    const teams = page.getByRole("form", { name: "Teams and point values" });
+    await expect(teams).toBeVisible();
+    await expect(page.getByText("Step 4 of 4")).toBeVisible();
+
+    // Two teams on the same finish in one division are explained and nothing is saved.
+    const east = teams.getByRole("group", { name: "AFC East" });
+    await east.getByRole("combobox").nth(0).selectOption("1");
+    await east.getByRole("combobox").nth(1).selectOption("1");
+    await east.getByRole("combobox").nth(2).selectOption("3");
+    await east.getByRole("combobox").nth(3).selectOption("4");
+    await teams.getByRole("button", { name: "Save & continue" }).click();
+    await expect(teams.getByRole("alert")).toContainText(
+      "AFC East needs exactly one team at each of 1st, 2nd, 3rd and 4th.",
+    );
+
+    // Each division, one team per finish.
+    for (const group of await teams.getByRole("group").all()) {
+      const selects = await group.getByRole("combobox").all();
+      for (const [index, select] of selects.entries())
+        await select.selectOption(String(index + 1));
+    }
+    await expect(east.getByText("Point value 3")).toBeVisible();
+    await teams.getByRole("button", { name: "Save & continue" }).click();
+    await expect(teams.getByText("Teams saved")).toBeVisible();
+
+    // Schedule import is only listed, never reachable.
     await expect(page.getByText(/Coming next/)).toContainText(
       "Schedule import",
     );
     await expect(
-      page.getByRole("button", { name: /schedule|teams|weeks/i }),
+      page.getByRole("button", { name: /schedule|weeks/i }),
     ).toHaveCount(0);
 
+    // Reloading opens the saved Teams page with the saved finishes.
     await page.reload();
-    await expect(deadline).toBeVisible();
+    await expect(teams).toBeVisible();
+    await expect(page.getByText("Step 4 of 4")).toBeVisible();
+    await expect(
+      teams
+        .getByRole("group", { name: "NFC West" })
+        .getByRole("combobox")
+        .nth(3),
+    ).toHaveValue("4");
+    await teams.getByRole("button", { name: "Back" }).click();
     await expect(deadline.getByLabel("Team picks lock Sundays at")).toHaveValue(
       "11:30",
     );
@@ -157,6 +202,18 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
         regularSeason: stake("Regular Season"),
         playoff: stake("Playoff"),
       });
+      if (
+        teamsBefore.length &&
+        teamsBefore.every((team) => team.finishPosition)
+      )
+        await put("/api/admin/seasons/setup/teams", {
+          teams: teamsBefore.map((team) => ({
+            teamId: team.teamId,
+            finishPosition: team.finishPosition,
+          })),
+        });
+      else if (resetSetupTeams) execSync(resetSetupTeams, { stdio: "inherit" });
+      else leftBehind = true;
       await put("/api/admin/seasons/setup/step", { step: original.setupStep });
       await put("/api/admin/seasons/setup/deadline", {
         teamPickDeadlineEastern:
@@ -175,6 +232,6 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
   // Checked last so it never hides a real failure above.
   expect(
     leftBehind,
-    "The test created a Setup season and cannot remove it: set E2E_RESET_SETUP_SEASON_CMD (see the top of this file).",
+    "The test left a Setup season or team finishes behind: set E2E_RESET_SETUP_SEASON_CMD and E2E_RESET_SETUP_TEAMS_CMD against a dedicated test database (see the top of this file).",
   ).toBe(false);
 });
