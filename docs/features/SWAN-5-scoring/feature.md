@@ -1,7 +1,7 @@
 ---
 id: SWAN-5
 title: Phase 1 scoring core
-status: blocked
+status: implemented
 parent: ~
 ---
 
@@ -13,9 +13,20 @@ Intent: Implement scoring engine for regular season and playoffs. All logic is p
 
 ## Exit criteria
 
+Phase 1 scope per PRD §11 is R1–R14, the fixture suite, and standings for all four pools.
+
 - Fixture suite passes (includes ties, byes, collisions, double-dog weeks, Perfect Week)
-- All scoring rules (R1–R21) covered by tests
+- Scoring rules R1–R14 covered by tests
 - Standings read models working for all four pools
+
+## Status
+
+R1–R14 policies, fixtures and standings are implemented. Not part of this claim:
+
+- **Tiebreak ordering** (SWAN-5.7) is not implemented; it needs the league rules document. Standings mark ties as unbroken. This does not block Phases 2–4.
+- **Adjacent policies** implemented and tested but not Phase 1 exit criteria: R20 lock times ([[SWAN-5.1-lock-policy]]) and R21 pick visibility ([[SWAN-5.2-visibility]]).
+- **Settings** R15 and R17 are covered by the scoring and standings tests ([[SWAN-5.3-scoring-regular]], [[SWAN-5.6-standings]]).
+- **Not implemented here:** R18 (needs the tiebreak rules doc), R16 (pick validation, Phase 3) and R19 (records, Phase 8).
 
 ## Out of scope
 
@@ -26,7 +37,7 @@ Intent: Implement scoring engine for regular season and playoffs. All logic is p
 
 ## Tasks
 
-- Housekeeping: delete stray folder, add gitignore pattern
+- [[SWAN-5.0-housekeeping]] — Housekeeping: delete stray folder, add gitignore pattern
 - [[SWAN-5.1-lock-policy]] — LockPolicy (compute lock times per pick)
 - [[SWAN-5.2-visibility]] — PickVisibilityPolicy (control what coaches see)
 - [[SWAN-5.3-scoring-regular]] — ScoringPolicy (regular season)

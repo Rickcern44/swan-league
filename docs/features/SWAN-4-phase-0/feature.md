@@ -1,7 +1,7 @@
 ---
 id: SWAN-4
 title: Phase 0 completion (auth, audit, seed, sign-in)
-status: done
+status: implemented
 parent: ~
 ---
 
@@ -29,7 +29,13 @@ Intent: Complete Phase 0 with authentication (magic-link sign-in), authorization
 - [[SWAN-4.6-audit]] — Audit log
 - [[SWAN-4.7-web-signin]] — Web sign-in flow + E2E
 
+## Status
+
+Implementation is complete (all seven tasks done, architecture tests pass). The exit criteria below are **not yet proven end to end**: no `aspire run` or Playwright run has been recorded as evidence. CI is deferred by prior project decision.
+
 ## Exit criteria
+
+Unchecked until acceptance evidence is recorded.
 
 - [ ] `aspire run` brings up the full stack
 - [ ] Admin and coach can sign in with magic links (caught in Mailpit)

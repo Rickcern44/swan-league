@@ -6,14 +6,34 @@ prefix: SWAN
 
 # Swan League Tracker
 
-**Product Source of Truth:** [docs/reference/Swan League App — Product Requirements.md](../reference/Swan%20League%20App%20—%20Product%20Requirements.md)
+**Product source of truth:** [docs/reference/Swan League App — Product Requirements.md](reference/Swan%20League%20App%20—%20Product%20Requirements.md). Scope and phasing live there (§11); this page only tracks delivery against it.
 
-**Milestones & Phases:** See PRD §11 for phase breakdown and timeline.
+**ID scheme:** features are `SWAN-n` (our work). PRD requirements are `R`, `C`, `A`, `O`, `S`, `N`, `M` + number (see the PRD).
 
-**ID Scheme:**
-- Features: SWAN-n (our project work)
-- Requirements in PRD: R<number>, C<number>, A<number>, O<number>, S<number>, N<number>, M<number> (see PRD for definitions)
+**Feature records:** `docs/features/` holds implementation history. See [features/README.md](features/README.md).
 
-## Completed Features
+## Where we are
 
-- [[SWAN-1-baseline-ui-api]] — Runnable baseline (superseded by SWAN-2 structure)
+Phases 0 and 1 are implemented in code. Phase 2 (admin week workflow and simulation) is next, then Phase 3 (coach picks) and Phase 4 (notifications).
+
+Evidence levels used below:
+
+- **Implemented**: code and tests exist. `dotnet test Swan.slnx --no-restore` passed 148 tests (Core 65, Services 16, Architecture 62, API 4, Worker 1).
+- **Accepted end to end**: the full Aspire stack and Playwright flows have been run against the exit criteria. Not yet done for any phase: no Aspire-stack or Playwright run has been recorded.
+
+## Delivery by PRD §11 phase
+
+| Phase | Status | Records |
+| --- | --- | --- |
+| 0. Foundations | Implemented; end-to-end acceptance pending. CI is deferred by a prior project decision. | [[SWAN-1-baseline-ui-api]] (superseded), [[SWAN-2-solution-restructure]], [[SWAN-3-domain-model]], [[SWAN-4-phase-0]] |
+| 1. Scoring core | Implemented (R1–R14 policies, fixtures, standings). Tiebreak ordering is not implemented; it needs the league rules document. | [[SWAN-5-scoring]] |
+| 1b. Hosting research | Not started. | — |
+| 2. Admin week workflow, scores import, simulation | Next. | — |
+| 3. Coach picks | After Phase 2. | — |
+| 4. Notifications | After Phase 3. | — |
+| 5–9 (milestones 2 and 3) | Not started. | — |
+
+## Open items
+
+- **Tiebreak ordering** ([[SWAN-5.7-tiebreak]]): blocked on the league rules document with per-pool tiebreakers. Standings mark ties as unbroken until then. This does not block Phases 2–4.
+- **Phase 0 acceptance**: run `aspire run` and the Playwright sign-in flow, and record the evidence in [[SWAN-4-phase-0]].
