@@ -25,6 +25,7 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     [InlineData("GET", "")]
     [InlineData("POST", "/games/00000000-0000-0000-0000-000000000001/lines")]
     [InlineData("POST", "/lines/approve")]
+    [InlineData("POST", "/games/00000000-0000-0000-0000-000000000001/lines/approve-latest")]
     [InlineData("POST", "/publish")]
     [InlineData("POST", "/lock")]
     public async Task CoachIsForbiddenFromEveryWeekEndpoint(string method, string suffix)
@@ -55,12 +56,13 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         using var client = CreateClient("Admin", service);
 
         var line = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines", new { spread = -3.5m, approve = true });
+        var latest = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null);
         var approve = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lines/approve", null);
         var publish = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null);
         var @lock = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lock", null);
 
-        Assert.All(new[] { line, approve, publish, @lock }, response => response.EnsureSuccessStatusCode());
-        Assert.Equal([$"line:{GameGuid}:-3.5:True", "approve", "publish", "lock"], service.Calls);
+        Assert.All(new[] { line, latest, approve, publish, @lock }, response => response.EnsureSuccessStatusCode());
+        Assert.Equal([$"line:{GameGuid}:-3.5:True", $"latest:{GameGuid}", "approve", "publish", "lock"], service.Calls);
         Assert.All(service.Actors, actor => Assert.Equal(new UserId(Guid.Parse("9c9b2c10-a312-4b77-a26a-ef546e87f3c9")), actor));
     }
 
@@ -76,6 +78,9 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
         Assert.Contains("week.state", await conflict.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
+        using var noHistory = CreateClient("Admin", new FakeWeekService { Failure = new Error("game.line", "A line is required and must not be frozen.") });
+        Assert.Equal(HttpStatusCode.Conflict, (await noHistory.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await missingGame.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null)).StatusCode);
     }
 
     private HttpClient CreateClient(string role, FakeWeekService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
@@ -113,6 +118,7 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
             Task.FromResult(weekId.Value == WeekGuid ? Ok(weekId) : Result<WeekDashboard>.Failure("week.missing", "Week does not exist."));
 
         public Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, bool approve, CancellationToken cancellationToken = default) => Record(actor, weekId, $"line:{gameId.Value}:{spread}:{approve}");
+        public Task<Result<WeekDashboard>> ApproveLatestLineAsync(UserId actor, WeekId weekId, GameId gameId, CancellationToken cancellationToken = default) => Record(actor, weekId, $"latest:{gameId.Value}");
         public Task<Result<WeekDashboard>> ApproveLinesAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "approve");
         public Task<Result<WeekDashboard>> PublishAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "publish");
         public Task<Result<WeekDashboard>> LockAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "lock");

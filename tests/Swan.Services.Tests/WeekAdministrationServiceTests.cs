@@ -83,6 +83,45 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.Equal("week.lines", approveAll.Error!.Code);
     }
 
+    [Fact]
+    public async Task LatestLineApprovedAfterReloadAndHistoryIsExposedSeparatelyFromApprovedLine()
+    {
+        var (weekId, gameId) = await SeedWeek();
+        await Run(service => service.AddLineAsync(Admin, weekId, gameId, -3m, approve: false));
+        await Run(service => service.AddLineAsync(Admin, weekId, gameId, -4.5m, approve: false));
+        var before = (await Run(service => service.GetAsync(weekId))).Value!.Games.Single();
+
+        var approved = await Run(service => service.ApproveLatestLineAsync(Admin, weekId, gameId));
+
+        Assert.Equal([-3m, -4.5m], before.LineHistory);
+        Assert.Null(before.ApprovedLine);
+        Assert.True(approved.IsSuccess);
+        var game = (await Run(service => service.GetAsync(weekId))).Value!.Games.Single();
+        Assert.Equal(-4.5m, game.ApprovedLine);
+        Assert.Equal([-3m, -4.5m], game.LineHistory);
+        var actions = await Run((service, database) => database.AuditEntries.AsNoTracking().OrderBy(entry => entry.At).Select(entry => entry.Action).ToListAsync());
+        Assert.Equal(["week.line.added", "week.line.added", "week.line.approved"], actions);
+    }
+
+    [Fact]
+    public async Task ApproveLatestLineRejectsMissingHistoryFrozenLinesAndMissingTargetsWithoutAudit()
+    {
+        var (weekId, gameId) = await SeedWeek();
+
+        var noHistory = await Run(service => service.ApproveLatestLineAsync(Admin, weekId, gameId));
+        var missingGame = await Run(service => service.ApproveLatestLineAsync(Admin, weekId, new GameId(Guid.NewGuid())));
+        var missingWeek = await Run(service => service.ApproveLatestLineAsync(Admin, new WeekId(Guid.NewGuid()), gameId));
+        await Run(service => service.AddLineAsync(Admin, weekId, gameId, 1m, approve: true));
+        await Run(service => service.ApproveLinesAsync(Admin, weekId));
+        var frozen = await Run(service => service.ApproveLatestLineAsync(Admin, weekId, gameId));
+
+        Assert.Equal("game.line", noHistory.Error!.Code);
+        Assert.Equal("game.missing", missingGame.Error!.Code);
+        Assert.Equal("week.missing", missingWeek.Error!.Code);
+        Assert.Equal("game.line", frozen.Error!.Code);
+        Assert.Equal(2, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
     private async Task<(WeekId Week, GameId Game)> SeedWeek()
     {
         await using var database = CreateDatabase();

@@ -405,6 +405,29 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task GameLineHistoryRoundTripsInOrderAndLatestLineCanBeApprovedAfterReload()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
+        var gameId = new GameId(Guid.NewGuid());
+        week.AddGame(new Game(gameId, new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow.AddDays(3))));
+        foreach (var spread in new[] { -3.5m, 2m, -7m }) Assert.True(week.AddLine(gameId, new Spread(spread)).IsSuccess);
+        database.Weeks.Add(week);
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        var reloaded = await database.Weeks.SingleAsync();
+
+        Assert.Equal([-3.5m, 2m, -7m], reloaded.Games.Single().LineHistory.Select(line => line.Value));
+        Assert.True(reloaded.ApproveLatestLine(gameId).IsSuccess);
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+        var approved = (await database.Weeks.SingleAsync()).Games.Single();
+        Assert.Equal(-7m, approved.ApprovedLine!.Value);
+        Assert.Equal(3, approved.LineHistory.Count);
+    }
+
     private async Task<SwanDbContext> CreateMigratedDatabase()
     {
         var options = new DbContextOptionsBuilder<SwanDbContext>().UseNpgsql(postgres.GetConnectionString()).Options;

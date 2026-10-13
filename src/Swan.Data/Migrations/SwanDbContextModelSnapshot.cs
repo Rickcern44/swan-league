@@ -646,6 +646,10 @@ namespace Swan.Data.Migrations
                             b1.Property<DateTimeOffset>("Kickoff")
                                 .HasColumnType("timestamp with time zone");
 
+                            b1.PrimitiveCollection<decimal[]>("LineHistory")
+                                .IsRequired()
+                                .HasColumnType("numeric[]");
+
                             b1.Property<string>("Result")
                                 .HasColumnType("text");
 
