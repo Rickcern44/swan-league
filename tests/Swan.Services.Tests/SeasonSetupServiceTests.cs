@@ -860,6 +860,25 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task APreviewDoesNotSurviveAChangeOfTheSetupSeasonYear()
+    {
+        var (teams, _) = await SetupWithTeams();
+        ProviderReturns(PG("10", 1, teams[0], teams[1]));
+        var preview = await Run(service => service.PreviewScheduleAsync());
+        Assert.True((await Run(service => service.UpdateSetupBasicsAsync(Admin, 2027, "2027 Season", isSimulation: false))).IsSuccess);
+
+        var imported = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
+
+        Assert.Equal("schedule.changed", imported.Error!.Code);
+        Assert.Equal((0, 0, 0), await Counts());
+
+        // Back on the year it was fetched for, previewing and importing work normally.
+        Assert.True((await Run(service => service.UpdateSetupBasicsAsync(Admin, 2026, "2026 Season", isSimulation: false))).IsSuccess);
+        var again = await Run(service => service.PreviewScheduleAsync());
+        Assert.True((await Run(service => service.ImportScheduleAsync(Admin, again.Value!.Fingerprint!))).IsSuccess);
+    }
+
+    [Fact]
     public async Task ImportRefusesAFingerprintThatWasNeverPreviewedOrHasExpiredAndNeverCallsTheProvider()
     {
         var (teams, _) = await SetupWithTeams();

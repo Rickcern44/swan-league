@@ -122,7 +122,8 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
     // A previewed schedule is held in memory this long so confirming imports exactly what was shown without asking the provider again (which is rate limited).
     private static readonly TimeSpan PreviewLifetime = TimeSpan.FromMinutes(15);
 
-    private static string PreviewKey(SeasonId seasonId, string fingerprint) => $"schedule-preview:{seasonId.Value}:{fingerprint}";
+    // The year is part of the key: the provider was asked for that year, and the Setup year can be edited without changing the season id.
+    private static string PreviewKey(SeasonId seasonId, int year, string fingerprint) => $"schedule-preview:{seasonId.Value}:{year}:{fingerprint}";
 
     // Reads the provider and validates; nothing is saved to the database. An unpublished season is a valid empty preview.
     public async Task<Result<SchedulePlan>> PreviewScheduleAsync(CancellationToken cancellationToken = default)
@@ -136,7 +137,7 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         var built = await BuildWeeksAsync(setup.Id, fetched.Value.Games, cancellationToken);
         if (!built.IsSuccess) return Result<SchedulePlan>.Failure(built.Error!.Code, built.Error.Message);
         var fingerprint = ScheduleImportPlan.Fingerprint(built.Value!);
-        previews.Set(PreviewKey(setup.Id, fingerprint), fetched.Value, PreviewLifetime);
+        previews.Set(PreviewKey(setup.Id, setup.Year, fingerprint), fetched.Value, PreviewLifetime);
         return Result<SchedulePlan>.Success(await ToPlanAsync(setup.Year, built.Value!, imported: false, fingerprint, cancellationToken));
     }
 
@@ -145,7 +146,7 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
     {
         var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
         if (setup is null) return Result<SchedulePlan>.Failure("season.missing", "No season is in Setup.");
-        if (!previews.TryGetValue(PreviewKey(setup.Id, fingerprint), out ProviderSchedule? fetched) || fetched is null)
+        if (!previews.TryGetValue(PreviewKey(setup.Id, setup.Year, fingerprint), out ProviderSchedule? fetched) || fetched is null)
             return Result<SchedulePlan>.Failure("schedule.changed", "That preview is no longer available; preview the schedule again.");
         try
         {
