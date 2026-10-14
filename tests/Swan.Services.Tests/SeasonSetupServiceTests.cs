@@ -1135,7 +1135,8 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlAsync($"insert into league.seasons (\"Id\", \"Settings\", \"State\") values ('{Guid.NewGuid()}', '100|USD|3||{storedRules}', 1)");
+            var stored = $"100|USD|3||{storedRules}";
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, {stored}, 1)""");
         }
 
         var season = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());
