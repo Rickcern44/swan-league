@@ -621,6 +621,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[{"points":1,"color":"Purple"}],"recordHolder":"FirstOccurrence"}""")]
     [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[{"points":"one","color":"Green"}],"recordHolder":"FirstOccurrence"}""")]
     [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[],"recordHolder":"Whenever"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[{"points":1},{"points":2,"color":"Blue"},{"points":3,"color":"Yellow"},{"points":4,"color":"Red"}],"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[{"points":1,"color":null},{"points":2,"color":"Blue"},{"points":3,"color":"Yellow"},{"points":4,"color":"Red"}],"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[{"color":"Green"},{"points":2,"color":"Blue"},{"points":3,"color":"Yellow"},{"points":4,"color":"Red"}],"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[{"points":null,"color":"Green"},{"points":2,"color":"Blue"},{"points":3,"color":"Yellow"},{"points":4,"color":"Red"}],"recordHolder":"FirstOccurrence"}""")]
     public async Task MissingNullOrMalformedSettingsAreBadRequestAndNeverReachTheService(string body)
     {
         var service = new FakeSeasonService();

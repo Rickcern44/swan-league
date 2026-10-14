@@ -1122,13 +1122,20 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal((new Money(100m, "USD"), 3, new TimeOnly(11, 30)), (setup.Settings.BuyIn, setup.Settings.DoubleDogWeeks, setup.Settings.TeamPickDeadlineEastern));
     }
 
-    [Fact]
-    public async Task ALegacyStoredValueWithGarbledRulesFallsBackToTheDefaultsInsteadOfFailingToLoad()
+    [Theory]
+    [InlineData("maybe|Green,Green,Blue,Red|Sometimes")]
+    [InlineData("True|Green,Blue,Yellow,Red|99")]
+    [InlineData("True|Green,Blue,Yellow,Red|-1")]
+    [InlineData("True|Green,Blue,Yellow,Red|2")]
+    [InlineData("True|Green,Blue,Yellow,9|FirstOccurrence")]
+    [InlineData("True|Green,Blue,Yellow|FirstOccurrence")]
+    [InlineData("True|0,1,2,3,4|FirstOccurrence")]
+    public async Task ALegacyStoredValueWithGarbledRulesFallsBackToTheDefaultsInsteadOfFailingToLoad(string storedRules)
     {
         await Migrate();
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, '100|USD|3||maybe|Green,Green,Blue,Red|Sometimes', 1)""");
+            await database.Database.ExecuteSqlAsync($"insert into league.seasons (\"Id\", \"Settings\", \"State\") values ('{Guid.NewGuid()}', '100|USD|3||{storedRules}', 1)");
         }
 
         var season = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());

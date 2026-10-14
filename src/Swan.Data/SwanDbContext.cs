@@ -385,7 +385,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
 
     private static LeagueRules ParseLeagueRules(string[] parts)
     {
-        if (parts.Length < 7 || !bool.TryParse(parts[4], out var teamMayAlsoBeDog) || !Enum.TryParse<RecordHolderMode>(parts[6], out var recordHolder)) return LeagueRules.Default;
+        if (parts.Length < 7 || !bool.TryParse(parts[4], out var teamMayAlsoBeDog) || !Enum.TryParse<RecordHolderMode>(parts[6], out var recordHolder) || !Enum.IsDefined(recordHolder)) return LeagueRules.Default;
         var colors = parts[5].Split(',').Select(name => Enum.TryParse<ColorTier>(name, out var color) ? (ColorTier?)color : null).ToArray();
         var mapped = colors.Length == 4 && colors.All(color => color is not null) ? PointColors.Create(colors.Select((color, index) => new PointColor(index + 1, color!.Value)).ToList()) : null;
         return mapped is { IsSuccess: true } ? new LeagueRules(teamMayAlsoBeDog, mapped.Value!, recordHolder) : LeagueRules.Default;

@@ -30,7 +30,8 @@ public sealed record PayoutPlanRequest(string? Pool, List<PayoutPlaceRequest?>? 
 
 public sealed record UpdateFinesAndPayoutsRequest(decimal? MissedPickFine, string? Currency, List<PayoutPlanRequest?>? Payouts);
 
-public sealed record PointColorRequest(int Points, ColorTier Color);
+// Both are nullable so an omitted property is rejected instead of silently becoming 0 or Green.
+public sealed record PointColorRequest(int? Points, ColorTier? Color);
 
 public sealed record UpdateLeagueSettingsRequest(bool? TeamMayAlsoBeDog, List<PointColorRequest?>? PointColors, RecordHolderMode? RecordHolder);
 
@@ -150,9 +151,9 @@ public static class SeasonEndpoints
             LeagueSettingsResult(await service.GetSetupLeagueSettingsAsync(cancellationToken)));
         seasons.MapPut("/setup/league-settings", async (UpdateLeagueSettingsRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
         {
-            if (request.TeamMayAlsoBeDog is not { } teamMayAlsoBeDog || request.PointColors is null || request.PointColors.Any(entry => entry is null) || request.RecordHolder is not { } recordHolder)
+            if (request.TeamMayAlsoBeDog is not { } teamMayAlsoBeDog || request.PointColors is null || request.PointColors.Any(entry => entry is not { Points: not null, Color: not null }) || request.RecordHolder is not { } recordHolder)
                 return Results.BadRequest(new Error("season.league-settings", "Send R17, the four point colors and the record-holder choice."));
-            var colors = PointColors.Create(request.PointColors.Select(entry => new PointColor(entry!.Points, entry.Color)).ToList());
+            var colors = PointColors.Create(request.PointColors.Select(entry => new PointColor(entry!.Points!.Value, entry.Color!.Value)).ToList());
             var rules = colors.IsSuccess ? LeagueRules.Create(teamMayAlsoBeDog, colors.Value!, recordHolder) : Result<LeagueRules>.Failure(colors.Error!.Code, colors.Error.Message);
             if (!rules.IsSuccess) return Results.BadRequest(rules.Error);
             return !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
