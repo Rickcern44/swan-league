@@ -211,10 +211,11 @@ const wizardSteps = [
   "Weekly deadline",
   "Teams and point values",
   "Schedule import",
+  "Weeks and dogs",
 ] as const;
 const lastStep = wizardSteps.length - 1;
-const stepSlugs = ["basics", "money", "deadline", "teams", "schedule"];
-const upcoming = ["Weeks and dogs"];
+const stepSlugs = ["basics", "money", "deadline", "teams", "schedule", "dogs"];
+const upcoming = ["Fines and payouts"];
 
 function SetupCards({
   season,
@@ -557,7 +558,15 @@ function SetupCards({
         </Card>
       )}
       {view === 4 && (
-        <ScheduleStep season={season} onSeason={onSeason} onBack={back} />
+        <ScheduleStep
+          season={season}
+          onSeason={onSeason}
+          onBack={back}
+          onContinue={() => goTo(5)}
+        />
+      )}
+      {view === 5 && (
+        <DogsStep season={season} onSeason={onSeason} onBack={back} />
       )}
       <p>Coming next: {upcoming.join(" → ")}</p>
     </>
@@ -595,10 +604,12 @@ function ScheduleStep({
   season,
   onSeason,
   onBack,
+  onContinue,
 }: {
   season: Season;
   onSeason: (season: Season) => void;
   onBack?: () => void;
+  onContinue: () => void;
 }) {
   const [saved, setSaved] = useState<SchedulePlan>();
   const [preview, setPreview] = useState<SchedulePlan>();
@@ -673,15 +684,21 @@ function ScheduleStep({
       title="Schedule import"
       notice={notice}
       action={
-        saved?.imported || !saved
+        !saved
           ? undefined
-          : preview
-            ? `Import ${preview.gameCount} games`
-            : "Preview schedule"
+          : saved.imported
+            ? "Continue"
+            : preview
+              ? `Import ${preview.gameCount} games`
+              : "Preview schedule"
       }
       onBack={onBack}
       onSubmit={() =>
-        busy ? undefined : void (preview ? importSchedule() : previewSchedule())
+        busy
+          ? undefined
+          : saved?.imported
+            ? onContinue()
+            : void (preview ? importSchedule() : previewSchedule())
       }
     >
       {!saved && !notice && <span>Checking the saved schedule…</span>}
@@ -721,6 +738,122 @@ function ScheduleStep({
         >
           Discard preview
         </button>
+      )}
+    </Card>
+  );
+}
+
+type DogWeek = {
+  week: number;
+  selected: boolean;
+  required: boolean;
+  suggested: boolean;
+  reason: string;
+};
+type DogPlan = { weeks: DogWeek[]; selected: number[] };
+
+// The weeks come from the imported schedule only. A saved selection is shown as saved; before one exists the required week and the holiday suggestions are pre-checked for the admin to confirm.
+function DogsStep({
+  season,
+  onSeason,
+  onBack,
+}: {
+  season: Season;
+  onSeason: (season: Season) => void;
+  onBack?: () => void;
+}) {
+  const [plan, setPlan] = useState<DogPlan>();
+  const [chosen, setChosen] = useState<number[]>([]);
+  const [notice, setNotice] = useState<Notice>();
+
+  const choose = (loaded: DogPlan) =>
+    loaded.selected.length > 0
+      ? loaded.selected
+      : loaded.weeks
+          .filter((week) => week.required || week.suggested)
+          .map((week) => week.week);
+
+  useEffect(() => {
+    void send<DogPlan>("GET", "/api/admin/seasons/setup/double-dog-weeks").then(
+      (result) => {
+        if ("value" in result) {
+          setPlan(result.value);
+          setChosen(choose(result.value));
+        } else setNotice({ kind: "error", text: result.error });
+      },
+    );
+  }, []);
+
+  async function save() {
+    if (chosen.length < 3)
+      return setNotice({
+        kind: "error",
+        text: `Choose at least 3 weeks: Week 2 plus ${3 - Math.max(chosen.length, 1)} more.`,
+      });
+    const saved = await send<DogPlan>(
+      "PUT",
+      "/api/admin/seasons/setup/double-dog-weeks",
+      { weeks: [...chosen].sort((a, b) => a - b) },
+    );
+    if (!("value" in saved))
+      return setNotice({ kind: "error", text: saved.error });
+    setPlan(saved.value);
+    // Fines and payouts is the next unbuilt step; the resume point never moves backwards.
+    const target = Math.max(season.setupStep, 6);
+    if (target !== season.setupStep) {
+      const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
+        step: target,
+      });
+      if (!("value" in recorded))
+        return setNotice({
+          kind: "error",
+          text: `Saved, but your progress could not be recorded: ${recorded.error}`,
+        });
+      onSeason(recorded.value);
+    }
+    setNotice({ kind: "saved", text: "Double-dog weeks saved" });
+  }
+
+  const full = chosen.length >= 4;
+  return (
+    <Card
+      title="Weeks and dogs"
+      notice={notice}
+      action={plan ? "Save & continue" : undefined}
+      onBack={onBack}
+      onSubmit={() => void save()}
+    >
+      {!plan && !notice && <span>Loading the imported weeks…</span>}
+      {plan && (
+        <>
+          <span className="hint" role="status">
+            {`${chosen.length} selected · choose 3–4`}
+          </span>
+          <ul className="weeks">
+            {plan.weeks.map((week) => (
+              <li key={week.week}>
+                <input
+                  type="checkbox"
+                  aria-label={`Week ${week.week}`}
+                  checked={chosen.includes(week.week)}
+                  disabled={
+                    week.required || (full && !chosen.includes(week.week))
+                  }
+                  onChange={(event) => {
+                    const { checked } = event.target;
+                    setChosen((current) =>
+                      checked
+                        ? [...current, week.week]
+                        : current.filter((value) => value !== week.week),
+                    );
+                  }}
+                />
+                <span>{`Week ${week.week}`}</span>
+                <span className="reason">{week.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </Card>
   );

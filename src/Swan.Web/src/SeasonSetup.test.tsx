@@ -97,12 +97,39 @@ const plan = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const dogPlan = (selected: number[] = []) => ({
+  selected,
+  weeks: Array.from({ length: 18 }, (_, index) => {
+    const week = index + 1;
+    return {
+      week,
+      selected: selected.includes(week),
+      required: week === 2,
+      suggested: week === 12 || week === 17,
+      reason:
+        week === 2
+          ? "Required by the rules"
+          : week === 12
+            ? "Suggested · contains Thanksgiving (Thu Nov 26)"
+            : week === 17
+              ? "Suggested · contains Christmas (Fri Dec 25)"
+              : "",
+    };
+  }),
+});
+
 type Reply = { status: number; body?: unknown };
-let replies: Record<string, Reply | ((body: { step: number }) => Reply)>;
+let replies: Record<
+  string,
+  Reply | ((body: { step: number; weeks?: number[] }) => Reply)
+>;
 let calls: { method: string; url: string; body?: unknown }[];
 
 function resolve(
-  reply: Reply | ((body: { step: number }) => Reply) | undefined,
+  reply:
+    | Reply
+    | ((body: { step: number; weeks?: number[] }) => Reply)
+    | undefined,
   body?: unknown,
 ): Reply {
   if (!reply) return { status: 404 };
@@ -139,6 +166,7 @@ afterEach(cleanup);
 beforeEach(() => {
   replies = {
     [TEAMS]: { status: 200, body: catalog() },
+    [DOGS]: { status: 200, body: dogPlan() },
     [SCHEDULE]: {
       status: 200,
       body: plan({ imported: false, fingerprint: null, weeks: [] }),
@@ -153,6 +181,8 @@ const TEAMS = "GET /api/admin/seasons/setup/teams";
 const SCHEDULE = "GET /api/admin/seasons/setup/schedule";
 const PREVIEW = "POST /api/admin/seasons/setup/schedule/preview";
 const IMPORT = "POST /api/admin/seasons/setup/schedule/import";
+const DOGS = "GET /api/admin/seasons/setup/double-dog-weeks";
+const SAVE_DOGS = "PUT /api/admin/seasons/setup/double-dog-weeks";
 const SAVE_TEAMS = "PUT /api/admin/seasons/setup/teams";
 const STEP = "PUT /api/admin/seasons/setup/step";
 const putCalls = () =>
@@ -185,7 +215,7 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
   fireEvent.click(within(card).getByRole("button", { name: "Create season" }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
-  expect(screen.getByText("Step 1 of 5")).toBeVisible();
+  expect(screen.getByText("Step 1 of 6")).toBeVisible();
   expect(screen.getByLabelText("Season name")).toHaveValue("2027 Swan League");
   expect(calls.find((call) => call.method === "POST")).toMatchObject({
     body: { year: 2027, name: "2027 Swan League", isSimulation: true },
@@ -197,12 +227,13 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
 });
 
 test.each([
-  [0, "Basics", "Step 1 of 5"],
-  [1, "Money", "Step 2 of 5"],
-  [2, "Weekly deadline", "Step 3 of 5"],
-  [3, "Teams and point values", "Step 4 of 5"],
-  [4, "Schedule import", "Step 5 of 5"],
-  [5, "Schedule import", "Step 5 of 5"],
+  [0, "Basics", "Step 1 of 6"],
+  [1, "Money", "Step 2 of 6"],
+  [2, "Weekly deadline", "Step 3 of 6"],
+  [3, "Teams and point values", "Step 4 of 6"],
+  [4, "Schedule import", "Step 5 of 6"],
+  [5, "Weeks and dogs", "Step 6 of 6"],
+  [6, "Weeks and dogs", "Step 6 of 6"],
 ])(
   "a fresh load resumes at the saved step %i",
   async (setupStep, form, position) => {
@@ -249,7 +280,7 @@ test("Save & continue on Basics saves it, records Money as the resume point and 
   fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
   expect(await screen.findByRole("form", { name: "Money" })).toBeVisible();
-  expect(screen.getByText("Step 2 of 5")).toBeVisible();
+  expect(screen.getByText("Step 2 of 6")).toBeVisible();
   expect(putCalls()).toEqual(["/", "/step"]);
   expect(
     calls.find(
@@ -426,16 +457,16 @@ test("a failed resume-point save is reported and the page does not advance", asy
 
 test("later steps are listed as upcoming and cannot be opened", async () => {
   stubApi("Admin");
-  replies[SETUP] = { status: 200, body: season({ setupStep: 5 }) };
+  replies[SETUP] = { status: 200, body: season({ setupStep: 6 }) };
   render(<App />);
 
-  await screen.findByRole("form", { name: "Schedule import" });
+  await screen.findByRole("form", { name: "Weeks and dogs" });
   const next = screen.getByText(/Coming next/);
-  expect(next).not.toHaveTextContent("Schedule import");
-  expect(next).toHaveTextContent("Weeks and dogs");
+  expect(next).not.toHaveTextContent("Weeks and dogs");
+  expect(next).toHaveTextContent("Fines and payouts");
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /weeks/i }),
+    screen.queryByRole("button", { name: /fines|payouts/i }),
   ).not.toBeInTheDocument();
 });
 
@@ -524,7 +555,9 @@ test("confirming imports with the previewed fingerprint, records Weeks and dogs 
   expect(
     within(form).queryByRole("button", { name: /Preview|Import/ }),
   ).not.toBeInTheDocument();
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("Weeks and dogs");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Fines and payouts",
+  );
 });
 
 test("an empty preview says nothing is published yet and that manual import stays available", async () => {
@@ -604,7 +637,7 @@ test("an already imported schedule is shown on load with no way to import again"
     status: 200,
     body: plan({ imported: true, fingerprint: null }),
   };
-  const form = await openSchedule({ setupStep: 5 });
+  const form = await openSchedule();
 
   expect(
     await within(form).findByText("Schedule imported: 3 games in 2 weeks."),
@@ -635,6 +668,171 @@ test("discarding a preview returns to the start of the page and Back returns to 
   expect(
     await screen.findByRole("form", { name: "Teams and point values" }),
   ).toBeVisible();
+});
+
+const openDogs = async (
+  selected: number[] = [],
+  overrides: Record<string, unknown> = {},
+) => {
+  stubApi("Admin");
+  replies[SETUP] = {
+    status: 200,
+    body: season({ setupStep: 5, ...overrides }),
+  };
+  replies[DOGS] = { status: 200, body: dogPlan(selected) };
+  render(<App />);
+  const form = await screen.findByRole("form", { name: "Weeks and dogs" });
+  await within(form).findByRole("checkbox", { name: "Week 1" });
+  return form;
+};
+
+test("the Weeks and dogs page lists all 18 weeks with Week 2 required and the holiday weeks suggested", async () => {
+  const form = await openDogs();
+
+  expect(within(form).getAllByRole("checkbox")).toHaveLength(18);
+  const two = within(form).getByRole("checkbox", { name: "Week 2" });
+  expect(two).toBeChecked();
+  expect(two).toBeDisabled();
+  expect(within(form).getByText("Required by the rules")).toBeVisible();
+  expect(within(form).getByRole("checkbox", { name: "Week 12" })).toBeChecked();
+  expect(within(form).getByRole("checkbox", { name: "Week 17" })).toBeChecked();
+  expect(
+    within(form).getByText(/Suggested · contains Thanksgiving \(Thu Nov 26\)/),
+  ).toBeVisible();
+  expect(
+    within(form).getByText(/Suggested · contains Christmas \(Fri Dec 25\)/),
+  ).toBeVisible();
+  expect(
+    within(form).getByRole("checkbox", { name: "Week 5" }),
+  ).not.toBeChecked();
+  expect(within(form).getByText("3 selected · choose 3–4")).toBeVisible();
+  expect(putCalls()).toEqual([]);
+});
+
+test("a saved selection is shown instead of the suggestions", async () => {
+  const form = await openDogs([2, 5, 9, 14]);
+
+  expect(
+    within(form).getByRole("checkbox", { name: "Week 12" }),
+  ).not.toBeChecked();
+  expect(within(form).getByRole("checkbox", { name: "Week 14" })).toBeChecked();
+  expect(within(form).getByText("4 selected · choose 3–4")).toBeVisible();
+});
+
+test("a fifth week cannot be picked and unchecking frees the others again", async () => {
+  const form = await openDogs([2, 5, 9, 14]);
+
+  expect(within(form).getByRole("checkbox", { name: "Week 1" })).toBeDisabled();
+  fireEvent.click(within(form).getByRole("checkbox", { name: "Week 14" }));
+  expect(within(form).getByText("3 selected · choose 3–4")).toBeVisible();
+  expect(within(form).getByRole("checkbox", { name: "Week 1" })).toBeEnabled();
+  fireEvent.click(within(form).getByRole("checkbox", { name: "Week 1" }));
+  expect(within(form).getByText("4 selected · choose 3–4")).toBeVisible();
+});
+
+test("choosing fewer than three weeks is explained without a request", async () => {
+  const form = await openDogs();
+  fireEvent.click(within(form).getByRole("checkbox", { name: "Week 12" }));
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "Choose at least 3",
+  );
+  expect(putCalls()).toEqual([]);
+});
+
+test("saving sends the chosen weeks, records the next step and keeps the page", async () => {
+  replies[SAVE_DOGS] = (body: { weeks?: number[] }) => ({
+    status: 200,
+    body: dogPlan(body.weeks),
+  });
+  replies[STEP] = stepReply();
+  const form = await openDogs();
+  fireEvent.click(within(form).getByRole("checkbox", { name: "Week 5" }));
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByText("Double-dog weeks saved")).toBeVisible();
+  expect(
+    calls.find(
+      (call) => call.method === "PUT" && call.url.endsWith("/double-dog-weeks"),
+    ),
+  ).toMatchObject({ body: { weeks: [2, 5, 12, 17] } });
+  expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
+    body: { step: 6 },
+  });
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Fines and payouts",
+  );
+});
+
+test("a server rejection is shown beside the page, keeps the choice and records no progress", async () => {
+  replies[SAVE_DOGS] = {
+    status: 400,
+    body: {
+      code: "season.double-dogs",
+      message: "Week 2 is always a double-dog week; include it.",
+    },
+  };
+  const form = await openDogs();
+  fireEvent.click(within(form).getByRole("checkbox", { name: "Week 5" }));
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "Week 2 is always a double-dog week",
+  );
+  expect(within(form).getByRole("checkbox", { name: "Week 5" })).toBeChecked();
+  expect(calls.some((call) => call.url.endsWith("/step"))).toBe(false);
+});
+
+test("a missing imported schedule is reported instead of an empty list", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 5 }) };
+  replies[DOGS] = {
+    status: 409,
+    body: {
+      code: "schedule.missing",
+      message:
+        "Import the full regular-season schedule before choosing double-dog weeks.",
+    },
+  };
+  render(<App />);
+
+  const form = await screen.findByRole("form", { name: "Weeks and dogs" });
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "Import the full regular-season schedule",
+  );
+  expect(within(form).queryByRole("checkbox")).not.toBeInTheDocument();
+  expect(
+    within(form).queryByRole("button", { name: "Save & continue" }),
+  ).not.toBeInTheDocument();
+  expect(within(form).getByRole("button", { name: "Back" })).toBeVisible();
+});
+
+test("after importing, Continue opens Weeks and dogs without saving anything", async () => {
+  replies[SCHEDULE] = {
+    status: 200,
+    body: plan({ imported: true, fingerprint: null }),
+  };
+  const form = await openSchedule();
+
+  fireEvent.click(
+    await within(form).findByRole("button", { name: "Continue" }),
+  );
+
+  expect(
+    await screen.findByRole("form", { name: "Weeks and dogs" }),
+  ).toBeVisible();
+  expect(putCalls()).toEqual([]);
 });
 
 test("a failed create shows its error in the start card", async () => {
@@ -737,7 +935,9 @@ test("saving valid finishes sends the complete set, records Schedule import and 
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 4 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("Weeks and dogs");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Fines and payouts",
+  );
 });
 
 test("a server rejection of the finishes stays beside the page and does not record progress", async () => {
