@@ -354,3 +354,20 @@ test("the Season setup page has exactly one top-level heading", async () => {
   ).toBeVisible();
   expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
 });
+
+test("a season with neither a name nor a year is called this season", async () => {
+  dashboard = {
+    status: 200,
+    body: {
+      season: { ...season, name: " ", year: 0 },
+      currentWeek: week({ number: 1, state: "Final" }),
+      attention: [],
+      caughtUp: true,
+    },
+  };
+  stubApi("Admin");
+  render(<App />);
+
+  expect(await screen.findByText("This season")).toBeVisible();
+  expect(screen.queryByText(/^0 season/)).not.toBeInTheDocument();
+});

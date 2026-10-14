@@ -135,7 +135,9 @@ export default function Dashboard({
     );
 
   // A season can have no name; the year always identifies it.
-  const seasonName = season.name.trim() || `${season.year} season`;
+  const seasonName =
+    season.name.trim() ||
+    (season.year > 0 ? `${season.year} season` : "This season");
   const decisions = attention.filter((item) => item.needsDecision);
   const status = attention.filter((item) => !item.needsDecision);
 
