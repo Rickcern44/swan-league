@@ -343,3 +343,14 @@ test("Season setup is reached from the navigation and Home returns to the dashbo
     await screen.findByRole("heading", { name: "No season is live" }),
   ).toBeVisible();
 });
+
+test("the Season setup page has exactly one top-level heading", async () => {
+  window.history.replaceState({}, "", "/setup");
+  stubApi("Admin");
+  render(<App />);
+
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Season setup" }),
+  ).toBeVisible();
+  expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+});

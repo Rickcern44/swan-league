@@ -92,7 +92,7 @@ export default function SeasonSetup() {
 
   return (
     <section className="setup" aria-labelledby="setup-title">
-      <h2 id="setup-title">Season setup</h2>
+      <h1 id="setup-title">Season setup</h1>
       <p>Set the foundation for the next Swan League season.</p>
       {loaded.status === "failed" && (
         <p role="alert">Could not load the Setup season: {loaded.error}</p>
