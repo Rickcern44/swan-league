@@ -1378,6 +1378,26 @@ test("carry-forward candidates from the previous season are unchecked until chos
   expect(within(form).getByText("1 coach selected")).toBeVisible();
 });
 
+test("an earlier season without a name is described by its year, or generically", async () => {
+  const named = coachesPlan([], [{ name: "Pat", email: "pat@example.com" }]);
+  const form = await openCoaches({
+    ...named,
+    prior: { id: "p1", year: 2024, name: "" },
+  });
+
+  expect(
+    within(form).getByText("Carry forward from the 2024 season"),
+  ).toBeVisible();
+  cleanup();
+  const yearless = await openCoaches({
+    ...named,
+    prior: { id: "p1", year: 0, name: "" },
+  });
+  expect(
+    within(yearless).getByText("Carry forward from the previous season"),
+  ).toBeVisible();
+});
+
 test("coaches already saved who are not carry-forward people are listed and can be removed, inactive ones are not", async () => {
   const form = await openCoaches(
     coachesPlan([

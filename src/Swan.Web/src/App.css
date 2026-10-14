@@ -304,3 +304,11 @@ form.card.wide {
   min-width: 0;
   max-width: none;
 }
+
+.kept-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-wrap: anywhere;
+}

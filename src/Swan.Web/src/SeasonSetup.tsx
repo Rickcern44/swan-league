@@ -1546,7 +1546,7 @@ function CoachesStep({
           )}
           {plan.prior && plan.candidates.length > 0 && (
             <fieldset className="division">
-              <legend>{`Carry forward from ${plan.prior.name}`}</legend>
+              <legend>{`Carry forward from ${plan.prior.name || (plan.prior.year ? `the ${plan.prior.year} season` : "the previous season")}`}</legend>
               {plan.candidates.map((candidate) => (
                 <label key={candidate.userId} className="check">
                   <input
@@ -1570,10 +1570,8 @@ function CoachesStep({
             <fieldset className="division">
               <legend>Already on this season's list</legend>
               {kept.map((person) => (
-                <div key={person.userId} className="place-row">
+                <div key={person.userId} className="kept-row">
                   <span>{`${person.name} (${person.email})`}</span>
-                  <span />
-                  <span />
                   <button
                     type="button"
                     className="secondary"
