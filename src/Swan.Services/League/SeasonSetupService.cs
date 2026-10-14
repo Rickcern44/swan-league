@@ -207,7 +207,9 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         var weeks = await database.Weeks.AsNoTracking().Where(week => week.SeasonId == season.Id).ToListAsync(cancellationToken);
         if (weeks.Select(week => week.Number).Order().SequenceEqual(Enumerable.Range(1, DoubleDogWeekRules.RegularSeasonWeeks)) is false)
             return Result<DoubleDogPlan>.Failure("schedule.missing", "Import the full regular-season schedule before choosing double-dog weeks.");
-        var holidays = DoubleDogWeekRules.Holidays(season.Year, weeks.Select(week => new WeekKickoffs(week.Number, week.Games.Select(game => game.Kickoff.Value).ToList())).ToList());
+        var kickoffs = weeks.Select(week => new WeekKickoffs(week.Number, week.Games.Select(game => game.Kickoff.Value).ToList())).ToList();
+        // The imported schedule's own year, not the Setup year: the year can be edited after an import and must not move the holidays.
+        var holidays = DoubleDogWeekRules.Holidays(DoubleDogWeekRules.ScheduleYear(kickoffs) ?? season.Year, kickoffs);
         string Holiday(string name, DateOnly date) => $"{name} ({date.ToString("ddd MMM d", System.Globalization.CultureInfo.InvariantCulture)})";
         var rows = Enumerable.Range(1, DoubleDogWeekRules.RegularSeasonWeeks).Select(number =>
         {

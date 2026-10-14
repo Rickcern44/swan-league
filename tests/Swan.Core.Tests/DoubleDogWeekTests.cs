@@ -190,6 +190,15 @@ public sealed class DoubleDogWeekTests
     }
 
     [Fact]
+    public void TheScheduleYearIsTheEasternYearOfTheEarliestKickoff()
+    {
+        // Week 1 opens on Thursday night; a New Year's Day game late in the schedule must not change the answer.
+        Assert.Equal(2026, DoubleDogWeekRules.ScheduleYear(Season2026));
+        Assert.Equal(2025, DoubleDogWeekRules.ScheduleYear([Week(1, "2025-09-05T00:20:00Z"), Week(18, "2026-01-04T18:00:00Z")]));
+        Assert.Null(DoubleDogWeekRules.ScheduleYear([]));
+    }
+
+    [Fact]
     public void BothHolidaysCanLandInTheSameWeekOrOnWeekTwo()
     {
         var oneWeek = new[] { Week(3, "2026-11-26T17:00:00Z", "2026-12-26T18:00:00Z") };

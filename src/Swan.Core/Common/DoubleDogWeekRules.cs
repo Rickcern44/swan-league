@@ -21,6 +21,10 @@ public static class DoubleDogWeekRules
         return Result<IReadOnlyList<int>>.Success(weeks.Order().ToList());
     }
 
+    // The NFL year of an imported schedule: the Eastern year of its earliest kickoff (Week 1 opens in September). Holidays are judged against this, not the Setup year, which can be edited after an import.
+    public static int? ScheduleYear(IReadOnlyCollection<WeekKickoffs> weeks) =>
+        weeks.SelectMany(week => week.Kickoffs).Select(kickoff => (DateTimeOffset?)kickoff).Min() is { } earliest ? EasternDate(earliest).Year : null;
+
     // The week containing a date runs from its first game's Eastern date up to the next week's first game (up to its own last game, for the final week), so a holiday with no game that day still belongs to the week then running.
     public static DoubleDogHolidays Holidays(int year, IReadOnlyCollection<WeekKickoffs> weeks)
     {

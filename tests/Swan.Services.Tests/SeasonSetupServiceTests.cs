@@ -760,6 +760,21 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task HolidaySuggestionsFollowTheImportedScheduleNotTheSetupYearEditedAfterwards()
+    {
+        await SetupWithImportedSchedule();
+        var before = await Run(service => service.GetSetupDoubleDogWeeksAsync());
+        Assert.True((await Run(service => service.UpdateSetupBasicsAsync(Admin, 2027, "2027 Season", isSimulation: false))).IsSuccess);
+
+        var after = await Run(service => service.GetSetupDoubleDogWeeksAsync());
+
+        Assert.Equal([2, 12, 17], before.Value!.Weeks.Where(week => week.Required || week.Suggested).Select(week => week.Week));
+        Assert.Equal([2, 12, 17], after.Value!.Weeks.Where(week => week.Required || week.Suggested).Select(week => week.Week));
+        Assert.Contains("Thanksgiving (Thu Nov 26)", after.Value.Weeks[11].Reason);
+        Assert.Contains("Christmas (Fri Dec 25)", after.Value.Weeks[16].Reason);
+    }
+
+    [Fact]
     public async Task AHolidayThatLandsInWeekTwoIsShownOnceAndKeepsBothReasons()
     {
         var (teams, _) = await SetupWithTeams();
