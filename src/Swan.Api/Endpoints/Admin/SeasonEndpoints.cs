@@ -24,6 +24,12 @@ public sealed record ImportScheduleRequest(string? Fingerprint);
 
 public sealed record UpdateDoubleDogWeeksRequest(List<int>? Weeks);
 
+public sealed record PayoutPlaceRequest(int Position, decimal Percent);
+
+public sealed record PayoutPlanRequest(string? Pool, List<PayoutPlaceRequest?>? Places);
+
+public sealed record UpdateFinesAndPayoutsRequest(decimal? MissedPickFine, string? Currency, List<PayoutPlanRequest?>? Payouts);
+
 public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
@@ -124,6 +130,18 @@ public static class SeasonEndpoints
                 : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                     ? Results.Unauthorized()
                     : DoubleDogResult(await service.UpdateSetupDoubleDogWeeksAsync(new UserId(actor), request.Weeks, cancellationToken)));
+        seasons.MapGet("/setup/fines-and-payouts", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
+            PayoutsResult(await service.GetSetupFinesAndPayoutsAsync(cancellationToken)));
+        seasons.MapPut("/setup/fines-and-payouts", async (UpdateFinesAndPayoutsRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            request.MissedPickFine is not { } fine || request.Payouts is null || request.Payouts.Any(plan => plan is null || plan.Pool is null || plan.Places is null || plan.Places.Any(place => place is null))
+                ? Results.BadRequest(new Error("season.payouts", "Send the missed-pick fine and a payout plan with its placings for every pool."))
+                : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                    ? Results.Unauthorized()
+                    : PayoutsResult(await service.UpdateSetupFinesAndPayoutsAsync(
+                        new UserId(actor),
+                        new Money(fine, request.Currency ?? "USD"),
+                        request.Payouts.Select(plan => new PayoutPlan(plan!.Pool!, plan.Places!.Select(place => new PayoutPlace(place!.Position, place.Percent)).ToList())).ToList(),
+                        cancellationToken)));
         return endpoints;
     }
 
@@ -135,6 +153,14 @@ public static class SeasonEndpoints
         { Error.Code: "schedule.config" } unconfigured => Results.Json(unconfigured.Error, statusCode: StatusCodes.Status503ServiceUnavailable),
         { Error.Code: "schedule.provider" } unavailable => Results.Json(unavailable.Error, statusCode: StatusCodes.Status502BadGateway),
         { Error.Code: "schedule.invalid" or "schedule.empty" } unusable => Results.Json(unusable.Error, statusCode: StatusCodes.Status422UnprocessableEntity),
+        var rejected => Results.Conflict(rejected.Error)
+    };
+
+    private static IResult PayoutsResult(Result<FinesAndPayoutsPlan> result) => result switch
+    {
+        { IsSuccess: true } ok => Results.Ok(ok.Value),
+        { Error.Code: "season.payouts" } invalid => Results.BadRequest(invalid.Error),
+        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
         var rejected => Results.Conflict(rejected.Error)
     };
 

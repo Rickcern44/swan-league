@@ -876,6 +876,151 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.True(season.Activate().IsSuccess);
     }
 
+    private static PayoutPlace PP(int position, decimal percent) => new(position, percent);
+
+    private static List<PayoutPlan> Plans(params PayoutPlace[] main) =>
+        [new("Main", main), new("Dog", [PP(1, 100m)]), new("Regular Season", [PP(1, 100m)]), new("Playoff", [PP(1, 100m)])];
+
+    private Task<int> PayoutAudits() => Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.fines-and-payouts.updated"));
+
+    private async Task AddMembership(SeasonId season, MembershipRole role, bool active = true)
+    {
+        var membership = new Membership(new MembershipId(Guid.NewGuid()), new UserId(Guid.NewGuid()), season, role);
+        if (!active) membership.Deactivate();
+        await using var database = CreateDatabase();
+        database.Memberships.Add(membership);
+        await database.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task ANewSeasonReportsAFiveDollarFineAndUnconfiguredPlansWithZeroCoaches()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var plan = await Run(service => service.GetSetupFinesAndPayoutsAsync());
+
+        Assert.True(plan.IsSuccess);
+        Assert.Equal((false, 5.00m, 0), (plan.Value!.Configured, plan.Value.MissedPickFine, plan.Value.ActiveCoaches));
+        Assert.Equal(["Main", "Dog", "Regular Season", "Playoff"], plan.Value.Pools.Select(pool => pool.Pool));
+        Assert.Equal([60m, 20m, 10m, 10m], plan.Value.Pools.Select(pool => pool.Stake));
+        Assert.All(plan.Value.Pools, pool => Assert.Equal((0m, 0), (pool.Pot, pool.Places.Count)));
+    }
+
+    [Fact]
+    public async Task OnlyActiveCoachMembershipsOfThisSeasonAreCounted()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var season = created.Value!.Id;
+        await AddMembership(season, MembershipRole.Coach);
+        await AddMembership(season, MembershipRole.Coach);
+        await AddMembership(season, MembershipRole.Coach, active: false);
+        await AddMembership(season, MembershipRole.Administrator);
+        await AddMembership(season, MembershipRole.Commissioner);
+        await AddMembership(new SeasonId(Guid.NewGuid()), MembershipRole.Coach);
+
+        var plan = await Run(service => service.GetSetupFinesAndPayoutsAsync());
+
+        Assert.Equal(2, plan.Value!.ActiveCoaches);
+        Assert.Equal([120m, 40m, 20m, 20m], plan.Value.Pools.Select(pool => pool.Pot));
+    }
+
+    [Fact]
+    public async Task SavingPersistsTheFineAndPlansAndTheCalculatorSplitsEachPotExactly()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        for (var coach = 0; coach < 7; coach++) await AddMembership(created.Value!.Id, MembershipRole.Coach);
+
+        var saved = await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(7.50m, "USD"), Plans(PP(1, 33.33m), PP(2, 33.33m), PP(3, 33.34m))));
+        var reloaded = await Run(service => service.GetSetupFinesAndPayoutsAsync());
+
+        Assert.True(saved.IsSuccess);
+        Assert.Equal((true, 7.50m, 7), (reloaded.Value!.Configured, reloaded.Value.MissedPickFine, reloaded.Value.ActiveCoaches));
+        var main = reloaded.Value.Pools[0];
+        Assert.Equal(420m, main.Pot);
+        Assert.Equal([(1, 33.33m), (2, 33.33m), (3, 33.34m)], main.Places.Select(place => (place.Position, place.Percent)));
+        Assert.Equal(main.Pot, main.Places.Sum(place => place.Amount));
+        Assert.Equal([140.00m, 139.98m, 140.02m], main.Places.Select(place => place.Amount));
+        Assert.All(reloaded.Value.Pools, pool => Assert.Equal(pool.Pot, pool.Places.Sum(place => place.Amount)));
+        Assert.Equal(1, await PayoutAudits());
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.fines-and-payouts.updated"));
+        Assert.Equal((Admin, created.Value!.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("7.5", audit.Details);
+        Assert.Contains("33.33", audit.Details);
+    }
+
+    [Fact]
+    public async Task ReplayingTheSameConfigurationWritesNoAuditAndARealChangeWritesOneMore()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var plans = Plans(PP(1, 70m), PP(2, 30m));
+        Assert.True((await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(5m, "USD"), plans))).IsSuccess);
+
+        Assert.True((await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(5.00m, "USD"), Plans(PP(2, 30m), PP(1, 70m))))).IsSuccess);
+        Assert.Equal(1, await PayoutAudits());
+        Assert.True((await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(6m, "USD"), plans))).IsSuccess);
+
+        Assert.Equal(2, await PayoutAudits());
+    }
+
+    [Fact]
+    public async Task AnInvalidConfigurationIsRejectedAndKeepsTheSavedOneWithoutAuditing()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        Assert.True((await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(5m, "USD"), Plans(PP(1, 100m))))).IsSuccess);
+
+        var badTotal = await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(9m, "USD"), Plans(PP(1, 60m), PP(2, 30m))));
+        var badFine = await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(0m, "USD"), Plans(PP(1, 100m))));
+        var badPools = await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(5m, "USD"), [new("Main", [PP(1, 100m)])]));
+
+        Assert.All(new[] { badTotal, badFine, badPools }, result => Assert.Equal("season.payouts", result.Error!.Code));
+        var kept = await Run(service => service.GetSetupFinesAndPayoutsAsync());
+        Assert.Equal(5.00m, kept.Value!.MissedPickFine);
+        Assert.Equal([(1, 100m)], kept.Value.Pools[0].Places.Select(place => (place.Position, place.Percent)));
+        Assert.Equal(1, await PayoutAudits());
+    }
+
+    [Fact]
+    public async Task ASeasonSavedBeforeFinesExistedIsUnconfiguredAndInventsNothing()
+    {
+        await Migrate();
+        var id = Guid.NewGuid();
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+        }
+
+        var plan = await Run(service => service.GetSetupFinesAndPayoutsAsync());
+        var season = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());
+
+        Assert.Equal((false, (decimal?)null), (plan.Value!.Configured, plan.Value.MissedPickFine));
+        Assert.Null(season.MissedPickFine);
+        Assert.Empty(season.PayoutPlans);
+    }
+
+    [Fact]
+    public async Task FinesAndPayoutsWithNoSetupSeasonAreMissingAndALiveSeasonIsNeverChanged()
+    {
+        await Migrate();
+        var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
+        Assert.True(live.ActivateWithDogs().IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(live);
+            await database.SaveChangesAsync();
+        }
+
+        Assert.Equal("season.missing", (await Run(service => service.GetSetupFinesAndPayoutsAsync())).Error!.Code);
+        Assert.Equal("season.missing", (await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(9m, "USD"), Plans(PP(1, 100m))))).Error!.Code);
+        var stored = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());
+        Assert.Equal((new Money(5.00m, "USD"), 0), (stored.MissedPickFine, stored.PayoutPlans.Count));
+        Assert.Equal(0, await PayoutAudits());
+    }
+
     private async Task Migrate()
     {
         await using var database = CreateDatabase();

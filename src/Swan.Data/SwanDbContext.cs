@@ -97,6 +97,12 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 .HasConversion(value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null), value => JsonSerializer.Deserialize<List<int>>(value, (JsonSerializerOptions?)null)!,
                     new ValueComparer<IReadOnlyList<int>>((left, right) => left!.SequenceEqual(right!), value => value.Aggregate(0, (hash, week) => HashCode.Combine(hash, week)), value => value.ToList()))
                 .HasDefaultValueSql("'[]'");
+            // The missed-pick fine (USD; null means never configured) and each pool's payout plan as JSON (empty means none chosen).
+            entity.Property(season => season.MissedPickFine).HasConversion(new ValueConverter<Money?, decimal?>(value => value == null ? null : value.Amount, value => value == null ? null : new Money(value.Value, "USD")));
+            entity.Property(season => season.PayoutPlans)
+                .HasConversion(value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null), value => JsonSerializer.Deserialize<List<PayoutPlan>>(value, (JsonSerializerOptions?)null)!,
+                    new ValueComparer<IReadOnlyList<PayoutPlan>>((left, right) => JsonSerializer.Serialize(left, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(right, (JsonSerializerOptions?)null), value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null).GetHashCode(), value => value.ToList()))
+                .HasDefaultValueSql("'[]'");
             entity.Property(season => season.Settings).HasConversion(value => $"{value.BuyIn.Amount}|{value.BuyIn.Currency}|{value.DoubleDogWeeks}|{value.TeamPickDeadlineEastern}", value => ParseSeasonSettings(value));
         });
         modelBuilder.Entity<Membership>(entity =>

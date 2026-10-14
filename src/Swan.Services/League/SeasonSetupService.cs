@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
@@ -32,6 +33,14 @@ public sealed record DoubleDogWeek(int Week, bool Selected, bool Required, bool 
 
 public sealed record DoubleDogPlan(IReadOnlyList<DoubleDogWeek> Weeks, IReadOnlyList<int> Selected);
 
+// A pool's payout place with its calculated dollar amount for the current pot.
+public sealed record PoolPayoutPlace(int Position, decimal Percent, decimal Amount);
+
+public sealed record PoolPayout(string Pool, decimal Stake, decimal Pot, IReadOnlyList<PoolPayoutPlace> Places);
+
+// Configured is false until an administrator saves the plans; the calculator counts this season's active coach memberships only.
+public sealed record FinesAndPayoutsPlan(bool Configured, decimal? MissedPickFine, int ActiveCoaches, IReadOnlyList<PoolPayout> Pools);
+
 public interface ISeasonSetupService
 {
     Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
@@ -47,6 +56,8 @@ public interface ISeasonSetupService
     Task<Result<SchedulePlan>> ImportScheduleAsync(UserId actor, string fingerprint, CancellationToken cancellationToken = default);
     Task<Result<DoubleDogPlan>> GetSetupDoubleDogWeeksAsync(CancellationToken cancellationToken = default);
     Task<Result<DoubleDogPlan>> UpdateSetupDoubleDogWeeksAsync(UserId actor, IReadOnlyList<int> weeks, CancellationToken cancellationToken = default);
+    Task<Result<FinesAndPayoutsPlan>> GetSetupFinesAndPayoutsAsync(CancellationToken cancellationToken = default);
+    Task<Result<FinesAndPayoutsPlan>> UpdateSetupFinesAndPayoutsAsync(UserId actor, Money missedPickFine, IReadOnlyList<PayoutPlan> plans, CancellationToken cancellationToken = default);
 }
 
 public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit, IScheduleProvider scheduleProvider, IMemoryCache previews, IClock clock) : ISeasonSetupService
@@ -201,6 +212,41 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
                 await audit.AppendAsync(actor, "season.setup.double-dogs.updated", season.Id.Value.ToString(), before, season.DoubleDogWeekNumbers, cancellationToken: cancellationToken);
             return await DoubleDogPlanAsync(season, cancellationToken);
         }, cancellationToken);
+
+    public async Task<Result<FinesAndPayoutsPlan>> GetSetupFinesAndPayoutsAsync(CancellationToken cancellationToken = default)
+    {
+        var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
+        return setup is null ? Result<FinesAndPayoutsPlan>.Failure("season.missing", "No season is in Setup.") : Result<FinesAndPayoutsPlan>.Success(await FinesAndPayoutsAsync(setup, cancellationToken));
+    }
+
+    // The fine and every pool's plan are saved together under the Setup row lock; an unchanged configuration writes nothing. This only configures and calculates: no money moves.
+    public Task<Result<FinesAndPayoutsPlan>> UpdateSetupFinesAndPayoutsAsync(UserId actor, Money missedPickFine, IReadOnlyList<PayoutPlan> plans, CancellationToken cancellationToken = default) =>
+        InSetupAsync(async season =>
+        {
+            var before = Describe(season);
+            var edited = season.SaveFinesAndPayouts(missedPickFine, plans);
+            if (!edited.IsSuccess) return Result<FinesAndPayoutsPlan>.Failure(edited.Error!.Code, edited.Error.Message);
+            var after = Describe(season);
+            if (!JsonSerializer.Serialize(before).Equals(JsonSerializer.Serialize(after), StringComparison.Ordinal))
+                await audit.AppendAsync(actor, "season.setup.fines-and-payouts.updated", season.Id.Value.ToString(), before, after, cancellationToken: cancellationToken);
+            return Result<FinesAndPayoutsPlan>.Success(await FinesAndPayoutsAsync(season, cancellationToken));
+        }, cancellationToken);
+
+    private static object Describe(Season season) => new { MissedPickFine = season.MissedPickFine?.Amount, Plans = season.PayoutPlans };
+
+    private async Task<FinesAndPayoutsPlan> FinesAndPayoutsAsync(Season season, CancellationToken cancellationToken)
+    {
+        var coaches = await database.Memberships.AsNoTracking().CountAsync(membership => membership.SeasonId == season.Id && membership.Role == MembershipRole.Coach && membership.IsActive, cancellationToken);
+        var pools = PayoutRules.Pools.Select(name =>
+        {
+            var stake = season.Pools.FirstOrDefault(pool => pool.Name == name)?.Stake.Amount ?? 0m;
+            var pot = stake * coaches;
+            var places = season.PayoutPlans.FirstOrDefault(plan => plan.Pool == name)?.Places ?? [];
+            var amounts = PayoutRules.Split(pot, places);
+            return new PoolPayout(name, stake, pot, places.OrderBy(place => place.Position).Select((place, index) => new PoolPayoutPlace(place.Position, place.Percent, amounts[index])).ToList());
+        }).ToList();
+        return new FinesAndPayoutsPlan(season.PayoutPlans.Count > 0, season.MissedPickFine?.Amount, coaches, pools);
+    }
 
     private async Task<Result<DoubleDogPlan>> DoubleDogPlanAsync(Season season, CancellationToken cancellationToken)
     {

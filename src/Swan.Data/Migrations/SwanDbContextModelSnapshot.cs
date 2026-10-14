@@ -210,11 +210,20 @@ namespace Swan.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<decimal?>("MissedPickFine")
+                        .HasColumnType("numeric");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("text")
                         .HasDefaultValue("");
+
+                    b.Property<string>("PayoutPlans")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValueSql("'[]'");
 
                     b.Property<string>("Pools")
                         .IsRequired()

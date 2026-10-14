@@ -3,8 +3,8 @@ using Swan.Core.Common;
 namespace Swan.Core.League;
 
 public enum SeasonState { Setup, Live, Completed }
-// Where the Setup wizard resumes; FinesAndPayouts is the first step that is not built yet, so it means every implemented step is done.
-public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts }
+// Where the Setup wizard resumes; LeagueSettings is the first step that is not built yet, so it means every implemented step is done.
+public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts, LeagueSettings }
 public enum MembershipRole { Commissioner, Administrator, Coach }
 public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null) : ITeamPickLockSettings;
 public sealed record PlayoffRules(bool PicksRequired);
@@ -24,6 +24,9 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     public SetupStep SetupStep { get; private set; } = SetupStep.Basics;
     // The confirmed double-dog week numbers (R7); empty until an administrator saves a selection. Settings.DoubleDogWeeks is kept equal to its count once one exists.
     public IReadOnlyList<int> DoubleDogWeekNumbers { get; private set; } = [];
+    // The fine for a missed team pick (USD) and how each pool pays out. A new season starts with a $5.00 fine and no plans; null / empty means a season that was never configured, which is not given invented choices.
+    public Money? MissedPickFine { get; private set; }
+    public IReadOnlyList<PayoutPlan> PayoutPlans { get; private set; } = [];
     public IReadOnlyList<PoolDefinition> Pools { get; private set; } = pools.ToList();
 
     // A blank season carries only the PRD defaults (W2): $100 buy-in split Main 60 / Dog 20 / Regular Season 10 / Playoff 10, three double-dog weeks, Sunday 1:00 PM ET deadline.
@@ -32,7 +35,7 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         if (ValidateBasics(year, name) is { } invalid) return Result<Season>.Failure(invalid.Code, invalid.Message);
         var buyIn = new Money(100m, "USD");
         PoolDefinition[] pools = [new("Main", new Money(60m, "USD")), new("Dog", new Money(20m, "USD")), new("Regular Season", new Money(10m, "USD")), new("Playoff", new Money(10m, "USD"))];
-        return Result<Season>.Success(new Season(id, new SeasonSettings(buyIn, 3, new TimeOnly(13, 0)), pools) { Year = year, Name = name.Trim(), IsSimulation = isSimulation });
+        return Result<Season>.Success(new Season(id, new SeasonSettings(buyIn, 3, new TimeOnly(13, 0)), pools) { Year = year, Name = name.Trim(), IsSimulation = isSimulation, MissedPickFine = new Money(5.00m, "USD") });
     }
 
     // Only a Setup season's identity may be revised; pools, settings and state are never touched here.
@@ -70,6 +73,19 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     {
         if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
         Settings = Settings with { TeamPickDeadlineEastern = deadlineEastern };
+        return Result<bool>.Success(true);
+    }
+
+    // The fine and every pool's payout plan are saved together or not at all.
+    public Result<bool> SaveFinesAndPayouts(Money fine, IReadOnlyCollection<PayoutPlan> plans)
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
+        var validFine = PayoutRules.ValidateFine(fine);
+        if (!validFine.IsSuccess) return Result<bool>.Failure(validFine.Error!.Code, validFine.Error.Message);
+        var validPlans = PayoutRules.Validate(plans);
+        if (!validPlans.IsSuccess) return Result<bool>.Failure(validPlans.Error!.Code, validPlans.Error.Message);
+        MissedPickFine = fine;
+        PayoutPlans = validPlans.Value!;
         return Result<bool>.Success(true);
     }
 

@@ -33,6 +33,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("POST", "/api/admin/seasons/setup/schedule/import")]
     [InlineData("GET", "/api/admin/seasons/setup/double-dog-weeks")]
     [InlineData("PUT", "/api/admin/seasons/setup/double-dog-weeks")]
+    [InlineData("GET", "/api/admin/seasons/setup/fines-and-payouts")]
+    [InlineData("PUT", "/api/admin/seasons/setup/fines-and-payouts")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -490,6 +492,84 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains("say what to fix", body);
     }
 
+    private static object PayoutsBody(decimal fine = 5m, string? currency = null) => new
+    {
+        missedPickFine = fine,
+        currency,
+        payouts = new[] { "Main", "Dog", "Regular Season", "Playoff" }.Select(pool => new { pool, places = new[] { new { position = 1, percent = 70.5m }, new { position = 2, percent = 29.5m } } }).ToArray(),
+    };
+
+    [Fact]
+    public async Task AdminReadsAndSavesFinesAndPayouts()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts");
+        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody(7.5m));
+
+        read.EnsureSuccessStatusCode();
+        saved.EnsureSuccessStatusCode();
+        Assert.Equal(["payouts:get", "payouts:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:7.5USD:Main=1@70.5,2@29.5;Dog=1@70.5,2@29.5;Regular Season=1@70.5,2@29.5;Playoff=1@70.5,2@29.5"], service.Calls);
+        var body = await read.Content.ReadAsStringAsync();
+        Assert.Contains("\"activeCoaches\":2", body);
+        Assert.Contains("\"pot\":120", body);
+        Assert.Contains("\"amount\":120", body);
+    }
+
+    [Fact]
+    public async Task AnonymousCannotReadOrSaveFinesAndPayouts()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody());
+
+        Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"missedPickFine":5}""")]
+    [InlineData("""{"payouts":[]}""")]
+    [InlineData("""{"missedPickFine":null,"payouts":[]}""")]
+    [InlineData("""{"missedPickFine":5,"payouts":null}""")]
+    [InlineData("""{"missedPickFine":5,"payouts":[null]}""")]
+    [InlineData("""{"missedPickFine":5,"payouts":[{"pool":null,"places":[]}]}""")]
+    [InlineData("""{"missedPickFine":5,"payouts":[{"pool":"Main","places":null}]}""")]
+    [InlineData("""{"missedPickFine":5,"payouts":[{"pool":"Main","places":[null]}]}""")]
+    [InlineData("""{"missedPickFine":"five","payouts":[]}""")]
+    [InlineData("""{"missedPickFine":5,"payouts":[{"pool":"Main","places":[{"position":"first","percent":100}]}]}""")]
+    [InlineData("""{"missedPickFine":5,"payouts":[{"pool":"Main","places":[{"position":1,"percent":"all"}]}]}""")]
+    public async Task MissingNullOrMalformedConfigurationIsBadRequestAndNeverReachesTheService(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsync("/api/admin/seasons/setup/fines-and-payouts", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.payouts", HttpStatusCode.BadRequest)]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("season.locked", HttpStatusCode.Conflict)]
+    public async Task FinesAndPayoutsRejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody());
+
+        Assert.Equal(expected, write.StatusCode);
+        Assert.Equal(expected, read.StatusCode);
+        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -601,6 +681,20 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
             Calls.Add($"dogs:put:{actor.Value}:{string.Join(",", weeks)}");
             return Task.FromResult(Failure is { } error ? Result<DoubleDogPlan>.Failure(error.Code, error.Message) : Result<DoubleDogPlan>.Success(DogPlan()));
         }
+
+        public Task<Result<FinesAndPayoutsPlan>> GetSetupFinesAndPayoutsAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("payouts:get");
+            return Task.FromResult(Failure is { } error ? Result<FinesAndPayoutsPlan>.Failure(error.Code, error.Message) : Result<FinesAndPayoutsPlan>.Success(PayoutsPlan()));
+        }
+
+        public Task<Result<FinesAndPayoutsPlan>> UpdateSetupFinesAndPayoutsAsync(UserId actor, Money missedPickFine, IReadOnlyList<PayoutPlan> plans, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"payouts:put:{actor.Value}:{missedPickFine.Amount}{missedPickFine.Currency}:{string.Join(";", plans.Select(plan => $"{plan.Pool}={string.Join(",", plan.Places.Select(place => $"{place.Position}@{place.Percent}"))}"))}");
+            return Task.FromResult(Failure is { } error ? Result<FinesAndPayoutsPlan>.Failure(error.Code, error.Message) : Result<FinesAndPayoutsPlan>.Success(PayoutsPlan()));
+        }
+
+        private static FinesAndPayoutsPlan PayoutsPlan() => new(true, 5.00m, 2, [new PoolPayout("Main", 60m, 120m, [new PoolPayoutPlace(1, 100m, 120m)])]);
 
         private static DoubleDogPlan DogPlan() => new([new DoubleDogWeek(2, true, true, false, "Required by the rules")], [2]);
 
