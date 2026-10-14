@@ -192,3 +192,11 @@ button.secondary {
   min-width: 6.5rem;
   color: #486581;
 }
+
+.games {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}

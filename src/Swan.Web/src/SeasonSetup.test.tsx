@@ -53,6 +53,50 @@ const catalog = (finishes = false) => ({
   ),
 });
 
+const plan = (overrides: Record<string, unknown> = {}) => ({
+  imported: false,
+  fingerprint: "FP1",
+  season: 2026,
+  gameCount: 3,
+  weeks: [
+    {
+      week: 1,
+      games: [
+        {
+          providerGameId: "10",
+          homeTeam: "Buffalo Bills",
+          awayTeam: "New York Jets",
+          homeTeamId: "t1",
+          awayTeamId: "t2",
+          kickoff: "2026-09-13T17:00:00+00:00",
+        },
+        {
+          providerGameId: "11",
+          homeTeam: "Dallas Cowboys",
+          awayTeam: "New York Giants",
+          homeTeamId: "t3",
+          awayTeamId: "t4",
+          kickoff: "2026-09-14T00:20:00+00:00",
+        },
+      ],
+    },
+    {
+      week: 2,
+      games: [
+        {
+          providerGameId: "20",
+          homeTeam: "Miami Dolphins",
+          awayTeam: "Buffalo Bills",
+          homeTeamId: "t5",
+          awayTeamId: "t1",
+          kickoff: "2026-09-20T17:00:00+00:00",
+        },
+      ],
+    },
+  ],
+  ...overrides,
+});
+
 type Reply = { status: number; body?: unknown };
 let replies: Record<string, Reply | ((body: { step: number }) => Reply)>;
 let calls: { method: string; url: string; body?: unknown }[];
@@ -93,13 +137,22 @@ function stubApi(role: "Admin" | "Coach") {
 afterEach(cleanup);
 
 beforeEach(() => {
-  replies = { [TEAMS]: { status: 200, body: catalog() } };
+  replies = {
+    [TEAMS]: { status: 200, body: catalog() },
+    [SCHEDULE]: {
+      status: 200,
+      body: plan({ imported: false, fingerprint: null, weeks: [] }),
+    },
+  };
   calls = [];
   window.history.replaceState({}, "", "/");
 });
 
 const SETUP = "GET /api/admin/seasons/setup";
 const TEAMS = "GET /api/admin/seasons/setup/teams";
+const SCHEDULE = "GET /api/admin/seasons/setup/schedule";
+const PREVIEW = "POST /api/admin/seasons/setup/schedule/preview";
+const IMPORT = "POST /api/admin/seasons/setup/schedule/import";
 const SAVE_TEAMS = "PUT /api/admin/seasons/setup/teams";
 const STEP = "PUT /api/admin/seasons/setup/step";
 const putCalls = () =>
@@ -132,7 +185,7 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
   fireEvent.click(within(card).getByRole("button", { name: "Create season" }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
-  expect(screen.getByText("Step 1 of 4")).toBeVisible();
+  expect(screen.getByText("Step 1 of 5")).toBeVisible();
   expect(screen.getByLabelText("Season name")).toHaveValue("2027 Swan League");
   expect(calls.find((call) => call.method === "POST")).toMatchObject({
     body: { year: 2027, name: "2027 Swan League", isSimulation: true },
@@ -144,11 +197,12 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
 });
 
 test.each([
-  [0, "Basics", "Step 1 of 4"],
-  [1, "Money", "Step 2 of 4"],
-  [2, "Weekly deadline", "Step 3 of 4"],
-  [3, "Teams and point values", "Step 4 of 4"],
-  [4, "Teams and point values", "Step 4 of 4"],
+  [0, "Basics", "Step 1 of 5"],
+  [1, "Money", "Step 2 of 5"],
+  [2, "Weekly deadline", "Step 3 of 5"],
+  [3, "Teams and point values", "Step 4 of 5"],
+  [4, "Schedule import", "Step 5 of 5"],
+  [5, "Schedule import", "Step 5 of 5"],
 ])(
   "a fresh load resumes at the saved step %i",
   async (setupStep, form, position) => {
@@ -195,7 +249,7 @@ test("Save & continue on Basics saves it, records Money as the resume point and 
   fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
   expect(await screen.findByRole("form", { name: "Money" })).toBeVisible();
-  expect(screen.getByText("Step 2 of 4")).toBeVisible();
+  expect(screen.getByText("Step 2 of 5")).toBeVisible();
   expect(putCalls()).toEqual(["/", "/step"]);
   expect(
     calls.find(
@@ -372,18 +426,215 @@ test("a failed resume-point save is reported and the page does not advance", asy
 
 test("later steps are listed as upcoming and cannot be opened", async () => {
   stubApi("Admin");
-  replies[SETUP] = { status: 200, body: season({ setupStep: 4 }) };
+  replies[SETUP] = { status: 200, body: season({ setupStep: 5 }) };
   render(<App />);
 
-  await screen.findByRole("form", { name: "Teams and point values" });
+  await screen.findByRole("form", { name: "Schedule import" });
   const next = screen.getByText(/Coming next/);
-  expect(next).not.toHaveTextContent("Teams and point values");
-  expect(next).toHaveTextContent("Schedule import");
+  expect(next).not.toHaveTextContent("Schedule import");
   expect(next).toHaveTextContent("Weeks and dogs");
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /schedule|weeks/i }),
+    screen.queryByRole("button", { name: /weeks/i }),
   ).not.toBeInTheDocument();
+});
+
+const openSchedule = async (overrides: Record<string, unknown> = {}) => {
+  stubApi("Admin");
+  replies[SETUP] = {
+    status: 200,
+    body: season({ setupStep: 4, ...overrides }),
+  };
+  render(<App />);
+  const form = await screen.findByRole("form", { name: "Schedule import" });
+  await within(form).findByText(
+    /Nothing is saved until you confirm|Schedule imported/,
+  );
+  return form;
+};
+
+test("opening the Schedule import page reads only the saved schedule, never the provider", async () => {
+  const form = await openSchedule();
+
+  expect(within(form).getByText(/BALLDONTLIE/)).toBeVisible();
+  expect(
+    within(form).getByText(/Nothing is saved until you confirm/),
+  ).toBeVisible();
+  expect(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  ).toBeVisible();
+  expect(
+    within(form).queryByRole("button", { name: /^Import/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    calls
+      .filter((call) => call.url.includes("schedule"))
+      .map((call) => `${call.method} ${call.url}`),
+  ).toEqual(["GET /api/admin/seasons/setup/schedule"]);
+});
+
+test("previewing lists the games by week in Eastern time and saves nothing until confirmed", async () => {
+  replies[PREVIEW] = { status: 200, body: plan() };
+  const form = await openSchedule();
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  );
+
+  expect(await within(form).findByText("Week 1")).toBeVisible();
+  expect(within(form).getByText("Week 2")).toBeVisible();
+  expect(
+    within(form).getByText(/New York Jets at Buffalo Bills/),
+  ).toHaveTextContent("Sun, Sep 13, 1:00 PM EDT");
+  expect(
+    within(form).getByText(/New York Giants at Dallas Cowboys/),
+  ).toHaveTextContent("Sun, Sep 13, 8:20 PM EDT");
+  expect(
+    within(form).getByRole("button", { name: "Import 3 games" }),
+  ).toBeVisible();
+  expect(calls.some((call) => call.url.endsWith("/import"))).toBe(false);
+});
+
+test("confirming imports with the previewed fingerprint, records Weeks and dogs and shows the saved schedule", async () => {
+  replies[PREVIEW] = { status: 200, body: plan() };
+  replies[IMPORT] = {
+    status: 200,
+    body: plan({ imported: true, fingerprint: null }),
+  };
+  replies[STEP] = stepReply();
+  const form = await openSchedule();
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  );
+
+  fireEvent.click(
+    await within(form).findByRole("button", { name: "Import 3 games" }),
+  );
+
+  expect(
+    await within(form).findByText("Schedule imported: 3 games in 2 weeks."),
+  ).toBeVisible();
+  expect(calls.find((call) => call.url.endsWith("/import"))).toMatchObject({
+    method: "POST",
+    body: { fingerprint: "FP1" },
+  });
+  expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
+    body: { step: 5 },
+  });
+  expect(
+    within(form).queryByRole("button", { name: /Preview|Import/ }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText(/Coming next/)).toHaveTextContent("Weeks and dogs");
+});
+
+test("an empty preview says nothing is published yet and that manual import stays available", async () => {
+  replies[PREVIEW] = {
+    status: 200,
+    body: plan({ fingerprint: null, gameCount: 0, weeks: [] }),
+  };
+  const form = await openSchedule();
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  );
+
+  expect(
+    await within(form).findByText(
+      /No schedule has been published for 2026 yet/,
+    ),
+  ).toHaveTextContent("Manual/CSV import will remain available");
+  expect(
+    within(form).queryByRole("button", { name: /^Import/ }),
+  ).not.toBeInTheDocument();
+});
+
+test("a provider problem is shown with the manual-import note and no import button", async () => {
+  replies[PREVIEW] = {
+    status: 502,
+    body: {
+      code: "schedule.provider",
+      message: "The schedule provider answered HTTP 500.",
+    },
+  };
+  const form = await openSchedule();
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  );
+
+  const alert = await within(form).findByRole("alert");
+  expect(alert).toHaveTextContent("The schedule provider answered HTTP 500.");
+  expect(alert).toHaveTextContent("Manual/CSV import will remain available");
+  expect(
+    within(form).queryByRole("button", { name: /^Import/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  ).toBeVisible();
+});
+
+test("a refused import shows why, keeps the preview and records no progress", async () => {
+  replies[PREVIEW] = { status: 200, body: plan() };
+  replies[IMPORT] = {
+    status: 409,
+    body: {
+      code: "schedule.changed",
+      message:
+        "The provider schedule changed since the preview; preview it again.",
+    },
+  };
+  const form = await openSchedule();
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  );
+
+  fireEvent.click(
+    await within(form).findByRole("button", { name: "Import 3 games" }),
+  );
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "preview it again",
+  );
+  expect(within(form).getByText("Week 1")).toBeVisible();
+  expect(calls.some((call) => call.url.endsWith("/step"))).toBe(false);
+});
+
+test("an already imported schedule is shown on load with no way to import again", async () => {
+  replies[SCHEDULE] = {
+    status: 200,
+    body: plan({ imported: true, fingerprint: null }),
+  };
+  const form = await openSchedule({ setupStep: 5 });
+
+  expect(
+    await within(form).findByText("Schedule imported: 3 games in 2 weeks."),
+  ).toBeVisible();
+  expect(within(form).getByText("Week 2")).toBeVisible();
+  expect(
+    within(form).queryByRole("button", { name: /Preview|Import/ }),
+  ).not.toBeInTheDocument();
+});
+
+test("discarding a preview returns to the start of the page and Back returns to Teams", async () => {
+  replies[PREVIEW] = { status: 200, body: plan() };
+  const form = await openSchedule();
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  );
+  await within(form).findByText("Week 1");
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Discard preview" }),
+  );
+  expect(within(form).queryByText("Week 1")).not.toBeInTheDocument();
+  expect(
+    within(form).getByRole("button", { name: "Preview schedule" }),
+  ).toBeVisible();
+
+  fireEvent.click(within(form).getByRole("button", { name: "Back" }));
+  expect(
+    await screen.findByRole("form", { name: "Teams and point values" }),
+  ).toBeVisible();
 });
 
 test("a failed create shows its error in the start card", async () => {
@@ -459,7 +710,7 @@ test("a team without a finish is reported before anything is sent", async () => 
   expect(putCalls()).toEqual([]);
 });
 
-test("saving valid finishes sends the complete set, records Schedule import and keeps Teams on screen", async () => {
+test("saving valid finishes sends the complete set, records Schedule import and moves on to it", async () => {
   stubApi("Admin");
   replies[SETUP] = { status: 200, body: season({ setupStep: 3 }) };
   replies[TEAMS] = { status: 200, body: catalog(true) };
@@ -471,7 +722,9 @@ test("saving valid finishes sends the complete set, records Schedule import and 
     await screen.findByRole("button", { name: "Save & continue" }),
   );
 
-  expect(await screen.findByText("Teams saved")).toBeVisible();
+  expect(
+    await screen.findByRole("form", { name: "Schedule import" }),
+  ).toBeVisible();
   const sent = calls.find(
     (call) => call.method === "PUT" && call.url.endsWith("/teams"),
   )!;
@@ -484,13 +737,7 @@ test("saving valid finishes sends the complete set, records Schedule import and 
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 4 },
   });
-  expect(
-    screen.getByRole("form", { name: "Teams and point values" }),
-  ).toBeVisible();
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("Schedule import");
-  expect(
-    screen.queryByRole("form", { name: /schedule/i }),
-  ).not.toBeInTheDocument();
+  expect(screen.getByText(/Coming next/)).toHaveTextContent("Weeks and dogs");
 });
 
 test("a server rejection of the finishes stays beside the page and does not record progress", async () => {

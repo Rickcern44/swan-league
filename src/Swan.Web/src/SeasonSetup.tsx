@@ -117,7 +117,7 @@ function Card({
   notice: Notice;
   children: React.ReactNode;
   onSubmit: () => void;
-  action: string;
+  action?: string;
   onBack?: () => void;
 }) {
   return (
@@ -139,7 +139,7 @@ function Card({
             Back
           </button>
         )}
-        <button type="submit">{action}</button>
+        {action && <button type="submit">{action}</button>}
       </div>
     </form>
   );
@@ -210,10 +210,11 @@ const wizardSteps = [
   "Money",
   "Weekly deadline",
   "Teams and point values",
+  "Schedule import",
 ] as const;
 const lastStep = wizardSteps.length - 1;
-const stepSlugs = ["basics", "money", "deadline", "teams"];
-const upcoming = ["Schedule import", "Weeks and dogs"];
+const stepSlugs = ["basics", "money", "deadline", "teams", "schedule"];
+const upcoming = ["Weeks and dogs"];
 
 function SetupCards({
   season,
@@ -373,7 +374,8 @@ function SetupCards({
         );
       onSeason(recorded.value);
     }
-    setNotices({ 3: { kind: "saved", text: "Teams saved" } });
+    setNotices({});
+    goTo(4);
   }
 
   const poolTotal = stakeNames.reduce(
@@ -511,7 +513,7 @@ function SetupCards({
                 }
               : undefined)
           }
-          action="Save & continue"
+          action={teams ? "Save & continue" : undefined}
           onBack={back}
           onSubmit={() => void saveTeams()}
         >
@@ -554,7 +556,172 @@ function SetupCards({
             ))}
         </Card>
       )}
+      {view === 4 && (
+        <ScheduleStep season={season} onSeason={onSeason} onBack={back} />
+      )}
       <p>Coming next: {upcoming.join(" → ")}</p>
     </>
+  );
+}
+
+type ScheduleGame = {
+  providerGameId: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoff: string;
+};
+type SchedulePlan = {
+  imported: boolean;
+  fingerprint: string | null;
+  season: number;
+  gameCount: number;
+  weeks: { week: number; games: ScheduleGame[] }[];
+};
+
+const easternKickoff = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZoneName: "short",
+});
+const manualNote = "Manual/CSV import will remain available.";
+const weekCount = (plan: SchedulePlan) => plan.weeks.length;
+
+// Reads the saved schedule on open; the provider is contacted only when the admin asks for a preview, and nothing is saved until the preview is confirmed.
+function ScheduleStep({
+  season,
+  onSeason,
+  onBack,
+}: {
+  season: Season;
+  onSeason: (season: Season) => void;
+  onBack?: () => void;
+}) {
+  const [saved, setSaved] = useState<SchedulePlan>();
+  const [preview, setPreview] = useState<SchedulePlan>();
+  const [notice, setNotice] = useState<Notice>();
+  const [busy, setBusy] = useState(false);
+  const [empty, setEmpty] = useState(false);
+
+  useEffect(() => {
+    void send<SchedulePlan>("GET", "/api/admin/seasons/setup/schedule").then(
+      (result) =>
+        "value" in result
+          ? setSaved(result.value)
+          : setNotice({
+              kind: "error",
+              text: `Could not load the saved schedule: ${result.error}`,
+            }),
+    );
+  }, []);
+
+  async function previewSchedule() {
+    setBusy(true);
+    setNotice(undefined);
+    setEmpty(false);
+    const result = await send<SchedulePlan>(
+      "POST",
+      "/api/admin/seasons/setup/schedule/preview",
+    );
+    setBusy(false);
+    if (!("value" in result))
+      return setNotice({
+        kind: "error",
+        text: `${result.error} ${manualNote}`,
+      });
+    if (result.value.gameCount === 0) setEmpty(true);
+    else setPreview(result.value);
+  }
+
+  async function importSchedule() {
+    if (!preview?.fingerprint) return;
+    setBusy(true);
+    setNotice(undefined);
+    const result = await send<SchedulePlan>(
+      "POST",
+      "/api/admin/seasons/setup/schedule/import",
+      { fingerprint: preview.fingerprint },
+    );
+    if (!("value" in result)) {
+      setBusy(false);
+      return setNotice({ kind: "error", text: result.error });
+    }
+    setSaved(result.value);
+    setPreview(undefined);
+    // Weeks and dogs is the next unbuilt step; the resume point never moves backwards.
+    const target = Math.max(season.setupStep, 5);
+    if (target !== season.setupStep) {
+      const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
+        step: target,
+      });
+      if ("value" in recorded) onSeason(recorded.value);
+      else
+        setNotice({
+          kind: "error",
+          text: `Imported, but your progress could not be recorded: ${recorded.error}`,
+        });
+    }
+    setBusy(false);
+  }
+
+  const shown = saved?.imported ? saved : preview;
+  return (
+    <Card
+      title="Schedule import"
+      notice={notice}
+      action={
+        saved?.imported || !saved
+          ? undefined
+          : preview
+            ? `Import ${preview.gameCount} games`
+            : "Preview schedule"
+      }
+      onBack={onBack}
+      onSubmit={() =>
+        busy ? undefined : void (preview ? importSchedule() : previewSchedule())
+      }
+    >
+      {!saved && !notice && <span>Checking the saved schedule…</span>}
+      {saved && !saved.imported && !preview && (
+        <span className="hint">
+          {`Swan will fetch the ${season.year} regular-season schedule from BALLDONTLIE. Nothing is saved until you confirm the preview.`}
+        </span>
+      )}
+      {busy && <span>Working…</span>}
+      {empty && (
+        <span role="status" className="hint">
+          {`No schedule has been published for ${season.year} yet. ${manualNote}`}
+        </span>
+      )}
+      {saved?.imported && (
+        <span role="status" className="hint">
+          {`Schedule imported: ${saved.gameCount} games in ${weekCount(saved)} weeks.`}
+        </span>
+      )}
+      {shown?.weeks.map((week) => (
+        <fieldset key={week.week} className="division">
+          <legend>{`Week ${week.week}`}</legend>
+          <ul className="games">
+            {week.games.map((game) => (
+              <li key={game.providerGameId}>
+                {`${game.awayTeam} at ${game.homeTeam} · ${easternKickoff.format(new Date(game.kickoff))}`}
+              </li>
+            ))}
+          </ul>
+        </fieldset>
+      ))}
+      {preview && (
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => setPreview(undefined)}
+        >
+          Discard preview
+        </button>
+      )}
+    </Card>
   );
 }

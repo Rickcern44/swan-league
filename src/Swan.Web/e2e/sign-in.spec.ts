@@ -89,7 +89,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     const basics = page.getByRole("form", { name: "Basics" });
     await expect(basics).toBeVisible();
-    await expect(page.getByText("Step 1 of 4")).toBeVisible();
+    await expect(page.getByText("Step 1 of 5")).toBeVisible();
     await expect(page.getByRole("form", { name: "Money" })).toHaveCount(0);
     await basics.getByLabel("Season name").fill("E2E Swan League");
     await basics.getByLabel("Simulation season").check();
@@ -98,10 +98,10 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Closing the browser and coming back opens the saved step.
     const money = page.getByRole("form", { name: "Money" });
     await expect(money).toBeVisible();
-    await expect(page.getByText("Step 2 of 4")).toBeVisible();
+    await expect(page.getByText("Step 2 of 5")).toBeVisible();
     await page.reload();
     await expect(money).toBeVisible();
-    await expect(page.getByText("Step 2 of 4")).toBeVisible();
+    await expect(page.getByText("Step 2 of 5")).toBeVisible();
 
     // Back navigates without saving; reloading still resumes at Money.
     await money.getByRole("button", { name: "Back" }).click();
@@ -127,13 +127,13 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     const deadline = page.getByRole("form", { name: "Weekly deadline" });
     await expect(deadline).toBeVisible();
-    await expect(page.getByText("Step 3 of 4")).toBeVisible();
+    await expect(page.getByText("Step 3 of 5")).toBeVisible();
     await deadline.getByLabel("Team picks lock Sundays at").fill("11:30");
     await deadline.getByRole("button", { name: "Save & continue" }).click();
 
     const teams = page.getByRole("form", { name: "Teams and point values" });
     await expect(teams).toBeVisible();
-    await expect(page.getByText("Step 4 of 4")).toBeVisible();
+    await expect(page.getByText("Step 4 of 5")).toBeVisible();
 
     // Each division, one team per finish (wait for the catalog to load first: all() does not).
     await expect(teams.getByRole("group")).toHaveCount(8);
@@ -154,20 +154,34 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     await expect(east.getByText("Point value 3")).toBeVisible();
     await teams.getByRole("button", { name: "Save & continue" }).click();
-    await expect(teams.getByText("Teams saved")).toBeVisible();
 
-    // Schedule import is only listed, never reachable.
-    await expect(page.getByText(/Coming next/)).toContainText(
-      "Schedule import",
-    );
+    // Saving the teams moves on to Schedule import, which only previews: the provider is contacted on demand and nothing is imported here.
+    const schedule = page.getByRole("form", { name: "Schedule import" });
+    await expect(schedule).toBeVisible();
+    await expect(page.getByText("Step 5 of 5")).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /schedule|weeks/i }),
-    ).toHaveCount(0);
+      schedule.getByText(/Nothing is saved until you confirm/),
+    ).toBeVisible();
+    await expect(page.getByText(/Coming next/)).toContainText("Weeks and dogs");
+    await expect(page.getByRole("button", { name: /weeks/i })).toHaveCount(0);
+    await schedule.getByRole("button", { name: "Preview schedule" }).click();
+    // Whatever the provider says (a schedule, nothing published yet, or no key configured) is shown, with an explicit import step only if games came back.
+    await expect(
+      schedule
+        .getByText(/No schedule has been published|Week 1|provider|configured/)
+        .first(),
+    ).toBeVisible();
+    const savedSchedule = await page.request.get(
+      "/api/admin/seasons/setup/schedule",
+    );
+    expect((await savedSchedule.json()).imported).toBe(false);
 
-    // Reloading opens the saved Teams page with the saved finishes.
+    // Reloading opens the saved Schedule page; Back returns to Teams with the saved finishes.
     await page.reload();
+    await expect(schedule).toBeVisible();
+    await expect(page.getByText("Step 5 of 5")).toBeVisible();
+    await schedule.getByRole("button", { name: "Back" }).click();
     await expect(teams).toBeVisible();
-    await expect(page.getByText("Step 4 of 4")).toBeVisible();
     await expect(
       teams
         .getByRole("group", { name: "NFC West" })
