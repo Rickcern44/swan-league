@@ -20,13 +20,50 @@ public sealed class ScheduleImportPlanTests
 
     private static Result<IReadOnlyList<Week>> Build(params ProviderGame[] games) => ScheduleImportPlan.Build(Season, games, Catalog, InSeason);
 
+    // The given games plus one filler game in every regular-season week they leave out, so the schedule is complete.
+    private static ProviderGame[] Full(params ProviderGame[] games) => games
+        .Concat(Enumerable.Range(1, 18).Where(week => games.All(game => game.Week != week)).Select(week => Game($"filler-{week}", week: week, kickoff: Sunday.AddDays((week - 1) * 7))))
+        .ToArray();
+
+    [Theory]
+    [InlineData(18)]
+    [InlineData(1)]
+    [InlineData(9)]
+    public void AScheduleMissingAnyRegularSeasonWeekIsRejectedNamingIt(int missing)
+    {
+        var games = Enumerable.Range(1, 18).Where(week => week != missing).Select(week => Game($"g{week}", week: week)).ToArray();
+
+        var built = Build(games);
+
+        Assert.Equal("schedule.invalid", built.Error!.Code);
+        Assert.Contains($"week {missing}", built.Error.Message);
+    }
+
+    [Fact]
+    public void ASeasonWithOnlySomeWeeksListsEveryMissingOne()
+    {
+        var built = Build(Game("a", week: 1), Game("b", week: 2));
+
+        Assert.Equal("schedule.invalid", built.Error!.Code);
+        Assert.Contains("3", built.Error.Message);
+        Assert.Contains("18", built.Error.Message);
+    }
+
+    [Fact]
+    public void ACompleteSeasonOfExactlyEighteenWeeksIsAccepted()
+    {
+        var built = Build(Full());
+
+        Assert.Equal(Enumerable.Range(1, 18), built.Value!.Select(week => week.Number));
+    }
+
     [Fact]
     public void ValidGamesBecomeRegularWeeksInOrderOwningGamesWithProviderIdsAndUtcKickoffs()
     {
-        var built = Build(Game("20", week: 2, kickoff: Sunday.AddDays(7)), Game("10", week: 1, kickoff: new DateTimeOffset(2026, 9, 13, 13, 0, 0, TimeSpan.FromHours(-4))));
+        var built = Build(Full(Game("20", week: 2, kickoff: Sunday.AddDays(7)), Game("10", week: 1, kickoff: new DateTimeOffset(2026, 9, 13, 13, 0, 0, TimeSpan.FromHours(-4)))));
 
         Assert.True(built.IsSuccess);
-        Assert.Equal([1, 2], built.Value!.Select(week => week.Number));
+        Assert.Equal(Enumerable.Range(1, 18), built.Value!.Select(week => week.Number));
         Assert.All(built.Value, week => Assert.Equal((Season, WeekKind.Regular, WeekState.Draft, true), (week.SeasonId, week.Type.Kind, week.State, week.Type.PicksRequired)));
         var game = built.Value[0].Games.Single();
         Assert.Equal(("10", Bills.Id, Jets.Id), (game.ProviderGameId, game.HomeTeamId, game.AwayTeamId));
@@ -98,10 +135,10 @@ public sealed class ScheduleImportPlanTests
     [Fact]
     public void TheFingerprintIgnoresOrderButNotAnyGameDetail()
     {
-        var first = Build(Game("1"), Game("2", week: 2)).Value!;
-        var reordered = Build(Game("2", week: 2), Game("1")).Value!;
-        var moved = Build(Game("1"), Game("2", week: 2, kickoff: Sunday.AddDays(8))).Value!;
-        var swapped = Build(Game("1", home: "New York Jets", away: "Buffalo Bills"), Game("2", week: 2)).Value!;
+        var first = Build(Full(Game("1"), Game("2", week: 2))).Value!;
+        var reordered = Build(Full(Game("2", week: 2), Game("1"))).Value!;
+        var moved = Build(Full(Game("1"), Game("2", week: 2, kickoff: Sunday.AddDays(8)))).Value!;
+        var swapped = Build(Full(Game("1", home: "New York Jets", away: "Buffalo Bills"), Game("2", week: 2))).Value!;
 
         Assert.Equal(ScheduleImportPlan.Fingerprint(first), ScheduleImportPlan.Fingerprint(reordered));
         Assert.NotEqual(ScheduleImportPlan.Fingerprint(first), ScheduleImportPlan.Fingerprint(moved));

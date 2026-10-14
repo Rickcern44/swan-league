@@ -70,6 +70,9 @@ public static class ScheduleImportPlan
             week.AddGame(new Game(new GameId(Guid.NewGuid()), home.Id, away.Id, utc.Value!, providerGameId: game.Id));
         }
 
+        // A partial season would promise weeks that do not exist, so every regular-season week must be present.
+        var missing = Enumerable.Range(1, RegularSeasonWeeks).Where(number => !weeks.ContainsKey(number)).ToList();
+        if (missing.Count > 0) return Failure("schedule.invalid", $"The provider schedule has no games in {(missing.Count == 1 ? "week" : "weeks")} {string.Join(", ", missing)}; a complete regular season has weeks 1 to {RegularSeasonWeeks}.");
         return Result<IReadOnlyList<Week>>.Success(weeks.Values.ToList());
     }
 

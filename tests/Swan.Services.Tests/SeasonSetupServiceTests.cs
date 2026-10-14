@@ -731,6 +731,11 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
     private static ProviderGame PG(string id, int week, Team home, Team away, DateTimeOffset? kickoff = null) => new(id, week, home.Name, away.Name, kickoff ?? Kickoff.AddDays((week - 1) * 7));
 
+    // The given games plus a filler game (teams 6 v 7) in every regular-season week they leave out: a schedule must cover weeks 1 to 18.
+    private static ProviderGame[] Full(List<Team> teams, params ProviderGame[] games) => games
+        .Concat(Enumerable.Range(1, 18).Where(week => games.All(game => game.Week != week)).Select(week => PG($"filler-{week}", week, teams[6], teams[7])))
+        .ToArray();
+
     private void ProviderReturns(params ProviderGame[] games) => provider.Reply = Result<ProviderSchedule>.Success(new ProviderSchedule(FetchedAt, games));
 
     // A Setup season with all 32 teams entered, ready for a schedule.
@@ -767,17 +772,17 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     public async Task PreviewGroupsTheProviderGamesByWeekWithoutSavingAnything()
     {
         var (teams, _) = await SetupWithTeams();
-        ProviderReturns(PG("11", 2, teams[2], teams[3]), PG("10", 1, teams[0], teams[1]), PG("12", 1, teams[4], teams[5]));
+        ProviderReturns(Full(teams, PG("11", 2, teams[2], teams[3]), PG("10", 1, teams[0], teams[1]), PG("12", 1, teams[4], teams[5])));
 
         var preview = await Run(service => service.PreviewScheduleAsync());
 
         Assert.True(preview.IsSuccess);
         Assert.Equal(1, provider.Calls);
         Assert.False(preview.Value!.Imported);
-        Assert.Equal([1, 2], preview.Value.Weeks.Select(week => week.Week));
+        Assert.Equal(Enumerable.Range(1, 18), preview.Value.Weeks.Select(week => week.Week));
         var game = preview.Value.Weeks[0].Games.Single(value => value.ProviderGameId == "10");
         Assert.Equal((teams[0].Id.Value, teams[0].Name, teams[1].Id.Value, teams[1].Name, Kickoff), (game.HomeTeamId, game.HomeTeam, game.AwayTeamId, game.AwayTeam, game.Kickoff));
-        Assert.Equal(3, preview.Value.GameCount);
+        Assert.Equal(19, preview.Value.GameCount);
         Assert.False(string.IsNullOrEmpty(preview.Value.Fingerprint));
         Assert.Equal((0, 0, 0), await Counts());
     }
@@ -803,7 +808,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     public async Task ImportingSavesEveryWeekAndGameAtomicallyWithProviderIdsAndProvenance()
     {
         var (teams, season) = await SetupWithTeams();
-        ProviderReturns(PG("10", 1, teams[0], teams[1]), PG("11", 1, teams[2], teams[3]), PG("20", 18, teams[4], teams[5]));
+        ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1]), PG("11", 1, teams[2], teams[3]), PG("20", 18, teams[4], teams[5])));
         var preview = await Run(service => service.PreviewScheduleAsync());
 
         var imported = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
@@ -811,9 +816,9 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.True(imported.IsSuccess);
         Assert.True(imported.Value!.Imported);
         Assert.Equal(1, provider.Calls);
-        Assert.Equal((2, 3, 1), await Counts());
+        Assert.Equal((18, 19, 1), await Counts());
         var weeks = await Run((service, database) => database.Weeks.AsNoTracking().OrderBy(week => week.Number).ToListAsync());
-        Assert.Equal([1, 18], weeks.Select(week => week.Number));
+        Assert.Equal(Enumerable.Range(1, 18), weeks.Select(week => week.Number));
         Assert.All(weeks, week => Assert.Equal((season.Id, WeekKind.Regular, WeekState.Draft), (week.SeasonId, week.Type.Kind, week.State)));
         var first = weeks[0].Games.Single(game => game.ProviderGameId == "10");
         Assert.Equal((teams[0].Id, teams[1].Id, Kickoff), (first.HomeTeamId, first.AwayTeamId, first.Kickoff.Value));
@@ -824,14 +829,14 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Contains("2026-10-14T12:00:00", audit.Details);
         var reloaded = await Run(service => service.GetSetupScheduleAsync());
         Assert.True(reloaded.Value!.Imported);
-        Assert.Equal(3, reloaded.Value.GameCount);
+        Assert.Equal(19, reloaded.Value.GameCount);
     }
 
     [Fact]
     public async Task ASecondImportOrPreviewNeverOverwritesAnImportedSchedule()
     {
         var (teams, _) = await SetupWithTeams();
-        ProviderReturns(PG("10", 1, teams[0], teams[1]));
+        ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1])));
         var preview = await Run(service => service.PreviewScheduleAsync());
         Assert.True((await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!))).IsSuccess);
 
@@ -840,22 +845,22 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
         Assert.Equal("schedule.exists", again.Error!.Code);
         Assert.Equal("schedule.exists", previewAgain.Error!.Code);
-        Assert.Equal((1, 1, 1), await Counts());
+        Assert.Equal((18, 18, 1), await Counts());
     }
 
     [Fact]
     public async Task ImportSavesExactlyWhatWasPreviewedEvenIfTheProviderChangedAfterwardsWithoutAskingItAgain()
     {
         var (teams, _) = await SetupWithTeams();
-        ProviderReturns(PG("10", 1, teams[0], teams[1]));
+        ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1])));
         var preview = await Run(service => service.PreviewScheduleAsync());
-        ProviderReturns(PG("10", 1, teams[0], teams[1], Kickoff.AddHours(3)), PG("99", 2, teams[2], teams[3]));
+        ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1], Kickoff.AddHours(3)), PG("99", 2, teams[2], teams[3])));
 
         var imported = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
 
         Assert.True(imported.IsSuccess);
         Assert.Equal(1, provider.Calls);
-        var game = (await Run((service, database) => database.Weeks.AsNoTracking().SingleAsync())).Games.Single();
+        var game = (await Run((service, database) => database.Weeks.AsNoTracking().SingleAsync(week => week.Number == 1))).Games.Single(value => value.ProviderGameId == "10");
         Assert.Equal(("10", Kickoff), (game.ProviderGameId, game.Kickoff.Value));
     }
 
@@ -863,7 +868,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     public async Task APreviewDoesNotSurviveAChangeOfTheSetupSeasonYear()
     {
         var (teams, _) = await SetupWithTeams();
-        ProviderReturns(PG("10", 1, teams[0], teams[1]));
+        ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1])));
         var preview = await Run(service => service.PreviewScheduleAsync());
         Assert.True((await Run(service => service.UpdateSetupBasicsAsync(Admin, 2027, "2027 Season", isSimulation: false))).IsSuccess);
 
@@ -882,7 +887,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     public async Task ImportRefusesAFingerprintThatWasNeverPreviewedOrHasExpiredAndNeverCallsTheProvider()
     {
         var (teams, _) = await SetupWithTeams();
-        ProviderReturns(PG("10", 1, teams[0], teams[1]));
+        ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1])));
         var preview = await Run(service => service.PreviewScheduleAsync());
         var forged = await Run(service => service.ImportScheduleAsync(Admin, "ABC"));
         previews.Clear();
@@ -915,6 +920,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
             ("unknown team", [new ProviderGame("1", 1, "Nowhere Navigators", teams[1].Name, Kickoff)]),
             ("team outside the season", [PG("1", 1, teams[0], outsider)]),
             ("malformed kickoff", [new ProviderGame("1", 1, teams[0].Name, teams[1].Name, null)]),
+            ("missing week 18", Enumerable.Range(1, 17).Select(week => PG($"w{week}", week, teams[0], teams[1])).ToArray()),
         };
         foreach (var (name, games) in cases)
         {
@@ -941,7 +947,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
             await database.SaveChangesAsync();
         }
 
-        ProviderReturns(PG("10", 1, teams[0], teams[1]), PG("11", 1, teams[2], teams[3]));
+        ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1]), PG("11", 1, teams[2], teams[3])));
         var preview = await Run(service => service.PreviewScheduleAsync());
         var imported = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
 
