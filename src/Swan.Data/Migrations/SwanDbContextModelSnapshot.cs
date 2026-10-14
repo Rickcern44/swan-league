@@ -690,6 +690,10 @@ namespace Swan.Data.Migrations
                                 .IsRequired()
                                 .HasColumnType("numeric[]");
 
+                            b1.Property<string>("ProviderGameId")
+                                .HasMaxLength(64)
+                                .HasColumnType("character varying(64)");
+
                             b1.Property<string>("Result")
                                 .HasColumnType("text");
 
@@ -697,6 +701,11 @@ namespace Swan.Data.Migrations
                                 .HasColumnType("uuid");
 
                             b1.HasKey("Id");
+
+                            b1.HasIndex("ProviderGameId")
+                                .IsUnique()
+                                .HasDatabaseName("ux_games_provider_game_id")
+                                .HasFilter("\"ProviderGameId\" IS NOT NULL");
 
                             b1.HasIndex("WeekId");
 

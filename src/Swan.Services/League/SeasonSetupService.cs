@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Swan.Core.Common;
+using Swan.Core;
+using Swan.Core.Integrations;
 using Swan.Core.League;
 using Swan.Core.Schedule;
 using Swan.Data;
@@ -17,6 +19,13 @@ public sealed record SetupTeam(Guid TeamId, string Name, string Division, int? F
 
 public sealed record SetupTeams(IReadOnlyList<SetupTeam> Teams);
 
+public sealed record ScheduleGame(string ProviderGameId, Guid HomeTeamId, string HomeTeam, Guid AwayTeamId, string AwayTeam, DateTimeOffset Kickoff);
+
+public sealed record ScheduleWeek(int Week, IReadOnlyList<ScheduleGame> Games);
+
+// A schedule either previewed (not saved, carries the fingerprint to confirm) or already imported.
+public sealed record SchedulePlan(bool Imported, string? Fingerprint, int Season, int GameCount, IReadOnlyList<ScheduleWeek> Weeks);
+
 public interface ISeasonSetupService
 {
     Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
@@ -27,9 +36,12 @@ public interface ISeasonSetupService
     Task<Result<SeasonSummary>> UpdateSetupStepAsync(UserId actor, SetupStep step, CancellationToken cancellationToken = default);
     Task<Result<SetupTeams>> GetSetupTeamsAsync(CancellationToken cancellationToken = default);
     Task<Result<SetupTeams>> UpdateSetupTeamsAsync(UserId actor, IReadOnlyList<TeamFinish> finishes, CancellationToken cancellationToken = default);
+    Task<Result<SchedulePlan>> GetSetupScheduleAsync(CancellationToken cancellationToken = default);
+    Task<Result<SchedulePlan>> PreviewScheduleAsync(CancellationToken cancellationToken = default);
+    Task<Result<SchedulePlan>> ImportScheduleAsync(UserId actor, string fingerprint, CancellationToken cancellationToken = default);
 }
 
-public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit) : ISeasonSetupService
+public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit, IScheduleProvider scheduleProvider, IClock clock) : ISeasonSetupService
 {
     // Only one Setup season may exist; Live and Completed seasons are never touched. Stakes and settings are PRD defaults, not caller input.
     public async Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default)
@@ -96,6 +108,78 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
             await audit.AppendAsync(actor, "season.setup.teams.updated", season.Id.Value.ToString(), before: beforeFinishes.OrderBy(entry => entry.Key).ToDictionary(), after: afterFinishes.OrderBy(entry => entry.Key).ToDictionary(), cancellationToken: cancellationToken);
             return Result<SetupTeams>.Success(await ListTeamsAsync(season.Id, cancellationToken));
         }, cancellationToken);
+
+    // What has been imported for the Setup season; reads only the local schedule, never the provider.
+    public async Task<Result<SchedulePlan>> GetSetupScheduleAsync(CancellationToken cancellationToken = default)
+    {
+        var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
+        if (setup is null) return Result<SchedulePlan>.Failure("season.missing", "No season is in Setup.");
+        var weeks = await database.Weeks.AsNoTracking().Where(week => week.SeasonId == setup.Id).ToListAsync(cancellationToken);
+        return Result<SchedulePlan>.Success(await ToPlanAsync(setup.Year, weeks, imported: weeks.Count > 0, fingerprint: null, cancellationToken));
+    }
+
+    // Reads the provider and validates; nothing is saved. An unpublished season is a valid empty preview.
+    public async Task<Result<SchedulePlan>> PreviewScheduleAsync(CancellationToken cancellationToken = default)
+    {
+        var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
+        if (setup is null) return Result<SchedulePlan>.Failure("season.missing", "No season is in Setup.");
+        if (await database.Weeks.AnyAsync(week => week.SeasonId == setup.Id, cancellationToken)) return Result<SchedulePlan>.Failure("schedule.exists", "This season already has an imported schedule.");
+        var fetched = await scheduleProvider.FetchRegularSeasonAsync(setup.Year, cancellationToken);
+        if (!fetched.IsSuccess) return Result<SchedulePlan>.Failure(fetched.Error!.Code, fetched.Error.Message);
+        if (fetched.Value!.Games.Count == 0) return Result<SchedulePlan>.Success(new SchedulePlan(false, null, setup.Year, 0, []));
+        var built = await BuildWeeksAsync(setup.Id, fetched.Value.Games, cancellationToken);
+        return built.IsSuccess
+            ? Result<SchedulePlan>.Success(await ToPlanAsync(setup.Year, built.Value!, imported: false, ScheduleImportPlan.Fingerprint(built.Value!), cancellationToken))
+            : Result<SchedulePlan>.Failure(built.Error!.Code, built.Error.Message);
+    }
+
+    // Saves the previewed schedule as Week aggregates, atomically, only if the provider still returns exactly what was previewed.
+    public async Task<Result<SchedulePlan>> ImportScheduleAsync(UserId actor, string fingerprint, CancellationToken cancellationToken = default)
+    {
+        var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
+        if (setup is null) return Result<SchedulePlan>.Failure("season.missing", "No season is in Setup.");
+        // The provider is read before the row lock is taken, so a slow provider never holds it and a retried transaction never re-fetches.
+        var fetched = await scheduleProvider.FetchRegularSeasonAsync(setup.Year, cancellationToken);
+        if (!fetched.IsSuccess) return Result<SchedulePlan>.Failure(fetched.Error!.Code, fetched.Error.Message);
+        try
+        {
+            return await InSetupAsync(async season =>
+            {
+                if (season.Id != setup.Id || season.Year != setup.Year) return Result<SchedulePlan>.Failure("schedule.changed", "The Setup season changed while the schedule was being read; preview it again.");
+                if (await database.Weeks.AnyAsync(week => week.SeasonId == season.Id, cancellationToken)) return Result<SchedulePlan>.Failure("schedule.exists", "This season already has an imported schedule.");
+                var built = await BuildWeeksAsync(season.Id, fetched.Value!.Games, cancellationToken);
+                if (!built.IsSuccess) return Result<SchedulePlan>.Failure(built.Error!.Code, built.Error.Message);
+                var actual = ScheduleImportPlan.Fingerprint(built.Value!);
+                if (!string.Equals(actual, fingerprint, StringComparison.Ordinal)) return Result<SchedulePlan>.Failure("schedule.changed", "The provider schedule changed since the preview; preview it again.");
+                database.Weeks.AddRange(built.Value!);
+                // The audit entry is the provenance record: where the schedule came from and when it was read and imported. The raw response is not kept.
+                await audit.AppendAsync(actor, "season.setup.schedule.imported", season.Id.Value.ToString(), before: null,
+                    after: new { Provider = "BALLDONTLIE", Season = season.Year, FetchedAt = fetched.Value.FetchedAt, ImportedAt = clock.UtcNow, Weeks = built.Value!.Count, Games = built.Value.Sum(week => week.Games.Count), Fingerprint = actual }, cancellationToken: cancellationToken);
+                return Result<SchedulePlan>.Success(await ToPlanAsync(season.Year, built.Value!, imported: true, fingerprint: null, cancellationToken));
+            }, cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            // A game from this provider is already stored (another season or a concurrent import); nothing from this attempt was saved.
+            database.ChangeTracker.Clear();
+            return Result<SchedulePlan>.Failure("schedule.exists", "Some of these provider games have already been imported.");
+        }
+    }
+
+    private async Task<Result<IReadOnlyList<Week>>> BuildWeeksAsync(SeasonId seasonId, IReadOnlyCollection<ProviderGame> games, CancellationToken cancellationToken)
+    {
+        var catalog = await database.Teams.AsNoTracking().ToListAsync(cancellationToken);
+        var seasonTeams = (await database.SeasonTeams.AsNoTracking().Where(team => team.SeasonId == seasonId).Select(team => team.TeamId).ToListAsync(cancellationToken)).ToHashSet();
+        return ScheduleImportPlan.Build(seasonId, games, catalog, seasonTeams);
+    }
+
+    private async Task<SchedulePlan> ToPlanAsync(int year, IReadOnlyList<Week> weeks, bool imported, string? fingerprint, CancellationToken cancellationToken)
+    {
+        var names = (await database.Teams.AsNoTracking().ToListAsync(cancellationToken)).ToDictionary(team => team.Id, team => team.Name);
+        var plan = weeks.OrderBy(week => week.Number).Select(week => new ScheduleWeek(week.Number, week.Games.OrderBy(game => game.Kickoff.Value).ThenBy(game => game.ProviderGameId, StringComparer.Ordinal)
+            .Select(game => new ScheduleGame(game.ProviderGameId ?? "", game.HomeTeamId.Value, names[game.HomeTeamId], game.AwayTeamId.Value, names[game.AwayTeamId], game.Kickoff.Value)).ToList())).ToList();
+        return new SchedulePlan(imported, fingerprint, year, plan.Sum(week => week.Games.Count), plan);
+    }
 
     private async Task<SetupTeams> ListTeamsAsync(SeasonId seasonId, CancellationToken cancellationToken)
     {

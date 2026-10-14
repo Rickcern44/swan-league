@@ -1,4 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
 using Swan.Core.Common;
+using Swan.Core.Integrations;
 
 namespace Swan.Core.Schedule;
 
@@ -39,9 +42,50 @@ public static class SetupTeamFinishes
     private static Result<IReadOnlyList<SeasonTeam>> Failure(string message) => Result<IReadOnlyList<SeasonTeam>>.Failure("season.teams", message);
 }
 
+// Turns a provider's regular-season schedule into Week aggregates for a Setup season, or says why it cannot.
+public static class ScheduleImportPlan
+{
+    public const int RegularSeasonWeeks = 18;
+
+    public static Result<IReadOnlyList<Week>> Build(SeasonId seasonId, IReadOnlyCollection<ProviderGame> games, IReadOnlyCollection<Team> catalog, IReadOnlySet<TeamId> seasonTeams)
+    {
+        if (games.Count == 0) return Failure("schedule.empty", "The provider has no regular-season games for this season.");
+        var byName = catalog.ToDictionary(team => team.Name, StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>();
+        var weeks = new SortedDictionary<int, Week>();
+        foreach (var game in games)
+        {
+            if (string.IsNullOrWhiteSpace(game.Id)) return Failure("schedule.invalid", "A provider game has no id.");
+            if (!seen.Add(game.Id)) return Failure("schedule.invalid", $"Provider game {game.Id} appears more than once.");
+            if (game.Week is < 1 or > RegularSeasonWeeks) return Failure("schedule.invalid", $"Provider game {game.Id} is in unexpected week {game.Week}; regular-season weeks are 1 to {RegularSeasonWeeks}.");
+            if (game.Kickoff is not { } kickoff) return Failure("schedule.invalid", $"Provider game {game.Id} has an unreadable kickoff time.");
+            if (!byName.TryGetValue(game.HomeTeam, out var home)) return Failure("schedule.invalid", $"Provider game {game.Id} names an unknown team: {game.HomeTeam}.");
+            if (!byName.TryGetValue(game.AwayTeam, out var away)) return Failure("schedule.invalid", $"Provider game {game.Id} names an unknown team: {game.AwayTeam}.");
+            if (home.Id == away.Id) return Failure("schedule.invalid", $"Provider game {game.Id} has the same home and away team.");
+            foreach (var team in new[] { home, away })
+                if (!seasonTeams.Contains(team.Id)) return Failure("schedule.invalid", $"{team.Name} is not in this season's team list.");
+            var utc = Kickoff.Create(kickoff.ToUniversalTime());
+            if (!weeks.TryGetValue(game.Week, out var week))
+                weeks[game.Week] = week = new Week(new WeekId(Guid.NewGuid()), seasonId, game.Week, new WeekType(WeekKind.Regular, null, true));
+            week.AddGame(new Game(new GameId(Guid.NewGuid()), home.Id, away.Id, utc.Value!, providerGameId: game.Id));
+        }
+
+        return Result<IReadOnlyList<Week>>.Success(weeks.Values.ToList());
+    }
+
+    // Identifies exactly which games, matchups and kickoffs were previewed, so a confirmation can refuse a schedule that changed in between.
+    public static string Fingerprint(IEnumerable<Week> weeks)
+    {
+        var lines = weeks.SelectMany(week => week.Games.Select(game => $"{game.ProviderGameId}|{week.Number}|{game.HomeTeamId.Value}|{game.AwayTeamId.Value}|{game.Kickoff.Value.UtcTicks}")).Order(StringComparer.Ordinal);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', lines))));
+    }
+
+    private static Result<IReadOnlyList<Week>> Failure(string code, string message) => Result<IReadOnlyList<Week>>.Failure(code, message);
+}
+
 public sealed record DogOption(TeamId TeamId);
 
-public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickoff kickoff, bool excluded = false)
+public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickoff kickoff, bool excluded = false, string? providerGameId = null)
 {
     private readonly List<Spread> lineHistory = [];
     public GameId Id { get; } = id;
@@ -49,6 +93,8 @@ public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickof
     public TeamId AwayTeamId { get; } = awayTeamId;
     public Kickoff Kickoff { get; } = kickoff;
     public bool Excluded { get; } = excluded;
+    // Set only for games imported from a schedule provider; a source game can be imported once.
+    public string? ProviderGameId { get; } = providerGameId;
     public Spread? ApprovedLine { get; private set; }
     public GameResult? Result { get; private set; }
     public IReadOnlyCollection<Spread> LineHistory => lineHistory.AsReadOnly();

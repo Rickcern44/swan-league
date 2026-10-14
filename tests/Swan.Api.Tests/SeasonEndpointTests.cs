@@ -28,6 +28,9 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("PUT", "/api/admin/seasons/setup/step")]
     [InlineData("GET", "/api/admin/seasons/setup/teams")]
     [InlineData("PUT", "/api/admin/seasons/setup/teams")]
+    [InlineData("GET", "/api/admin/seasons/setup/schedule")]
+    [InlineData("POST", "/api/admin/seasons/setup/schedule/preview")]
+    [InlineData("POST", "/api/admin/seasons/setup/schedule/import")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -344,6 +347,79 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         if (code == "season.missing") Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
     }
 
+    [Fact]
+    public async Task AdminReadsPreviewsAndImportsTheSchedule()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/schedule");
+        var preview = await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null);
+        var imported = await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1", extra = 1 });
+
+        Assert.All(new[] { read, preview, imported }, response => response.EnsureSuccessStatusCode());
+        Assert.Equal(["schedule:get", "schedule:preview", "schedule:import:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:FP1"], service.Calls);
+        var body = await preview.Content.ReadAsStringAsync();
+        Assert.Contains("\"fingerprint\":\"FP1\"", body);
+        Assert.Contains("\"providerGameId\":\"99\"", body);
+        Assert.Contains("\"kickoff\":\"2026-09-13T17:00:00+00:00\"", body);
+    }
+
+    [Fact]
+    public async Task AnonymousCannotTouchTheSchedule()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var responses = new[]
+        {
+            await client.GetAsync("/api/admin/seasons/setup/schedule"),
+            await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null),
+            await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1" }),
+        };
+
+        Assert.All(responses, response => Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"fingerprint":null}""")]
+    [InlineData("""{"fingerprint":"  "}""")]
+    [InlineData("""{"fingerprint":5}""")]
+    public async Task ImportWithoutAFingerprintIsBadRequestAndNeverReachesTheService(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PostAsync("/api/admin/seasons/setup/schedule/import", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("schedule.config", HttpStatusCode.ServiceUnavailable)]
+    [InlineData("schedule.provider", HttpStatusCode.BadGateway)]
+    [InlineData("schedule.invalid", HttpStatusCode.UnprocessableEntity)]
+    [InlineData("schedule.empty", HttpStatusCode.UnprocessableEntity)]
+    [InlineData("schedule.exists", HttpStatusCode.Conflict)]
+    [InlineData("schedule.changed", HttpStatusCode.Conflict)]
+    public async Task ScheduleRejectionsMapToExpectedStatusCodesWithoutLeakingAnything(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "concise admin-safe message") });
+
+        var preview = await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null);
+        var imported = await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1" });
+
+        Assert.Equal(expected, preview.StatusCode);
+        Assert.Equal(expected, imported.StatusCode);
+        var body = await imported.Content.ReadAsStringAsync();
+        Assert.Contains(code, body);
+        Assert.Contains("concise admin-safe message", body);
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -423,6 +499,26 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
             Calls.Add($"teams:put:{actor.Value}:{string.Join(",", finishes.Select(entry => $"{entry.TeamId.Value}={entry.Finish}"))}");
             return Task.FromResult(Failure is { } error ? Result<SetupTeams>.Failure(error.Code, error.Message) : OkTeams(finishes.Select(entry => new SetupTeam(entry.TeamId.Value, "Bills", "AFC East", entry.Finish, entry.Finish)).ToArray()));
         }
+
+        public Task<Result<SchedulePlan>> GetSetupScheduleAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("schedule:get");
+            return Task.FromResult(Failure is { } error ? Result<SchedulePlan>.Failure(error.Code, error.Message) : Result<SchedulePlan>.Success(Plan(imported: false, fingerprint: null)));
+        }
+
+        public Task<Result<SchedulePlan>> PreviewScheduleAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("schedule:preview");
+            return Task.FromResult(Failure is { } error ? Result<SchedulePlan>.Failure(error.Code, error.Message) : Result<SchedulePlan>.Success(Plan(imported: false, fingerprint: "FP1")));
+        }
+
+        public Task<Result<SchedulePlan>> ImportScheduleAsync(UserId actor, string fingerprint, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"schedule:import:{actor.Value}:{fingerprint}");
+            return Task.FromResult(Failure is { } error ? Result<SchedulePlan>.Failure(error.Code, error.Message) : Result<SchedulePlan>.Success(Plan(imported: true, fingerprint: null)));
+        }
+
+        private static SchedulePlan Plan(bool imported, string? fingerprint) => new(imported, fingerprint, 2026, 1, [new ScheduleWeek(1, [new ScheduleGame("99", Guid.Parse("11111111-1111-1111-1111-111111111111"), "Bills", Guid.Parse("22222222-2222-2222-2222-222222222222"), "Jets", new DateTimeOffset(2026, 9, 13, 17, 0, 0, TimeSpan.Zero))])]);
 
         private static Result<SeasonSummary> Ok() => Result<SeasonSummary>.Success(new SeasonSummary(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", false, SeasonState.Setup, new SeasonSettings(new Money(100m, "USD"), 3), []));
     }

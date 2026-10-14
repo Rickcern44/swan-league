@@ -152,6 +152,9 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 game.Property(value => value.AwayTeamId).HasConversion(id => id.Value, value => new TeamId(value));
                 game.Property(value => value.Kickoff).HasConversion(value => value.Value, value => new Kickoff(value));
                 game.Property(value => value.Excluded);
+                // A schedule provider's game can be imported only once; hand-entered games have no provider id.
+                game.Property(value => value.ProviderGameId).HasMaxLength(64);
+                game.HasIndex(value => value.ProviderGameId).IsUnique().HasFilter("\"ProviderGameId\" IS NOT NULL").HasDatabaseName("ux_games_provider_game_id");
                 game.Property(value => value.ApprovedLine).HasConversion(new ValueConverter<Spread?, decimal?>(value => value == null ? null : value.Value, value => value == null ? null : new Spread(value.Value)));
                 game.Property(value => value.Result).HasConversion(new ValueConverter<GameResult?, string?>(value => value == null ? null : $"{value.HomeScore}:{value.AwayScore}", value => value == null ? null : ParseResult(value)));
                 game.PrimitiveCollection(value => value.LineHistory).HasField("lineHistory").ElementType().HasConversion(new ValueConverter<Spread, decimal>(value => value.Value, value => new Spread(value)));

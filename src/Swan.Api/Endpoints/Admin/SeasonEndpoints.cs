@@ -20,6 +20,8 @@ public sealed record TeamFinishRequest(Guid TeamId, int FinishPosition);
 
 public sealed record UpdateSeasonTeamsRequest(List<TeamFinishRequest?>? Teams);
 
+public sealed record ImportScheduleRequest(string? Fingerprint);
+
 public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
@@ -101,8 +103,30 @@ public static class SeasonEndpoints
                         { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
                         var rejected => Results.Conflict(rejected.Error)
                     });
+        seasons.MapGet("/setup/schedule", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
+            ScheduleResult(await service.GetSetupScheduleAsync(cancellationToken)));
+        // Previewing calls the schedule provider but saves nothing; it is a POST so that nothing fetches it by loading a page.
+        seasons.MapPost("/setup/schedule/preview", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
+            ScheduleResult(await service.PreviewScheduleAsync(cancellationToken)));
+        seasons.MapPost("/setup/schedule/import", async (ImportScheduleRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            string.IsNullOrWhiteSpace(request.Fingerprint)
+                ? Results.BadRequest(new Error("schedule.fingerprint", "Preview the schedule and confirm that preview."))
+                : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                    ? Results.Unauthorized()
+                    : ScheduleResult(await service.ImportScheduleAsync(new UserId(actor), request.Fingerprint, cancellationToken)));
         return endpoints;
     }
+
+    // Provider problems are the server's to report: 503 when it is not configured, 502 when the provider fails, 422 when its data cannot be imported.
+    private static IResult ScheduleResult(Result<SchedulePlan> result) => result switch
+    {
+        { IsSuccess: true } ok => Results.Ok(ok.Value),
+        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
+        { Error.Code: "schedule.config" } unconfigured => Results.Json(unconfigured.Error, statusCode: StatusCodes.Status503ServiceUnavailable),
+        { Error.Code: "schedule.provider" } unavailable => Results.Json(unavailable.Error, statusCode: StatusCodes.Status502BadGateway),
+        { Error.Code: "schedule.invalid" or "schedule.empty" } unusable => Results.Json(unusable.Error, statusCode: StatusCodes.Status422UnprocessableEntity),
+        var rejected => Results.Conflict(rejected.Error)
+    };
 
     private static Money Usd(decimal amount) => new(amount, "USD");
 }

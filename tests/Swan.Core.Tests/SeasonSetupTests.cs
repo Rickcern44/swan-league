@@ -205,6 +205,7 @@ public sealed class SeasonSetupTests
     [InlineData(SetupStep.WeeklyDeadline)]
     [InlineData(SetupStep.TeamsAndPoints)]
     [InlineData(SetupStep.ScheduleImport)]
+    [InlineData(SetupStep.WeeksAndDogs)]
     [InlineData(SetupStep.Basics)]
     public void SetupResumeStepCanBeSavedAndOnlyItChanges(SetupStep step)
     {
@@ -220,7 +221,7 @@ public sealed class SeasonSetupTests
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(5)]
+    [InlineData(6)]
     [InlineData(99)]
     public void UnknownSetupStepIsRejectedAndLeavesTheStep(int value)
     {

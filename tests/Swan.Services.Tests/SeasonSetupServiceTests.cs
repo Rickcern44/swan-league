@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Swan.Core;
 using Swan.Core.Common;
+using Swan.Core.Integrations;
 using Swan.Core.League;
 using Swan.Core.Picks;
 using Swan.Core.Schedule;
@@ -708,12 +710,256 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await database.Database.MigrateAsync();
     }
 
+    private readonly FakeScheduleProvider provider = new();
+
+    private sealed class FakeScheduleProvider : IScheduleProvider
+    {
+        public Result<ProviderSchedule> Reply { get; set; } = Result<ProviderSchedule>.Success(new ProviderSchedule(FetchedAt, []));
+        public int Calls { get; private set; }
+
+        public Task<Result<ProviderSchedule>> FetchRegularSeasonAsync(int season, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(Reply);
+        }
+    }
+
+    private static readonly DateTimeOffset FetchedAt = new(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Kickoff = new(2026, 9, 13, 17, 0, 0, TimeSpan.Zero);
+
+    private static ProviderGame PG(string id, int week, Team home, Team away, DateTimeOffset? kickoff = null) => new(id, week, home.Name, away.Name, kickoff ?? Kickoff.AddDays((week - 1) * 7));
+
+    private void ProviderReturns(params ProviderGame[] games) => provider.Reply = Result<ProviderSchedule>.Success(new ProviderSchedule(FetchedAt, games));
+
+    // A Setup season with all 32 teams entered, ready for a schedule.
+    private async Task<(List<Team> Teams, SeasonSummary Season)> SetupWithTeams()
+    {
+        await Migrate();
+        var teams = await SeedTeams();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        Assert.True((await Run(service => service.UpdateSetupTeamsAsync(Admin, Finishes(teams)))).IsSuccess);
+        return (teams, created.Value!);
+    }
+
+    private Task<(int Weeks, int Games, int Audits)> Counts() => Run(async (service, database) =>
+    {
+        var weeks = await database.Weeks.AsNoTracking().ToListAsync();
+        return (weeks.Count, weeks.Sum(week => week.Games.Count), await database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.schedule.imported"));
+    });
+
+    [Fact]
+    public async Task LoadingTheWizardNeverCallsTheProvider()
+    {
+        var (_, _) = await SetupWithTeams();
+
+        await Run(service => service.GetSetupAsync());
+        await Run(service => service.GetSetupTeamsAsync());
+        var schedule = await Run(service => service.GetSetupScheduleAsync());
+
+        Assert.Equal(0, provider.Calls);
+        Assert.False(schedule.Value!.Imported);
+        Assert.Empty(schedule.Value.Weeks);
+    }
+
+    [Fact]
+    public async Task PreviewGroupsTheProviderGamesByWeekWithoutSavingAnything()
+    {
+        var (teams, _) = await SetupWithTeams();
+        ProviderReturns(PG("11", 2, teams[2], teams[3]), PG("10", 1, teams[0], teams[1]), PG("12", 1, teams[4], teams[5]));
+
+        var preview = await Run(service => service.PreviewScheduleAsync());
+
+        Assert.True(preview.IsSuccess);
+        Assert.Equal(1, provider.Calls);
+        Assert.False(preview.Value!.Imported);
+        Assert.Equal([1, 2], preview.Value.Weeks.Select(week => week.Week));
+        var game = preview.Value.Weeks[0].Games.Single(value => value.ProviderGameId == "10");
+        Assert.Equal((teams[0].Id.Value, teams[0].Name, teams[1].Id.Value, teams[1].Name, Kickoff), (game.HomeTeamId, game.HomeTeam, game.AwayTeamId, game.AwayTeam, game.Kickoff));
+        Assert.Equal(3, preview.Value.GameCount);
+        Assert.False(string.IsNullOrEmpty(preview.Value.Fingerprint));
+        Assert.Equal((0, 0, 0), await Counts());
+    }
+
+    [Fact]
+    public async Task AnUnpublishedSeasonPreviewsAsEmptyAndProviderProblemsAreReportedWithoutWriting()
+    {
+        await SetupWithTeams();
+        var empty = await Run(service => service.PreviewScheduleAsync());
+        provider.Reply = Result<ProviderSchedule>.Failure("schedule.config", "The schedule provider is not configured.");
+        var unconfigured = await Run(service => service.PreviewScheduleAsync());
+        provider.Reply = Result<ProviderSchedule>.Failure("schedule.provider", "The schedule provider answered HTTP 500.");
+        var down = await Run(service => service.PreviewScheduleAsync());
+
+        Assert.True(empty.IsSuccess);
+        Assert.Empty(empty.Value!.Weeks);
+        Assert.Equal("schedule.config", unconfigured.Error!.Code);
+        Assert.Equal("schedule.provider", down.Error!.Code);
+        Assert.Equal((0, 0, 0), await Counts());
+    }
+
+    [Fact]
+    public async Task ImportingSavesEveryWeekAndGameAtomicallyWithProviderIdsAndProvenance()
+    {
+        var (teams, season) = await SetupWithTeams();
+        ProviderReturns(PG("10", 1, teams[0], teams[1]), PG("11", 1, teams[2], teams[3]), PG("20", 18, teams[4], teams[5]));
+        var preview = await Run(service => service.PreviewScheduleAsync());
+
+        var imported = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
+
+        Assert.True(imported.IsSuccess);
+        Assert.True(imported.Value!.Imported);
+        Assert.Equal((2, 3, 1), await Counts());
+        var weeks = await Run((service, database) => database.Weeks.AsNoTracking().OrderBy(week => week.Number).ToListAsync());
+        Assert.Equal([1, 18], weeks.Select(week => week.Number));
+        Assert.All(weeks, week => Assert.Equal((season.Id, WeekKind.Regular, WeekState.Draft), (week.SeasonId, week.Type.Kind, week.State)));
+        var first = weeks[0].Games.Single(game => game.ProviderGameId == "10");
+        Assert.Equal((teams[0].Id, teams[1].Id, Kickoff), (first.HomeTeamId, first.AwayTeamId, first.Kickoff.Value));
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.schedule.imported"));
+        Assert.Equal((Admin, season.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("BALLDONTLIE", audit.Details);
+        Assert.Contains(preview.Value.Fingerprint!, audit.Details);
+        Assert.Contains("2026-10-14T12:00:00", audit.Details);
+        var reloaded = await Run(service => service.GetSetupScheduleAsync());
+        Assert.True(reloaded.Value!.Imported);
+        Assert.Equal(3, reloaded.Value.GameCount);
+    }
+
+    [Fact]
+    public async Task ASecondImportOrPreviewNeverOverwritesAnImportedSchedule()
+    {
+        var (teams, _) = await SetupWithTeams();
+        ProviderReturns(PG("10", 1, teams[0], teams[1]));
+        var preview = await Run(service => service.PreviewScheduleAsync());
+        Assert.True((await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!))).IsSuccess);
+
+        var again = await Run(service => service.ImportScheduleAsync(Admin, preview.Value.Fingerprint!));
+        var previewAgain = await Run(service => service.PreviewScheduleAsync());
+
+        Assert.Equal("schedule.exists", again.Error!.Code);
+        Assert.Equal("schedule.exists", previewAgain.Error!.Code);
+        Assert.Equal((1, 1, 1), await Counts());
+    }
+
+    [Fact]
+    public async Task AScheduleThatChangedSinceThePreviewIsRefused()
+    {
+        var (teams, _) = await SetupWithTeams();
+        ProviderReturns(PG("10", 1, teams[0], teams[1]));
+        var preview = await Run(service => service.PreviewScheduleAsync());
+        ProviderReturns(PG("10", 1, teams[0], teams[1], Kickoff.AddHours(3)));
+
+        var imported = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
+        var forged = await Run(service => service.ImportScheduleAsync(Admin, "ABC"));
+
+        Assert.Equal("schedule.changed", imported.Error!.Code);
+        Assert.Equal("schedule.changed", forged.Error!.Code);
+        Assert.Equal((0, 0, 0), await Counts());
+    }
+
+    [Fact]
+    public async Task EveryKindOfBadProviderDataIsRejectedAndLeavesTheDatabaseUnchanged()
+    {
+        var (teams, _) = await SetupWithTeams();
+        var outsider = new Team(new TeamId(Guid.NewGuid()), "Outside Owls", null, DateTimeOffset.UtcNow, "AFC East");
+        await using (var database = CreateDatabase())
+        {
+            database.Teams.Add(outsider);
+            await database.SaveChangesAsync();
+        }
+
+        var cases = new (string Name, ProviderGame[] Games)[]
+        {
+            ("no games", []),
+            ("week 19", [PG("1", 19, teams[0], teams[1])]),
+            ("week 0", [PG("1", 0, teams[0], teams[1])]),
+            ("duplicate id", [PG("1", 1, teams[0], teams[1]), PG("1", 2, teams[2], teams[3])]),
+            ("unknown team", [new ProviderGame("1", 1, "Nowhere Navigators", teams[1].Name, Kickoff)]),
+            ("team outside the season", [PG("1", 1, teams[0], outsider)]),
+            ("malformed kickoff", [new ProviderGame("1", 1, teams[0].Name, teams[1].Name, null)]),
+        };
+        foreach (var (name, games) in cases)
+        {
+            ProviderReturns(games);
+            var preview = await Run(service => service.PreviewScheduleAsync());
+            var imported = await Run(service => service.ImportScheduleAsync(Admin, "ANY"));
+
+            if (name == "no games") Assert.True(preview.IsSuccess);
+            else Assert.Equal("schedule.invalid", preview.Error!.Code);
+            Assert.Equal(name == "no games" ? "schedule.empty" : "schedule.invalid", imported.Error!.Code);
+            Assert.Equal((0, 0, 0), await Counts());
+        }
+    }
+
+    [Theory]
+    [InlineData("schedule.config")]
+    [InlineData("schedule.provider")]
+    public async Task ImportWithAProviderProblemSavesNothing(string code)
+    {
+        await SetupWithTeams();
+        provider.Reply = Result<ProviderSchedule>.Failure(code, "nope");
+
+        var imported = await Run(service => service.ImportScheduleAsync(Admin, "ANY"));
+
+        Assert.Equal(code, imported.Error!.Code);
+        Assert.Equal((0, 0, 0), await Counts());
+    }
+
+    [Fact]
+    public async Task AGameAlreadyImportedElsewhereIsRefusedByTheDatabaseAndNothingIsSaved()
+    {
+        var (teams, _) = await SetupWithTeams();
+        var other = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
+        other.AddGame(new Game(new GameId(Guid.NewGuid()), teams[0].Id, teams[1].Id, new Kickoff(Kickoff), providerGameId: "10"));
+        await using (var database = CreateDatabase())
+        {
+            database.Weeks.Add(other);
+            await database.SaveChangesAsync();
+        }
+
+        ProviderReturns(PG("10", 1, teams[0], teams[1]), PG("11", 1, teams[2], teams[3]));
+        var preview = await Run(service => service.PreviewScheduleAsync());
+        var imported = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
+
+        Assert.Equal("schedule.exists", imported.Error!.Code);
+        Assert.Equal((1, 1, 0), await Counts());
+    }
+
+    [Fact]
+    public async Task TheDatabaseRefusesTwoGamesWithTheSameProviderIdButAllowsManyHandEnteredOnes()
+    {
+        await Migrate();
+        var teams = await SeedTeams();
+        await using var database = CreateDatabase();
+        var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
+        for (var index = 0; index < 3; index++) week.AddGame(new Game(new GameId(Guid.NewGuid()), teams[0].Id, teams[1].Id, new Kickoff(Kickoff)));
+        database.Weeks.Add(week);
+        await database.SaveChangesAsync();
+
+        var second = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
+        second.AddGame(new Game(new GameId(Guid.NewGuid()), teams[0].Id, teams[1].Id, new Kickoff(Kickoff), providerGameId: "5"));
+        second.AddGame(new Game(new GameId(Guid.NewGuid()), teams[2].Id, teams[3].Id, new Kickoff(Kickoff), providerGameId: "5"));
+        database.Weeks.Add(second);
+        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task ScheduleCallsWithNoSetupSeasonAreMissingAndNeverReachTheProvider()
+    {
+        await Migrate();
+        await SeedTeams();
+
+        Assert.Equal("season.missing", (await Run(service => service.GetSetupScheduleAsync())).Error!.Code);
+        Assert.Equal("season.missing", (await Run(service => service.PreviewScheduleAsync())).Error!.Code);
+        Assert.Equal("season.missing", (await Run(service => service.ImportScheduleAsync(Admin, "ANY"))).Error!.Code);
+        Assert.Equal(0, provider.Calls);
+    }
+
     private Task<T> Run<T>(Func<SeasonSetupService, Task<T>> action) => Run((service, _) => action(service));
 
     private async Task<T> Run<T>(Func<SeasonSetupService, SwanDbContext, Task<T>> action)
     {
         await using var database = CreateDatabase();
-        return await action(new SeasonSetupService(database, new AuditService(database, new SystemClock())), database);
+        return await action(new SeasonSetupService(database, new AuditService(database, new SystemClock()), provider, new SystemClock()), database);
     }
 
     private SwanDbContext CreateDatabase() => new(new DbContextOptionsBuilder<SwanDbContext>().UseNpgsql(postgres.GetConnectionString(), npgsql => npgsql.EnableRetryOnFailure()).Options);
