@@ -195,9 +195,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await expect(
       schedule.getByText(/Nothing is saved until you confirm/),
     ).toBeVisible();
-    await expect(page.getByText(/Coming next/)).toContainText(
-      "Review and create",
-    );
+    await expect(page.getByText(/Coming next/)).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: /review and create/i }),
     ).toHaveCount(0);
