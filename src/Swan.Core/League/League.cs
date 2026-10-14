@@ -3,8 +3,8 @@ using Swan.Core.Common;
 namespace Swan.Core.League;
 
 public enum SeasonState { Setup, Live, Completed }
-// Where the Setup wizard resumes; ReviewAndCreate is the first step that is not built yet, so it means every implemented step is done.
-public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts, LeagueSettings, Coaches, ReviewAndCreate }
+// Where the Setup wizard resumes; Completed means the administrator finished the wizard (reached only through CompleteSetup), so it means every implemented step is done.
+public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts, LeagueSettings, Coaches, ReviewAndCreate, Completed }
 public enum MembershipRole { Commissioner, Administrator, Coach }
 public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null) : ITeamPickLockSettings
 {
@@ -80,6 +80,14 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         return Result<bool>.Success(true);
     }
 
+    // Records that the wizard was finished. It changes nothing else: the season stays in Setup and nothing external happens.
+    public Result<bool> CompleteSetup()
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
+        SetupStep = SetupStep.Completed;
+        return Result<bool>.Success(true);
+    }
+
     public Result<bool> SaveLeagueRules(LeagueRules rules)
     {
         if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
@@ -115,6 +123,7 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     {
         if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
         if (!Enum.IsDefined(step)) return Result<bool>.Failure("season.step", "Unknown setup step.");
+        if (step == SetupStep.Completed) return Result<bool>.Failure("season.step", "Setup is finished with the Finish setup action, not by saving a step.");
         SetupStep = step;
         return Result<bool>.Success(true);
     }

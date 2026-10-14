@@ -1415,6 +1415,202 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(60m, plan.Pools[0].Pot);
     }
 
+    // A Setup season with every required choice saved (teams, a full imported schedule, double-dog weeks 2/12/17, fine and payout plans).
+    private async Task<List<Team>> ReadyToFinish()
+    {
+        var teams = await SetupWithImportedSchedule();
+        Assert.True((await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [2, 12, 17]))).IsSuccess);
+        Assert.True((await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(5m, "USD"), Plans(PP(1, 100m))))).IsSuccess);
+        return teams;
+    }
+
+    private Task<int> CompletionAudits() => Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.completed"));
+
+    [Fact]
+    public async Task ReviewNeedsASetupSeason()
+    {
+        await Migrate();
+        Assert.Equal("season.missing", (await Run(service => service.GetSetupReviewAsync())).Error!.Code);
+        Assert.Equal("season.missing", (await Run(service => service.FinishSetupAsync(Admin))).Error!.Code);
+    }
+
+    [Fact]
+    public async Task ABlankSeasonReviewListsEveryBlockerWithItsStepAndTheZeroCoachWarningWithoutCallingTheProvider()
+    {
+        await Migrate();
+        await SeedTeams();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: true));
+
+        var review = await Run(service => service.GetSetupReviewAsync());
+
+        Assert.True(review.IsSuccess);
+        Assert.Equal((false, false), (review.Value!.Completed, review.Value.Ready));
+        Assert.Equal(["teams", "schedule", "double-dogs", "payouts"], review.Value.Blockers.Select(issue => issue.Code));
+        Assert.Equal(["TeamsAndPoints", "ScheduleImport", "WeeksAndDogs", "FinesAndPayouts"], review.Value.Blockers.Select(issue => issue.Step));
+        Assert.Equal(["no-coaches"], review.Value.Warnings.Select(issue => issue.Code));
+        Assert.Equal(("2026 Season", 2026, true), (review.Value.Basics.Name, review.Value.Basics.Year, review.Value.Basics.IsSimulation));
+        Assert.Equal(100m, review.Value.Money.BuyIn);
+        Assert.Equal([60m, 20m, 10m, 10m], review.Value.Money.Pools.Select(pool => pool.Stake));
+        Assert.Equal((0, 32), (review.Value.Teams.Entered, review.Value.Teams.Total));
+        Assert.Equal((0, 0, false), (review.Value.Schedule.Weeks, review.Value.Schedule.Games, review.Value.Schedule.Complete));
+        Assert.Empty(review.Value.DoubleDogWeeks);
+        Assert.Equal(LeagueRules.Default.TeamMayAlsoBeDog, review.Value.LeagueSettings.TeamMayAlsoBeDog);
+        Assert.Equal(0, review.Value.ActiveCoaches);
+        Assert.Equal(0, provider.Calls);
+    }
+
+    [Fact]
+    public async Task AFullyConfiguredSetupIsReadyAndSummarisesWhatWasSaved()
+    {
+        var teams = await ReadyToFinish();
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A"), C("b@example.com", "B")]))).IsSuccess);
+
+        var providerCalls = provider.Calls;
+        var review = (await Run(service => service.GetSetupReviewAsync())).Value!;
+
+        Assert.True(review.Ready);
+        Assert.Empty(review.Blockers);
+        Assert.Empty(review.Warnings);
+        Assert.Equal(providerCalls, provider.Calls);
+        Assert.Equal((32, 32), (review.Teams.Entered, review.Teams.Total));
+        Assert.Equal((18, 18, true), (review.Schedule.Weeks, review.Schedule.Games, review.Schedule.Complete));
+        Assert.Equal([2, 12, 17], review.DoubleDogWeeks);
+        Assert.Equal(2, review.ActiveCoaches);
+        Assert.Equal((true, 5m), (review.Payouts.Configured, review.Payouts.MissedPickFine));
+        Assert.Equal(120m, review.Payouts.Pools[0].Pot);
+        Assert.Equal(teams.Count, review.Teams.Teams.Count);
+    }
+
+    [Fact]
+    public async Task EachMissingPieceBlocksIndependently()
+    {
+        await ReadyToFinish();
+
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlRawAsync("""delete from schedule.season_teams where "SeasonId" in (select "Id" from league.seasons where "State" = 0) and ctid in (select ctid from schedule.season_teams limit 1)""");
+        }
+
+        var noTeam = (await Run(service => service.GetSetupReviewAsync())).Value!;
+        Assert.Equal(["teams"], noTeam.Blockers.Select(issue => issue.Code));
+        Assert.Contains("31 of 32", noTeam.Blockers[0].Message);
+    }
+
+    [Fact]
+    public async Task APartialScheduleBlocks()
+    {
+        await ReadyToFinish();
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlRawAsync("""delete from schedule.weeks where "Number" = 18""");
+        }
+
+        var review = (await Run(service => service.GetSetupReviewAsync())).Value!;
+
+        Assert.Equal(["schedule"], review.Blockers.Select(issue => issue.Code));
+        Assert.Contains("17 of 18", review.Blockers[0].Message);
+        Assert.False(review.Schedule.Complete);
+    }
+
+    [Fact]
+    public async Task AHolidayWeekThatIsNotADoubleDogWeekIsAWarning()
+    {
+        await SetupWithImportedSchedule();
+        Assert.True((await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [2, 5, 9]))).IsSuccess);
+        Assert.True((await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(5m, "USD"), Plans(PP(1, 100m))))).IsSuccess);
+
+        var review = (await Run(service => service.GetSetupReviewAsync())).Value!;
+
+        Assert.True(review.Ready);
+        var warning = Assert.Single(review.Warnings, issue => issue.Code == "holiday-weeks");
+        Assert.Contains("Week 12", warning.Message);
+        Assert.Contains("Week 17", warning.Message);
+    }
+
+    [Fact]
+    public async Task FinishingABlockedSetupIsRefusedWithoutChangingOrAuditingAnything()
+    {
+        await Migrate();
+        await SeedTeams();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var before = (await Run(service => service.GetSetupAsync())).Value!;
+
+        var finished = await Run(service => service.FinishSetupAsync(Admin));
+
+        Assert.Equal("setup.incomplete", finished.Error!.Code);
+        Assert.Contains("teams", finished.Error.Message, StringComparison.OrdinalIgnoreCase);
+        var after = (await Run(service => service.GetSetupAsync())).Value!;
+        Assert.Equal((before.SetupStep, before.State), (after.SetupStep, after.State));
+        Assert.Equal(0, await CompletionAudits());
+        Assert.False((await Run(service => service.GetSetupReviewAsync())).Value!.Completed);
+    }
+
+    [Fact]
+    public async Task FinishingAReadySetupRecordsTheCompletedStateOnceWithASnapshotAndNothingElseHappens()
+    {
+        await ReadyToFinish();
+        var live = await AddLiveSeason(2025);
+        var liveBefore = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync(season => season.Id == live));
+        var people = await PeopleCounts();
+        var dependents = await DependentCounts();
+        var providerCallsBefore = provider.Calls;
+
+        var finished = await Run(service => service.FinishSetupAsync(Admin));
+        var replay = await Run(service => service.FinishSetupAsync(Admin));
+
+        Assert.True(finished.IsSuccess);
+        Assert.True(replay.IsSuccess);
+        Assert.True(finished.Value!.Completed);
+        Assert.Equal(1, await CompletionAudits());
+        var summary = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync(season => season.State == SeasonState.Setup));
+        Assert.Equal((SetupStep.Completed, SeasonState.Setup), (summary.SetupStep, summary.State));
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.completed"));
+        Assert.Equal((Admin, summary.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("2026 Season", audit.Details);
+        Assert.Contains("12", audit.Details);
+        // No activation, other-season change, people, memberships, rosters or provider calls.
+        Assert.Equal(liveBefore.Settings, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync(season => season.Id == live))).Settings);
+        Assert.Equal(SeasonState.Live, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync(season => season.Id == live))).State);
+        Assert.Equal(people with { Audits = people.Audits + 1 }, await PeopleCounts());
+        Assert.Equal(dependents, await DependentCounts());
+        Assert.Equal(providerCallsBefore, provider.Calls);
+        Assert.True((await Run(service => service.GetSetupReviewAsync())).Value!.Completed);
+    }
+
+    [Fact]
+    public async Task AFinishedSetupThatLaterLosesSomethingStillReportsCompletedButCanNotBeFinishedAgainUntilFixed()
+    {
+        await ReadyToFinish();
+        Assert.True((await Run(service => service.FinishSetupAsync(Admin))).IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlRawAsync("""delete from schedule.weeks where "Number" = 3""");
+        }
+
+        var review = (await Run(service => service.GetSetupReviewAsync())).Value!;
+        var again = await Run(service => service.FinishSetupAsync(Admin));
+
+        Assert.True(review.Completed);
+        Assert.False(review.Ready);
+        Assert.Equal(["schedule"], review.Blockers.Select(issue => issue.Code));
+        Assert.Equal("setup.incomplete", again.Error!.Code);
+        Assert.Equal(1, await CompletionAudits());
+    }
+
+    [Fact]
+    public async Task TheCompletedStateCannotBeSetByTheStepEndpointAndEarlierPagesStillWorkAfterwards()
+    {
+        await ReadyToFinish();
+        var bypass = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Completed));
+        Assert.Equal("season.step", bypass.Error!.Code);
+        Assert.Equal(0, await CompletionAudits());
+        Assert.True((await Run(service => service.FinishSetupAsync(Admin))).IsSuccess);
+
+        // Saving an earlier page records no step change (Completed is never moved backwards by a save), and Back-navigation edits still work.
+        Assert.True((await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, LeagueRules.Default with { TeamMayAlsoBeDog = false }))).IsSuccess);
+        Assert.Equal(SetupStep.Completed, (await Run(service => service.GetSetupAsync())).Value!.SetupStep);
+    }
+
     private async Task Migrate()
     {
         await using var database = CreateDatabase();

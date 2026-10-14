@@ -225,7 +225,7 @@ public sealed class SeasonSetupTests
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(10)]
+    [InlineData(11)]
     [InlineData(99)]
     public void UnknownSetupStepIsRejectedAndLeavesTheStep(int value)
     {

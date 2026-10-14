@@ -173,6 +173,13 @@ public static class SeasonEndpoints
                 : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                     ? Results.Unauthorized()
                     : CoachesResult(await service.UpdateSetupCoachesAsync(new UserId(actor), request.Coaches.Select(coach => new CoachEntry(coach!.Email, coach.Name)).ToList(), cancellationToken)));
+        seasons.MapGet("/setup/review", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
+            ReviewResult(await service.GetSetupReviewAsync(cancellationToken)));
+        // Finishing setup only records that the wizard is complete: it never activates the season or sends anything.
+        seasons.MapPost("/setup/review/finish", async (ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                ? Results.Unauthorized()
+                : ReviewResult(await service.FinishSetupAsync(new UserId(actor), cancellationToken)));
         return endpoints;
     }
 
@@ -184,6 +191,13 @@ public static class SeasonEndpoints
         { Error.Code: "schedule.config" } unconfigured => Results.Json(unconfigured.Error, statusCode: StatusCodes.Status503ServiceUnavailable),
         { Error.Code: "schedule.provider" } unavailable => Results.Json(unavailable.Error, statusCode: StatusCodes.Status502BadGateway),
         { Error.Code: "schedule.invalid" or "schedule.empty" } unusable => Results.Json(unusable.Error, statusCode: StatusCodes.Status422UnprocessableEntity),
+        var rejected => Results.Conflict(rejected.Error)
+    };
+
+    private static IResult ReviewResult(Result<SetupReview> result) => result switch
+    {
+        { IsSuccess: true } ok => Results.Ok(ok.Value),
+        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
         var rejected => Results.Conflict(rejected.Error)
     };
 

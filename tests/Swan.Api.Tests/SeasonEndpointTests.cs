@@ -39,6 +39,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("PUT", "/api/admin/seasons/setup/league-settings")]
     [InlineData("GET", "/api/admin/seasons/setup/coaches")]
     [InlineData("PUT", "/api/admin/seasons/setup/coaches")]
+    [InlineData("GET", "/api/admin/seasons/setup/review")]
+    [InlineData("POST", "/api/admin/seasons/setup/review/finish")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -736,6 +738,54 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task AdminReadsTheReviewAndFinishesSetup()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/review");
+        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null);
+
+        read.EnsureSuccessStatusCode();
+        finish.EnsureSuccessStatusCode();
+        Assert.Equal(["review:get", "review:finish:9c9b2c10-a312-4b77-a26a-ef546e87f3c9"], service.Calls);
+        var body = await read.Content.ReadAsStringAsync();
+        Assert.Contains("\"ready\":false", body);
+        Assert.Contains("\"code\":\"teams\"", body);
+        Assert.Contains("\"step\":\"TeamsAndPoints\"", body);
+        Assert.Contains("\"warnings\":[", body);
+    }
+
+    [Fact]
+    public async Task AnonymousCannotReadTheReviewOrFinishSetup()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/review");
+        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null);
+
+        Assert.All(new[] { read.StatusCode, finish.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("setup.incomplete", HttpStatusCode.Conflict)]
+    [InlineData("season.locked", HttpStatusCode.Conflict)]
+    public async Task ReviewRejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/review");
+        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null);
+
+        Assert.Equal(expected, finish.StatusCode);
+        Assert.Equal(expected, read.StatusCode);
+        Assert.Contains("say what to fix", await finish.Content.ReadAsStringAsync());
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -883,6 +933,24 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
             Calls.Add($"coaches:put:{actor.Value}:{string.Join(";", coaches.Select(coach => $"{coach.Email}/{coach.Name}"))}");
             return Task.FromResult(Failure is { } error ? Result<CoachesPlan>.Failure(error.Code, error.Message) : Result<CoachesPlan>.Success(CoachesView()));
         }
+
+        public Task<Result<SetupReview>> GetSetupReviewAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("review:get");
+            return Task.FromResult(Failure is { } error ? Result<SetupReview>.Failure(error.Code, error.Message) : Result<SetupReview>.Success(ReviewView()));
+        }
+
+        public Task<Result<SetupReview>> FinishSetupAsync(UserId actor, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"review:finish:{actor.Value}");
+            return Task.FromResult(Failure is { } error ? Result<SetupReview>.Failure(error.Code, error.Message) : Result<SetupReview>.Success(ReviewView()));
+        }
+
+        private static SetupReview ReviewView() => new(false, false,
+            [new ReviewIssue("teams", "Teams and point values are incomplete: 0 of 32 teams have a division finish.", "TeamsAndPoints")],
+            [new ReviewIssue("no-coaches", "No coaches have been added yet.", "Coaches")],
+            new ReviewBasics(2026, "2026 Season", false), new ReviewMoney(100m, [new ReviewPool("Main", 60m)]), PayoutsPlan(), new TimeOnly(13, 0),
+            new ReviewTeams(0, 32, []), new ReviewSchedule(0, 0, false, null, null), [], RulesPlan(LeagueRules.Default), 0);
 
         private static CoachesPlan CoachesView() => new(new PriorSeason(Guid.Parse("33333333-3333-3333-3333-333333333333"), 2025, "2025 Season"),
             [new SetupCoach(Guid.Parse("44444444-4444-4444-4444-444444444444"), Guid.Parse("55555555-5555-5555-5555-555555555555"), "Pat", "pat@example.com", true)],

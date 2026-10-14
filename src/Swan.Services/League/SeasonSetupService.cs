@@ -53,6 +53,34 @@ public sealed record PriorSeason(Guid Id, int Year, string Name);
 
 public sealed record CoachesPlan(PriorSeason? Prior, IReadOnlyList<SetupCoach> Coaches, IReadOnlyList<CoachCandidate> Candidates, int ActiveCoaches);
 
+public sealed record ReviewIssue(string Code, string Message, string Step);
+
+public sealed record ReviewBasics(int Year, string Name, bool IsSimulation);
+
+public sealed record ReviewPool(string Name, decimal Stake);
+
+public sealed record ReviewMoney(decimal BuyIn, IReadOnlyList<ReviewPool> Pools);
+
+public sealed record ReviewTeams(int Entered, int Total, IReadOnlyList<SetupTeam> Teams);
+
+public sealed record ReviewSchedule(int Weeks, int Games, bool Complete, DateTimeOffset? FirstKickoff, DateTimeOffset? LastKickoff);
+
+// Everything the final page shows, read from saved data only. Completed means the wizard was finished; Ready is whether it could be finished right now.
+public sealed record SetupReview(
+    bool Completed,
+    bool Ready,
+    IReadOnlyList<ReviewIssue> Blockers,
+    IReadOnlyList<ReviewIssue> Warnings,
+    ReviewBasics Basics,
+    ReviewMoney Money,
+    FinesAndPayoutsPlan Payouts,
+    TimeOnly? TeamPickDeadlineEastern,
+    ReviewTeams Teams,
+    ReviewSchedule Schedule,
+    IReadOnlyList<int> DoubleDogWeeks,
+    LeagueSettingsPlan LeagueSettings,
+    int ActiveCoaches);
+
 public interface ISeasonSetupService
 {
     Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
@@ -69,6 +97,8 @@ public interface ISeasonSetupService
     Task<Result<DoubleDogPlan>> GetSetupDoubleDogWeeksAsync(CancellationToken cancellationToken = default);
     Task<Result<DoubleDogPlan>> UpdateSetupDoubleDogWeeksAsync(UserId actor, IReadOnlyList<int> weeks, CancellationToken cancellationToken = default);
     Task<Result<FinesAndPayoutsPlan>> GetSetupFinesAndPayoutsAsync(CancellationToken cancellationToken = default);
+    Task<Result<SetupReview>> GetSetupReviewAsync(CancellationToken cancellationToken = default);
+    Task<Result<SetupReview>> FinishSetupAsync(UserId actor, CancellationToken cancellationToken = default);
     Task<Result<CoachesPlan>> GetSetupCoachesAsync(CancellationToken cancellationToken = default);
     Task<Result<CoachesPlan>> UpdateSetupCoachesAsync(UserId actor, IReadOnlyList<CoachEntry> coaches, CancellationToken cancellationToken = default);
     Task<Result<LeagueSettingsPlan>> GetSetupLeagueSettingsAsync(CancellationToken cancellationToken = default);
@@ -228,6 +258,69 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
                 await audit.AppendAsync(actor, "season.setup.double-dogs.updated", season.Id.Value.ToString(), before, season.DoubleDogWeekNumbers, cancellationToken: cancellationToken);
             return await DoubleDogPlanAsync(season, cancellationToken);
         }, cancellationToken);
+
+    public async Task<Result<SetupReview>> GetSetupReviewAsync(CancellationToken cancellationToken = default)
+    {
+        var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
+        return setup is null ? Result<SetupReview>.Failure("season.missing", "No season is in Setup.") : Result<SetupReview>.Success(await ReviewAsync(setup, cancellationToken));
+    }
+
+    // Finishing is bookkeeping: the blockers are re-checked under the Setup row lock, the season stays in Setup, and nothing is activated, sent or created.
+    public Task<Result<SetupReview>> FinishSetupAsync(UserId actor, CancellationToken cancellationToken = default) =>
+        InSetupAsync(async season =>
+        {
+            var review = await ReviewAsync(season, cancellationToken);
+            if (!review.Ready) return Result<SetupReview>.Failure("setup.incomplete", $"Setup cannot be finished yet: {string.Join(" ", review.Blockers.Select(issue => issue.Message))}");
+            if (season.SetupStep == SetupStep.Completed) return Result<SetupReview>.Success(review);
+            var completed = season.CompleteSetup();
+            if (!completed.IsSuccess) return Result<SetupReview>.Failure(completed.Error!.Code, completed.Error.Message);
+            await audit.AppendAsync(actor, "season.setup.completed", season.Id.Value.ToString(), before: null, after: new
+            {
+                review.Basics.Name,
+                review.Basics.Year,
+                review.Basics.IsSimulation,
+                BuyIn = review.Money.BuyIn,
+                MissedPickFine = review.Payouts.MissedPickFine,
+                TeamsEntered = review.Teams.Entered,
+                ScheduleWeeks = review.Schedule.Weeks,
+                ScheduleGames = review.Schedule.Games,
+                review.DoubleDogWeeks,
+                review.ActiveCoaches,
+                review.LeagueSettings,
+                Warnings = review.Warnings.Select(issue => issue.Code).ToArray(),
+            }, cancellationToken: cancellationToken);
+            return Result<SetupReview>.Success(review with { Completed = true });
+        }, cancellationToken);
+
+    private async Task<SetupReview> ReviewAsync(Season season, CancellationToken cancellationToken)
+    {
+        var teams = (await ListTeamsAsync(season.Id, cancellationToken)).Teams;
+        var catalog = await database.Teams.AsNoTracking().ToListAsync(cancellationToken);
+        var saved = await database.SeasonTeams.AsNoTracking().Where(team => team.SeasonId == season.Id).ToListAsync(cancellationToken);
+        var teamsComplete = SetupTeamFinishes.Create(season.Id, catalog, saved.Select(team => new TeamFinish(team.TeamId, team.FinishPosition)).ToList()).IsSuccess;
+        var weeks = await database.Weeks.AsNoTracking().Where(week => week.SeasonId == season.Id).ToListAsync(cancellationToken);
+        var kickoffs = weeks.SelectMany(week => week.Games.Select(game => game.Kickoff.Value)).ToList();
+        var scheduleComplete = weeks.Select(week => week.Number).Order().SequenceEqual(Enumerable.Range(1, DoubleDogWeekRules.RegularSeasonWeeks)) && weeks.All(week => week.Games.Count > 0);
+        var coaches = (await CoachesAsync(season, cancellationToken)).ActiveCoaches;
+        var dogs = await DoubleDogPlanAsync(season, cancellationToken);
+        var holidayWeeks = dogs.IsSuccess ? dogs.Value!.Weeks.Where(week => week.Suggested && !week.Required && !week.Selected).Select(week => week.Week).ToList() : [];
+        var readiness = SetupReadiness.Evaluate(season, new SetupFacts(teams.Count(team => team.FinishPosition is not null), teams.Count, teamsComplete, weeks.Count, scheduleComplete, coaches, holidayWeeks));
+        static ReviewIssue Issue(SetupIssue issue) => new(issue.Code, issue.Message, issue.Step.ToString());
+        return new SetupReview(
+            season.SetupStep == SetupStep.Completed,
+            readiness.Ready,
+            readiness.Blockers.Select(Issue).ToList(),
+            readiness.Warnings.Select(Issue).ToList(),
+            new ReviewBasics(season.Year, season.Name, season.IsSimulation),
+            new ReviewMoney(season.Settings.BuyIn.Amount, season.Pools.Select(pool => new ReviewPool(pool.Name, pool.Stake.Amount)).ToList()),
+            await FinesAndPayoutsAsync(season, cancellationToken),
+            season.Settings.TeamPickDeadlineEastern,
+            new ReviewTeams(teams.Count(team => team.FinishPosition is not null), teams.Count, teams),
+            new ReviewSchedule(weeks.Count, weeks.Sum(week => week.Games.Count), scheduleComplete, kickoffs.Count == 0 ? null : kickoffs.Min(), kickoffs.Count == 0 ? null : kickoffs.Max()),
+            season.DoubleDogWeekNumbers.ToList(),
+            ToPlan(season.Settings.Rules),
+            coaches);
+    }
 
     public async Task<Result<CoachesPlan>> GetSetupCoachesAsync(CancellationToken cancellationToken = default)
     {
