@@ -6,7 +6,7 @@ namespace Swan.Core.League;
 public sealed record SetupIssue(string Code, string Message, SetupStep Step);
 
 // Facts about the Setup season that live outside the Season aggregate, read from persisted data only.
-public sealed record SetupFacts(int TeamsEntered, int TeamsTotal, bool TeamsComplete, int ScheduleWeeks, bool ScheduleComplete, int ActiveCoaches, IReadOnlyList<int> HolidayWeeksNotSelected);
+public sealed record SetupFacts(int TeamsEntered, int TeamsTotal, bool TeamsComplete, int ScheduleWeeks, bool ScheduleComplete, int ActiveCoaches, IReadOnlyList<int> HolidayWeeksNotSelected, int? ScheduleYear = null);
 
 // Whether a Setup season can be finished. Blockers stop it; warnings do not.
 public sealed record SetupReadiness(IReadOnlyList<SetupIssue> Blockers, IReadOnlyList<SetupIssue> Warnings)
@@ -35,6 +35,8 @@ public sealed record SetupReadiness(IReadOnlyList<SetupIssue> Blockers, IReadOnl
             blockers.Add(new("payouts", fine is null || plans is null ? "Save the missed-pick fine and each pool's payout plan." : $"The saved fine or payout plans are not valid: {(fine is { IsSuccess: false } ? fine.Error!.Message : plans!.Error!.Message)}", SetupStep.FinesAndPayouts));
         if (facts.ActiveCoaches == 0)
             warnings.Add(new("no-coaches", "No coaches have been added yet. You can finish setup now and add them later.", SetupStep.Coaches));
+        if (facts.ScheduleYear is { } scheduleYear && scheduleYear != season.Year)
+            warnings.Add(new("year-mismatch", $"The season year is {season.Year} but the imported schedule is for {scheduleYear}. Check the year on the Basics page.", SetupStep.Basics));
         if (facts.HolidayWeeksNotSelected.Count > 0)
             warnings.Add(new("holiday-weeks", $"{string.Join(" and ", facts.HolidayWeeksNotSelected.Select(week => $"Week {week}"))} contain{(facts.HolidayWeeksNotSelected.Count == 1 ? "s" : "")} a holiday the schedule suggests as a double-dog week but {(facts.HolidayWeeksNotSelected.Count == 1 ? "is" : "are")} not selected.", SetupStep.WeeksAndDogs));
         return new SetupReadiness(blockers, warnings);

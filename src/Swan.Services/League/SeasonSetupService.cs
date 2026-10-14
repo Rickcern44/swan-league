@@ -304,7 +304,7 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
         var coaches = (await CoachesAsync(season, cancellationToken)).ActiveCoaches;
         var dogs = await DoubleDogPlanAsync(season, cancellationToken);
         var holidayWeeks = dogs.IsSuccess ? dogs.Value!.Weeks.Where(week => week.Suggested && !week.Required && !week.Selected).Select(week => week.Week).ToList() : [];
-        var readiness = SetupReadiness.Evaluate(season, new SetupFacts(teams.Count(team => team.FinishPosition is not null), teams.Count, teamsComplete, weeks.Count, scheduleComplete, coaches, holidayWeeks));
+        var readiness = SetupReadiness.Evaluate(season, new SetupFacts(teams.Count(team => team.FinishPosition is not null), teams.Count, teamsComplete, weeks.Count, scheduleComplete, coaches, holidayWeeks, DoubleDogWeekRules.ScheduleYear(weeks.Select(week => new WeekKickoffs(week.Number, week.Games.Select(game => game.Kickoff.Value).ToList())).ToList())));
         static ReviewIssue Issue(SetupIssue issue) => new(issue.Code, issue.Message, issue.Step.ToString());
         return new SetupReview(
             season.SetupStep == SetupStep.Completed,

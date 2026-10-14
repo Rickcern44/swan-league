@@ -165,6 +165,38 @@ public sealed class SetupReadinessTests
     }
 
     [Fact]
+    public void ALowerStepSavedAfterCompletionIsIgnoredSoCompletedIsNeverLostToAStaleCaller()
+    {
+        var season = Ready();
+        Assert.True(season.CompleteSetup().IsSuccess);
+
+        Assert.True(season.SaveSetupStep(SetupStep.Money).IsSuccess);
+        Assert.True(season.SaveSetupStep(SetupStep.ReviewAndCreate).IsSuccess);
+        Assert.True(season.SaveSetupStep(SetupStep.Basics).IsSuccess);
+
+        Assert.Equal(SetupStep.Completed, season.SetupStep);
+    }
+
+    [Fact]
+    public void TheYearThatDoesNotMatchTheImportedScheduleIsAWarning()
+    {
+        var readiness = SetupReadiness.Evaluate(Ready(), Complete with { ScheduleYear = 2025 });
+
+        Assert.True(readiness.Ready);
+        var warning = Assert.Single(readiness.Warnings);
+        Assert.Equal(("year-mismatch", SetupStep.Basics), (warning.Code, warning.Step));
+        Assert.Contains("2026", warning.Message);
+        Assert.Contains("2025", warning.Message);
+    }
+
+    [Fact]
+    public void AMatchingOrUnknownScheduleYearRaisesNoWarning()
+    {
+        Assert.Empty(SetupReadiness.Evaluate(Ready(), Complete with { ScheduleYear = 2026 }).Warnings);
+        Assert.Empty(SetupReadiness.Evaluate(Ready(), Complete with { ScheduleYear = null }).Warnings);
+    }
+
+    [Fact]
     public void TheCompletedStateCanOnlyBeReachedByCompletingNotBySavingAStep()
     {
         var season = Ready();

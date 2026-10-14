@@ -124,6 +124,8 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
         if (!Enum.IsDefined(step)) return Result<bool>.Failure("season.step", "Unknown setup step.");
         if (step == SetupStep.Completed) return Result<bool>.Failure("season.step", "Setup is finished with the Finish setup action, not by saving a step.");
+        // A finished setup stays finished: a lower step from a stale page or a direct caller changes nothing instead of silently reopening it.
+        if (SetupStep == SetupStep.Completed) return Result<bool>.Success(true);
         SetupStep = step;
         return Result<bool>.Success(true);
     }

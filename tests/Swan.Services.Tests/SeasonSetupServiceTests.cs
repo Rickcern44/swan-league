@@ -1598,6 +1598,40 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ALowerStepSentAfterCompletionIsIgnoredAndFinishingAgainWritesNoSecondAudit()
+    {
+        await ReadyToFinish();
+        Assert.True((await Run(service => service.FinishSetupAsync(Admin))).IsSuccess);
+        var stepAudits = await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.step.updated"));
+
+        var stale = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Money));
+        var direct = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Basics));
+        var again = await Run(service => service.FinishSetupAsync(Admin));
+
+        Assert.True(stale.IsSuccess && direct.IsSuccess && again.IsSuccess);
+        Assert.Equal(SetupStep.Completed, stale.Value!.SetupStep);
+        Assert.Equal(SetupStep.Completed, (await Run(service => service.GetSetupAsync())).Value!.SetupStep);
+        Assert.True((await Run(service => service.GetSetupReviewAsync())).Value!.Completed);
+        Assert.Equal(stepAudits, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.step.updated")));
+        Assert.Equal(1, await CompletionAudits());
+    }
+
+    [Fact]
+    public async Task AYearThatNoLongerMatchesTheImportedScheduleIsAWarningNotABlocker()
+    {
+        await ReadyToFinish();
+        Assert.True((await Run(service => service.UpdateSetupBasicsAsync(Admin, 2027, "2027 Season", isSimulation: false))).IsSuccess);
+
+        var review = (await Run(service => service.GetSetupReviewAsync())).Value!;
+
+        Assert.True(review.Ready);
+        var warning = Assert.Single(review.Warnings, issue => issue.Code == "year-mismatch");
+        Assert.Equal("Basics", warning.Step);
+        Assert.Contains("2027", warning.Message);
+        Assert.Contains("2026", warning.Message);
+    }
+
+    [Fact]
     public async Task TheCompletedStateCannotBeSetByTheStepEndpointAndEarlierPagesStillWorkAfterwards()
     {
         await ReadyToFinish();
