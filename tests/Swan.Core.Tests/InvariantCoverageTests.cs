@@ -136,7 +136,7 @@ public sealed class InvariantCoverageTests
     {
         var buyIn = Money.Create(100m, "USD").Value!;
         var season = new Season(new SeasonId(Guid.NewGuid()), new SeasonSettings(buyIn, 3), [new PoolDefinition("Main", buyIn)]);
-        season.Activate();
+        season.ActivateWithDogs();
         Assert.False(season.UpdateSettings(new SeasonSettings(buyIn, 4)).IsSuccess);
     }
 

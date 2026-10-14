@@ -92,6 +92,11 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 .HasConversion(value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null), value => JsonSerializer.Deserialize<List<PoolDefinition>>(value, (JsonSerializerOptions?)null)!,
                     new ValueComparer<IReadOnlyList<PoolDefinition>>((left, right) => left!.SequenceEqual(right!), value => value.Aggregate(0, (hash, pool) => HashCode.Combine(hash, pool)), value => value.ToList()))
                 .HasDefaultValueSql("'[]'");
+            // The confirmed double-dog week numbers as a JSON array; empty means none has been chosen.
+            entity.Property(season => season.DoubleDogWeekNumbers)
+                .HasConversion(value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null), value => JsonSerializer.Deserialize<List<int>>(value, (JsonSerializerOptions?)null)!,
+                    new ValueComparer<IReadOnlyList<int>>((left, right) => left!.SequenceEqual(right!), value => value.Aggregate(0, (hash, week) => HashCode.Combine(hash, week)), value => value.ToList()))
+                .HasDefaultValueSql("'[]'");
             entity.Property(season => season.Settings).HasConversion(value => $"{value.BuyIn.Amount}|{value.BuyIn.Currency}|{value.DoubleDogWeeks}|{value.TeamPickDeadlineEastern}", value => ParseSeasonSettings(value));
         });
         modelBuilder.Entity<Membership>(entity =>

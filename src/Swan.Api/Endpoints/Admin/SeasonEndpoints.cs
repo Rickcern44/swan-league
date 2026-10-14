@@ -22,6 +22,8 @@ public sealed record UpdateSeasonTeamsRequest(List<TeamFinishRequest?>? Teams);
 
 public sealed record ImportScheduleRequest(string? Fingerprint);
 
+public sealed record UpdateDoubleDogWeeksRequest(List<int>? Weeks);
+
 public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
@@ -114,6 +116,14 @@ public static class SeasonEndpoints
                 : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                     ? Results.Unauthorized()
                     : ScheduleResult(await service.ImportScheduleAsync(new UserId(actor), request.Fingerprint, cancellationToken)));
+        seasons.MapGet("/setup/double-dog-weeks", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
+            DoubleDogResult(await service.GetSetupDoubleDogWeeksAsync(cancellationToken)));
+        seasons.MapPut("/setup/double-dog-weeks", async (UpdateDoubleDogWeeksRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            request.Weeks is null
+                ? Results.BadRequest(new Error("season.double-dogs", "Send the double-dog weeks you chose."))
+                : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                    ? Results.Unauthorized()
+                    : DoubleDogResult(await service.UpdateSetupDoubleDogWeeksAsync(new UserId(actor), request.Weeks, cancellationToken)));
         return endpoints;
     }
 
@@ -125,6 +135,14 @@ public static class SeasonEndpoints
         { Error.Code: "schedule.config" } unconfigured => Results.Json(unconfigured.Error, statusCode: StatusCodes.Status503ServiceUnavailable),
         { Error.Code: "schedule.provider" } unavailable => Results.Json(unavailable.Error, statusCode: StatusCodes.Status502BadGateway),
         { Error.Code: "schedule.invalid" or "schedule.empty" } unusable => Results.Json(unusable.Error, statusCode: StatusCodes.Status422UnprocessableEntity),
+        var rejected => Results.Conflict(rejected.Error)
+    };
+
+    private static IResult DoubleDogResult(Result<DoubleDogPlan> result) => result switch
+    {
+        { IsSuccess: true } ok => Results.Ok(ok.Value),
+        { Error.Code: "season.double-dogs" } invalid => Results.BadRequest(invalid.Error),
+        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
         var rejected => Results.Conflict(rejected.Error)
     };
 

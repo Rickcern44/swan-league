@@ -31,6 +31,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("GET", "/api/admin/seasons/setup/schedule")]
     [InlineData("POST", "/api/admin/seasons/setup/schedule/preview")]
     [InlineData("POST", "/api/admin/seasons/setup/schedule/import")]
+    [InlineData("GET", "/api/admin/seasons/setup/double-dog-weeks")]
+    [InlineData("PUT", "/api/admin/seasons/setup/double-dog-weeks")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -420,6 +422,74 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains("concise admin-safe message", body);
     }
 
+    [Fact]
+    public async Task AdminReadsAndSavesTheDoubleDogWeeks()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks");
+        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 17, 2, 12 }, extra = true });
+
+        read.EnsureSuccessStatusCode();
+        saved.EnsureSuccessStatusCode();
+        Assert.Equal(["dogs:get", "dogs:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:17,2,12"], service.Calls);
+        var body = await read.Content.ReadAsStringAsync();
+        Assert.Contains("\"week\":2", body);
+        Assert.Contains("\"required\":true", body);
+        Assert.Contains("\"reason\":\"Required by the rules\"", body);
+    }
+
+    [Fact]
+    public async Task AnonymousCannotReadOrSaveTheDoubleDogWeeks()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 2, 12, 17 } });
+
+        Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"weeks":null}""")]
+    [InlineData("""{"weeks":"2,12,17"}""")]
+    [InlineData("""{"weeks":[2,"x",17]}""")]
+    [InlineData("""{"weeks":[2,null,17]}""")]
+    [InlineData("""{"weeks":[2,12.5,17]}""")]
+    public async Task MissingNullOrMalformedWeeksAreBadRequestAndNeverReachTheService(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsync("/api/admin/seasons/setup/double-dog-weeks", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.double-dogs", HttpStatusCode.BadRequest)]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("schedule.missing", HttpStatusCode.Conflict)]
+    [InlineData("season.locked", HttpStatusCode.Conflict)]
+    public async Task DoubleDogRejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 2, 12, 17 } });
+
+        Assert.Equal(expected == HttpStatusCode.BadRequest ? HttpStatusCode.BadRequest : expected, write.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.BadRequest ? HttpStatusCode.BadRequest : expected, read.StatusCode);
+        var body = await write.Content.ReadAsStringAsync();
+        Assert.Contains(code, body);
+        Assert.Contains("say what to fix", body);
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -519,6 +589,20 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         }
 
         private static SchedulePlan Plan(bool imported, string? fingerprint) => new(imported, fingerprint, 2026, 1, [new ScheduleWeek(1, [new ScheduleGame("99", Guid.Parse("11111111-1111-1111-1111-111111111111"), "Bills", Guid.Parse("22222222-2222-2222-2222-222222222222"), "Jets", new DateTimeOffset(2026, 9, 13, 17, 0, 0, TimeSpan.Zero))])]);
+
+        public Task<Result<DoubleDogPlan>> GetSetupDoubleDogWeeksAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("dogs:get");
+            return Task.FromResult(Failure is { } error ? Result<DoubleDogPlan>.Failure(error.Code, error.Message) : Result<DoubleDogPlan>.Success(DogPlan()));
+        }
+
+        public Task<Result<DoubleDogPlan>> UpdateSetupDoubleDogWeeksAsync(UserId actor, IReadOnlyList<int> weeks, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"dogs:put:{actor.Value}:{string.Join(",", weeks)}");
+            return Task.FromResult(Failure is { } error ? Result<DoubleDogPlan>.Failure(error.Code, error.Message) : Result<DoubleDogPlan>.Success(DogPlan()));
+        }
+
+        private static DoubleDogPlan DogPlan() => new([new DoubleDogWeek(2, true, true, false, "Required by the rules")], [2]);
 
         private static Result<SeasonSummary> Ok() => Result<SeasonSummary>.Success(new SeasonSummary(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", false, SeasonState.Setup, new SeasonSettings(new Money(100m, "USD"), 3), []));
     }

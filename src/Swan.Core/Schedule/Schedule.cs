@@ -45,7 +45,7 @@ public static class SetupTeamFinishes
 // Turns a provider's regular-season schedule into Week aggregates for a Setup season, or says why it cannot.
 public static class ScheduleImportPlan
 {
-    public const int RegularSeasonWeeks = 18;
+    public const int RegularSeasonWeeks = DoubleDogWeekRules.RegularSeasonWeeks;
 
     public static Result<IReadOnlyList<Week>> Build(SeasonId seasonId, IReadOnlyCollection<ProviderGame> games, IReadOnlyCollection<Team> catalog, IReadOnlySet<TeamId> seasonTeams)
     {

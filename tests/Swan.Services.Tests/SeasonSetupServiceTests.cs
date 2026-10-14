@@ -41,7 +41,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal((2026, "2026 Season", true, SeasonState.Setup), (season.Year, season.Name, season.IsSimulation, season.State));
         Assert.Equal([("Main", 60m), ("Dog", 20m), ("Regular Season", 10m), ("Playoff", 10m)], season.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
         Assert.Equal(new TimeOnly(13, 0), season.Settings.TeamPickDeadlineEastern);
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     {
         await Migrate();
         var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
-        Assert.True(live.Activate().IsSuccess);
+        Assert.True(live.ActivateWithDogs().IsSuccess);
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
@@ -137,7 +137,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
             foreach (var year in new[] { 2024, 2025 })
             {
                 var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), year, $"{year} Season", isSimulation: false).Value!;
-                Assert.True(live.Activate().IsSuccess);
+                Assert.True(live.ActivateWithDogs().IsSuccess);
                 database.Seasons.Add(live);
             }
 
@@ -232,7 +232,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     {
         await Migrate();
         var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
-        Assert.True(live.Activate().IsSuccess);
+        Assert.True(live.ActivateWithDogs().IsSuccess);
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
@@ -324,7 +324,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     {
         await Migrate();
         var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
-        Assert.True(live.Activate().IsSuccess);
+        Assert.True(live.ActivateWithDogs().IsSuccess);
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
@@ -418,7 +418,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     {
         await Migrate();
         var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
-        Assert.True(live.Activate().IsSuccess);
+        Assert.True(live.ActivateWithDogs().IsSuccess);
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
@@ -505,7 +505,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     {
         await Migrate();
         var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
-        Assert.True(live.Activate().IsSuccess);
+        Assert.True(live.ActivateWithDogs().IsSuccess);
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
@@ -591,7 +591,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         var teams = await SeedTeams();
         var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
-        Assert.True(live.Activate().IsSuccess);
+        Assert.True(live.ActivateWithDogs().IsSuccess);
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
@@ -703,6 +703,162 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
         Assert.Contains("unique season teams", failure.ToString());
         Assert.Equal(2, await upgrading.SeasonTeams.CountAsync());
+    }
+
+    // A Setup season with teams and a full imported schedule whose Week 12 holds Thanksgiving (Thu Nov 26) and Week 17 holds Christmas (Fri Dec 25).
+    private async Task<List<Team>> SetupWithImportedSchedule(params ProviderGame[] extra)
+    {
+        var (teams, _) = await SetupWithTeams();
+        ProviderReturns(Full(teams, [PG("thanksgiving", 12, teams[0], teams[1], new DateTimeOffset(2026, 11, 26, 17, 0, 0, TimeSpan.Zero)), PG("christmas", 17, teams[2], teams[3], new DateTimeOffset(2026, 12, 25, 18, 0, 0, TimeSpan.Zero)), .. extra]));
+        var preview = await Run(service => service.PreviewScheduleAsync());
+        Assert.True((await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!))).IsSuccess, preview.Error?.Message);
+        return teams;
+    }
+
+    private Task<int> DogAudits() => Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.double-dogs.updated"));
+
+    [Fact]
+    public async Task DoubleDogWeeksNeedAnImportedScheduleAndASetupSeason()
+    {
+        await Migrate();
+        Assert.Equal("season.missing", (await Run(service => service.GetSetupDoubleDogWeeksAsync())).Error!.Code);
+        Assert.Equal("season.missing", (await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [2, 12, 17]))).Error!.Code);
+        await SetupWithTeams();
+
+        Assert.Equal("schedule.missing", (await Run(service => service.GetSetupDoubleDogWeeksAsync())).Error!.Code);
+        var saved = await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [2, 12, 17]));
+
+        Assert.Equal("schedule.missing", saved.Error!.Code);
+        Assert.Empty((await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).DoubleDogWeekNumbers);
+        Assert.Equal(0, await DogAudits());
+    }
+
+    [Fact]
+    public async Task TheWeeksPageListsAllEighteenWeeksWithWeekTwoRequiredAndTheHolidayWeeksSuggestedFromTheSchedule()
+    {
+        await SetupWithImportedSchedule();
+        var callsBefore = provider.Calls;
+
+        var plan = await Run(service => service.GetSetupDoubleDogWeeksAsync());
+
+        Assert.Equal(callsBefore, provider.Calls);
+        Assert.Equal(Enumerable.Range(1, 18), plan.Value!.Weeks.Select(week => week.Week));
+        Assert.Empty(plan.Value.Selected);
+        var two = plan.Value.Weeks[1];
+        Assert.True(two.Required);
+        Assert.Contains("Required by the rules", two.Reason);
+        var thanksgiving = plan.Value.Weeks[11];
+        Assert.True(thanksgiving.Suggested);
+        Assert.False(thanksgiving.Required);
+        Assert.Contains("Suggested", thanksgiving.Reason);
+        Assert.Contains("Thanksgiving (Thu Nov 26)", thanksgiving.Reason);
+        var christmas = plan.Value.Weeks[16];
+        Assert.True(christmas.Suggested);
+        Assert.Contains("Christmas (Fri Dec 25)", christmas.Reason);
+        Assert.Equal([2, 12, 17], plan.Value.Weeks.Where(week => week.Required || week.Suggested).Select(week => week.Week));
+        Assert.All(plan.Value.Weeks.Where(week => week.Week is not (2 or 12 or 17)), week => Assert.Equal(("", false, false), (week.Reason, week.Suggested, week.Required)));
+    }
+
+    [Fact]
+    public async Task AHolidayThatLandsInWeekTwoIsShownOnceAndKeepsBothReasons()
+    {
+        var (teams, _) = await SetupWithTeams();
+        ProviderReturns(Full(teams, PG("a", 2, teams[0], teams[1], new DateTimeOffset(2026, 11, 26, 17, 0, 0, TimeSpan.Zero))));
+        var preview = await Run(service => service.PreviewScheduleAsync());
+        Assert.True((await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!))).IsSuccess);
+
+        var plan = await Run(service => service.GetSetupDoubleDogWeeksAsync());
+
+        var week = plan.Value!.Weeks[1];
+        Assert.True(week.Required && week.Suggested);
+        Assert.Contains("Required by the rules", week.Reason);
+        Assert.Contains("Thanksgiving", week.Reason);
+        Assert.Equal(1, plan.Value.Weeks.Count(value => value.Reason.Contains("Thanksgiving")));
+    }
+
+    [Fact]
+    public async Task SavingTheSelectionPersistsItSyncsTheCountAuditsOnceAndReloads()
+    {
+        await SetupWithImportedSchedule();
+
+        var saved = await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [17, 2, 12]));
+
+        Assert.True(saved.IsSuccess);
+        Assert.Equal([2, 12, 17], saved.Value!.Selected);
+        Assert.Equal([2, 12, 17], saved.Value.Weeks.Where(week => week.Selected).Select(week => week.Week));
+        var season = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());
+        Assert.Equal([2, 12, 17], season.DoubleDogWeekNumbers);
+        Assert.Equal(3, season.Settings.DoubleDogWeeks);
+        Assert.Equal([2, 12, 17], (await Run(service => service.GetSetupDoubleDogWeeksAsync())).Value!.Selected);
+        Assert.Equal(1, await DogAudits());
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.double-dogs.updated"));
+        Assert.Equal((Admin, season.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("17", audit.Details);
+    }
+
+    [Fact]
+    public async Task ReplayingTheSameSelectionWritesNoAuditAndARealChangeWritesOneMore()
+    {
+        await SetupWithImportedSchedule();
+        Assert.True((await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [2, 12, 17]))).IsSuccess);
+
+        Assert.True((await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [12, 17, 2]))).IsSuccess);
+        Assert.Equal(1, await DogAudits());
+        var changed = await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [2, 12, 16, 17]));
+
+        Assert.Equal([2, 12, 16, 17], changed.Value!.Selected);
+        Assert.Equal(4, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).Settings.DoubleDogWeeks);
+        Assert.Equal(2, await DogAudits());
+    }
+
+    [Theory]
+    [InlineData(new int[] { })]
+    [InlineData(new[] { 2, 12 })]
+    [InlineData(new[] { 3, 12, 17 })]
+    [InlineData(new[] { 2, 12, 12 })]
+    [InlineData(new[] { 2, 12, 19 })]
+    [InlineData(new[] { 0, 2, 12 })]
+    [InlineData(new[] { 2, 3, 4, 5, 6 })]
+    public async Task AnInvalidSelectionIsRejectedAndKeepsTheSavedOneWithoutAuditing(int[] weeks)
+    {
+        await SetupWithImportedSchedule();
+        Assert.True((await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [2, 12, 17]))).IsSuccess);
+
+        var result = await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, weeks));
+
+        Assert.Equal("season.double-dogs", result.Error!.Code);
+        var season = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());
+        Assert.Equal([2, 12, 17], season.DoubleDogWeekNumbers);
+        Assert.Equal(3, season.Settings.DoubleDogWeeks);
+        Assert.Equal(1, await DogAudits());
+    }
+
+    [Fact]
+    public async Task ASetupSeasonThatOnlyHasACountKeepsNoInventedSelectionAndCannotActivate()
+    {
+        await Migrate();
+        var id = Guid.NewGuid();
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+        }
+
+        var season = await Run((service, database) => database.Seasons.SingleAsync());
+
+        Assert.Empty(season.DoubleDogWeekNumbers);
+        Assert.Equal(3, season.Settings.DoubleDogWeeks);
+        Assert.False(season.Activate().IsSuccess);
+    }
+
+    [Fact]
+    public async Task ASavedSelectionMakesTheSeasonActivatable()
+    {
+        await SetupWithImportedSchedule();
+        Assert.True((await Run(service => service.UpdateSetupDoubleDogWeeksAsync(Admin, [2, 12, 17]))).IsSuccess);
+
+        var season = await Run((service, database) => database.Seasons.SingleAsync());
+
+        Assert.True(season.Activate().IsSuccess);
     }
 
     private async Task Migrate()

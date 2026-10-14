@@ -3,8 +3,8 @@ using Swan.Core.Common;
 namespace Swan.Core.League;
 
 public enum SeasonState { Setup, Live, Completed }
-// Where the Setup wizard resumes; WeeksAndDogs is the first step that is not built yet, so it means every implemented step is done.
-public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs }
+// Where the Setup wizard resumes; FinesAndPayouts is the first step that is not built yet, so it means every implemented step is done.
+public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts }
 public enum MembershipRole { Commissioner, Administrator, Coach }
 public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null) : ITeamPickLockSettings;
 public sealed record PlayoffRules(bool PicksRequired);
@@ -22,6 +22,8 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     public string Name { get; private set; } = "";
     public bool IsSimulation { get; private set; }
     public SetupStep SetupStep { get; private set; } = SetupStep.Basics;
+    // The confirmed double-dog week numbers (R7); empty until an administrator saves a selection. Settings.DoubleDogWeeks is kept equal to its count once one exists.
+    public IReadOnlyList<int> DoubleDogWeekNumbers { get; private set; } = [];
     public IReadOnlyList<PoolDefinition> Pools { get; private set; } = pools.ToList();
 
     // A blank season carries only the PRD defaults (W2): $100 buy-in split Main 60 / Dog 20 / Regular Season 10 / Playoff 10, three double-dog weeks, Sunday 1:00 PM ET deadline.
@@ -71,6 +73,16 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         return Result<bool>.Success(true);
     }
 
+    public Result<bool> SaveDoubleDogWeeks(IReadOnlyCollection<int> weeks)
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
+        var validated = DoubleDogWeekRules.Validate(weeks);
+        if (!validated.IsSuccess) return Result<bool>.Failure(validated.Error!.Code, validated.Error.Message);
+        DoubleDogWeekNumbers = validated.Value!;
+        Settings = Settings with { DoubleDogWeeks = DoubleDogWeekNumbers.Count };
+        return Result<bool>.Success(true);
+    }
+
     // Saving a resume step records progress only; it never touches the season's configuration.
     public Result<bool> SaveSetupStep(SetupStep step)
     {
@@ -87,14 +99,14 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         : year is < 2000 or > 2100 ? new Error("season.year", "Season year must be between 2000 and 2100.")
         : null;
 
-    public Result<bool> Activate() => State != SeasonState.Setup || Settings.DoubleDogWeeks < 3 || Settings.DoubleDogWeeks > 4 || Pools.Sum(pool => pool.Stake.Amount) != Settings.BuyIn.Amount
+    public Result<bool> Activate() => State != SeasonState.Setup || !DoubleDogWeekRules.Validate(DoubleDogWeekNumbers).IsSuccess || Settings.DoubleDogWeeks != DoubleDogWeekNumbers.Count || Pools.Sum(pool => pool.Stake.Amount) != Settings.BuyIn.Amount
         ? Result<bool>.Failure("season.invalid", "Season settings cannot activate.")
         : ActivateInternal();
     private Result<bool> ActivateInternal() { State = SeasonState.Live; Raise(new SeasonActivated(Id)); return Result<bool>.Success(true); }
     public Result<bool> Complete() => State != SeasonState.Live ? Result<bool>.Failure("season.invalid", "Season is not live.") : CompleteInternal();
     private Result<bool> CompleteInternal() { State = SeasonState.Completed; return Result<bool>.Success(true); }
     public Result<bool> UpdateSettings(SeasonSettings value) => State != SeasonState.Setup ? Result<bool>.Failure("season.locked", "Settings are structural.") : Update(value);
-    private Result<bool> Update(SeasonSettings value) { Settings = value; return Result<bool>.Success(true); }
+    private Result<bool> Update(SeasonSettings value) { Settings = DoubleDogWeekNumbers.Count > 0 ? value with { DoubleDogWeeks = DoubleDogWeekNumbers.Count } : value; return Result<bool>.Success(true); }
 }
 
 public sealed class Membership(MembershipId id, UserId userId, SeasonId seasonId, MembershipRole role) : AggregateRoot

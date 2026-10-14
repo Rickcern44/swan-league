@@ -27,6 +27,11 @@ public sealed record ScheduleWeek(int Week, IReadOnlyList<ScheduleGame> Games);
 // A schedule either previewed (not saved, carries the fingerprint to confirm) or already imported.
 public sealed record SchedulePlan(bool Imported, string? Fingerprint, int Season, int GameCount, IReadOnlyList<ScheduleWeek> Weeks);
 
+// One imported week on the Weeks and dogs page. Reason is the human-facing text ("" for an ordinary week).
+public sealed record DoubleDogWeek(int Week, bool Selected, bool Required, bool Suggested, string Reason);
+
+public sealed record DoubleDogPlan(IReadOnlyList<DoubleDogWeek> Weeks, IReadOnlyList<int> Selected);
+
 public interface ISeasonSetupService
 {
     Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
@@ -40,6 +45,8 @@ public interface ISeasonSetupService
     Task<Result<SchedulePlan>> GetSetupScheduleAsync(CancellationToken cancellationToken = default);
     Task<Result<SchedulePlan>> PreviewScheduleAsync(CancellationToken cancellationToken = default);
     Task<Result<SchedulePlan>> ImportScheduleAsync(UserId actor, string fingerprint, CancellationToken cancellationToken = default);
+    Task<Result<DoubleDogPlan>> GetSetupDoubleDogWeeksAsync(CancellationToken cancellationToken = default);
+    Task<Result<DoubleDogPlan>> UpdateSetupDoubleDogWeeksAsync(UserId actor, IReadOnlyList<int> weeks, CancellationToken cancellationToken = default);
 }
 
 public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit, IScheduleProvider scheduleProvider, IMemoryCache previews, IClock clock) : ISeasonSetupService
@@ -171,6 +178,49 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
             database.ChangeTracker.Clear();
             return Result<SchedulePlan>.Failure("schedule.exists", "Some of these provider games have already been imported.");
         }
+    }
+
+    // Reads only the imported schedule (never the provider): every regular-season week with whether it is selected, required (Week 2) or suggested (Thanksgiving, Christmas).
+    public async Task<Result<DoubleDogPlan>> GetSetupDoubleDogWeeksAsync(CancellationToken cancellationToken = default)
+    {
+        var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
+        if (setup is null) return Result<DoubleDogPlan>.Failure("season.missing", "No season is in Setup.");
+        return await DoubleDogPlanAsync(setup, cancellationToken);
+    }
+
+    // Saves the whole selection under the Setup row lock; the legacy count follows it, and an unchanged selection writes nothing.
+    public Task<Result<DoubleDogPlan>> UpdateSetupDoubleDogWeeksAsync(UserId actor, IReadOnlyList<int> weeks, CancellationToken cancellationToken = default) =>
+        InSetupAsync(async season =>
+        {
+            var planned = await DoubleDogPlanAsync(season, cancellationToken);
+            if (!planned.IsSuccess) return planned;
+            var before = season.DoubleDogWeekNumbers.ToList();
+            var edited = season.SaveDoubleDogWeeks(weeks);
+            if (!edited.IsSuccess) return Result<DoubleDogPlan>.Failure(edited.Error!.Code, edited.Error.Message);
+            if (!before.SequenceEqual(season.DoubleDogWeekNumbers))
+                await audit.AppendAsync(actor, "season.setup.double-dogs.updated", season.Id.Value.ToString(), before, season.DoubleDogWeekNumbers, cancellationToken: cancellationToken);
+            return await DoubleDogPlanAsync(season, cancellationToken);
+        }, cancellationToken);
+
+    private async Task<Result<DoubleDogPlan>> DoubleDogPlanAsync(Season season, CancellationToken cancellationToken)
+    {
+        var weeks = await database.Weeks.AsNoTracking().Where(week => week.SeasonId == season.Id).ToListAsync(cancellationToken);
+        if (weeks.Select(week => week.Number).Order().SequenceEqual(Enumerable.Range(1, DoubleDogWeekRules.RegularSeasonWeeks)) is false)
+            return Result<DoubleDogPlan>.Failure("schedule.missing", "Import the full regular-season schedule before choosing double-dog weeks.");
+        var holidays = DoubleDogWeekRules.Holidays(season.Year, weeks.Select(week => new WeekKickoffs(week.Number, week.Games.Select(game => game.Kickoff.Value).ToList())).ToList());
+        string Holiday(string name, DateOnly date) => $"{name} ({date.ToString("ddd MMM d", System.Globalization.CultureInfo.InvariantCulture)})";
+        var rows = Enumerable.Range(1, DoubleDogWeekRules.RegularSeasonWeeks).Select(number =>
+        {
+            var contains = new List<string>();
+            if (holidays.ThanksgivingWeek == number) contains.Add(Holiday("Thanksgiving", holidays.Thanksgiving));
+            if (holidays.ChristmasWeek == number) contains.Add(Holiday("Christmas", holidays.Christmas));
+            var required = number == 2;
+            var reasons = new List<string>();
+            if (required) reasons.Add("Required by the rules");
+            if (contains.Count > 0) reasons.Add($"{(required ? "also suggested" : "Suggested")} · contains {string.Join(" and ", contains)}");
+            return new DoubleDogWeek(number, season.DoubleDogWeekNumbers.Contains(number), required, contains.Count > 0, string.Join(" · ", reasons));
+        }).ToList();
+        return Result<DoubleDogPlan>.Success(new DoubleDogPlan(rows, season.DoubleDogWeekNumbers.ToList()));
     }
 
     private async Task<Result<IReadOnlyList<Week>>> BuildWeeksAsync(SeasonId seasonId, IReadOnlyCollection<ProviderGame> games, CancellationToken cancellationToken)

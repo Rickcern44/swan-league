@@ -26,7 +26,7 @@ public sealed class IdentityLeaguePlatformTests
         var buyIn = Money.Create(100, "USD").Value!;
         var season = new Season(new SeasonId(Guid.NewGuid()), new SeasonSettings(buyIn, 3), [new PoolDefinition("Main", buyIn)]);
 
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
         Assert.Equal(SeasonState.Live, season.State);
         Assert.Single(season.DomainEvents.OfType<SeasonActivated>());
         Assert.False(season.UpdateSettings(new SeasonSettings(buyIn, 3)).IsSuccess);

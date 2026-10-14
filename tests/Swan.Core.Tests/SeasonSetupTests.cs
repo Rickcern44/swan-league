@@ -20,7 +20,7 @@ public sealed class SeasonSetupTests
         Assert.Equal(new TimeOnly(13, 0), season.Settings.TeamPickDeadlineEastern);
         Assert.Equal([("Main", 60m), ("Dog", 20m), ("Regular Season", 10m), ("Playoff", 10m)], season.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
         Assert.All(season.Pools, pool => Assert.Equal("USD", pool.Stake.Currency));
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
     }
 
     [Theory]
@@ -69,7 +69,7 @@ public sealed class SeasonSetupTests
     public void LiveSeasonRejectsAnyBasicsUpdate()
     {
         var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", isSimulation: false).Value!;
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
 
         var updated = season.UpdateBasics(2027, "2027 Season", isSimulation: true);
 
@@ -93,7 +93,7 @@ public sealed class SeasonSetupTests
         Assert.Equal(Usd(150m), season.Settings.BuyIn);
         Assert.Equal([("Main", 90m), ("Dog", 30m), ("Regular Season", 15m), ("Playoff", 15m)], season.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
         Assert.Equal((3, deadline, SeasonState.Setup), (season.Settings.DoubleDogWeeks, season.Settings.TeamPickDeadlineEastern, season.State));
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
     }
 
     [Theory]
@@ -144,7 +144,7 @@ public sealed class SeasonSetupTests
     public void LiveSeasonRejectsAnyMoneyUpdate()
     {
         var season = Blank();
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
 
         var updated = season.UpdateMoney(Usd(150m), Usd(90m), Usd(30m), Usd(15m), Usd(15m));
 
@@ -165,14 +165,14 @@ public sealed class SeasonSetupTests
         Assert.Equal(settings with { TeamPickDeadlineEastern = new TimeOnly(11, 30) }, season.Settings);
         Assert.Equal(pools, season.Pools);
         Assert.Equal((id, 2026, "2026 Season", false, SeasonState.Setup), (season.Id, season.Year, season.Name, season.IsSimulation, season.State));
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
     }
 
     [Fact]
     public void LiveSeasonRejectsADeadlineUpdate()
     {
         var season = Blank();
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
 
         var updated = season.UpdateDeadline(new TimeOnly(11, 30));
 
@@ -206,6 +206,7 @@ public sealed class SeasonSetupTests
     [InlineData(SetupStep.TeamsAndPoints)]
     [InlineData(SetupStep.ScheduleImport)]
     [InlineData(SetupStep.WeeksAndDogs)]
+    [InlineData(SetupStep.FinesAndPayouts)]
     [InlineData(SetupStep.Basics)]
     public void SetupResumeStepCanBeSavedAndOnlyItChanges(SetupStep step)
     {
@@ -221,7 +222,7 @@ public sealed class SeasonSetupTests
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(6)]
+    [InlineData(7)]
     [InlineData(99)]
     public void UnknownSetupStepIsRejectedAndLeavesTheStep(int value)
     {
@@ -238,7 +239,7 @@ public sealed class SeasonSetupTests
     public void LiveSeasonRejectsASetupStepUpdate()
     {
         var season = Blank();
-        Assert.True(season.Activate().IsSuccess);
+        Assert.True(season.ActivateWithDogs().IsSuccess);
 
         var saved = season.SaveSetupStep(SetupStep.Money);
 

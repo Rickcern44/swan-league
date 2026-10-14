@@ -18,6 +18,7 @@ public static class DevelopmentSeeder
         var seasonId = new SeasonId(Guid.Parse("3908b3ef-4b67-4cf8-890f-4d72a295c8aa"));
         var buyIn = Money.Create(100m, "USD").Value!;
         var season = new Season(seasonId, new SeasonSettings(buyIn, 3), [new PoolDefinition("Main", buyIn)]);
+        season.SaveDoubleDogWeeks([2, 12, 17]);
         season.Activate();
 
         var seededTeams = teams.Select((team, index) => new Team(new TeamId(DeterministicGuid(index)), team.Name, null, DateTimeOffset.UtcNow, team.Division)).ToList();

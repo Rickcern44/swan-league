@@ -199,6 +199,12 @@ namespace Swan.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DoubleDogWeekNumbers")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValueSql("'[]'");
+
                     b.Property<bool>("IsSimulation")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
