@@ -91,8 +91,8 @@ export default function SeasonSetup() {
   const apply = (season: Season) => setLoaded({ status: "ready", season });
 
   return (
-    <section className="setup">
-      <h2>Season setup</h2>
+    <section className="setup" aria-labelledby="setup-title">
+      <h2 id="setup-title">Season setup</h2>
       <p>Set the foundation for the next Swan League season.</p>
       {loaded.status === "failed" && (
         <p role="alert">Could not load the Setup season: {loaded.error}</p>

@@ -285,7 +285,7 @@ beforeEach(() => {
     },
   };
   calls = [];
-  window.history.replaceState({}, "", "/");
+  window.history.replaceState({}, "", "/setup");
 });
 
 const SETUP = "GET /api/admin/seasons/setup";
@@ -586,7 +586,11 @@ test("every wizard page exists, so nothing is listed as coming next and no place
 
   await screen.findByRole("form", { name: "Review and create" });
   expect(screen.queryByText(/Coming next/)).not.toBeInTheDocument();
-  expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  expect(
+    within(screen.getByRole("region", { name: "Season setup" })).queryByRole(
+      "link",
+    ),
+  ).not.toBeInTheDocument();
 });
 
 const openSchedule = async (overrides: Record<string, unknown> = {}) => {

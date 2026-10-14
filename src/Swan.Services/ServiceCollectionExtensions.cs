@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddScoped<SessionService>();
         builder.Services.AddScoped<IAuditService, AuditService>();
         builder.Services.AddScoped<IWeekAdministrationService, WeekAdministrationService>();
+        builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
         builder.Services.AddMemoryCache();
         builder.Services.AddScoped<ISeasonSetupService, SeasonSetupService>();
         // The key is read only from configuration (a .NET user secret in development); the typed client sends it in a header and never logs it.

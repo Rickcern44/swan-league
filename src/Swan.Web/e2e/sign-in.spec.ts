@@ -51,6 +51,36 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 }) => {
   await signIn(page, "admin@swan.local");
   await expect(page.getByText("Signed in as Swan Admin · Admin")).toBeVisible();
+
+  // The admin lands on the Week Dashboard, which shows what the read-only API says rather than anything invented.
+  const dashboard = (await (
+    await page.request.get("/api/admin/dashboard")
+  ).json()) as {
+    season: { name: string } | null;
+    currentWeek: { number: number } | null;
+    attention: { title: string; reason: string }[];
+  };
+  await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
+  if (!dashboard.season)
+    await expect(
+      page.getByRole("heading", { name: "No season is live" }),
+    ).toBeVisible();
+  else {
+    await expect(page.getByText(dashboard.season.name).first()).toBeVisible();
+    if (dashboard.currentWeek)
+      await expect(
+        page.getByRole("heading", {
+          level: 1,
+          name: `Week ${dashboard.currentWeek.number}`,
+        }),
+      ).toBeVisible();
+    for (const item of dashboard.attention.slice(0, 3))
+      await expect(page.getByText(item.reason).first()).toBeVisible();
+  }
+  await page
+    .getByRole("navigation", { name: "Primary" })
+    .getByRole("link", { name: "Season setup" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Season setup" }),
   ).toBeVisible();
@@ -452,7 +482,11 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
   await signIn(page, "coach1@swan.local");
   await expect(page.getByText("Signed in as Coach 1 · Coach")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Welcome, Coach 1" }),
+  ).toBeVisible();
   await expect(page.getByText("Season setup")).not.toBeVisible();
+  expect((await page.request.get("/api/admin/dashboard")).status()).toBe(403);
 
   // Checked last so it never hides a real failure above.
   expect(

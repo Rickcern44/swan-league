@@ -1,5 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
+import CoachHome from "./CoachHome";
+import Dashboard from "./Dashboard";
 import SeasonSetup from "./SeasonSetup";
+import Shell from "./Shell";
 
 type CurrentUser = { id: string; name: string; role: "Admin" | "Coach" };
 
@@ -9,6 +12,18 @@ export default function App() {
     "sign-in",
   );
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [path, setPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  function navigate(to: string) {
+    window.history.pushState({}, "", to);
+    setPath(to);
+  }
 
   useEffect(() => {
     async function loadSession() {
@@ -51,15 +66,23 @@ export default function App() {
   }
 
   if (user) {
+    const inSetup = path === "/setup" || path.startsWith("/setup/");
     return (
-      <main>
-        <h1>Swan League Tracker</h1>
-        <p>
-          Signed in as {user.name} · {user.role}
-        </p>
-        <button onClick={() => void signOut()}>Sign out</button>
-        {user.role === "Admin" && <SeasonSetup />}
-      </main>
+      <Shell
+        name={user.name}
+        role={user.role}
+        path={path}
+        onNavigate={navigate}
+        onSignOut={() => void signOut()}
+      >
+        {user.role !== "Admin" ? (
+          <CoachHome name={user.name} />
+        ) : inSetup ? (
+          <SeasonSetup />
+        ) : (
+          <Dashboard onSeasonSetup={() => navigate("/setup")} />
+        )}
+      </Shell>
     );
   }
 
