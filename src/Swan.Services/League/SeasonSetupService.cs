@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using Swan.Core.Common;
 using Swan.Core;
+using Swan.Core.Identity;
 using Swan.Core.Integrations;
 using Swan.Core.League;
 using Swan.Core.Schedule;
@@ -42,6 +43,16 @@ public sealed record FinesAndPayoutsPlan(bool Configured, decimal? MissedPickFin
 
 public sealed record LeagueSettingsPlan(bool TeamMayAlsoBeDog, IReadOnlyList<PointColor> PointColors, RecordHolderMode RecordHolder);
 
+// A Setup-season Coach membership with its person; Active is false once an administrator has unselected them (the membership is kept).
+public sealed record SetupCoach(Guid MembershipId, Guid UserId, string Name, string Email, bool Active);
+
+// A person from the most recent earlier season who could be carried forward; Selected means they are already an active Coach of the Setup season.
+public sealed record CoachCandidate(Guid UserId, string Name, string Email, bool Selected);
+
+public sealed record PriorSeason(Guid Id, int Year, string Name);
+
+public sealed record CoachesPlan(PriorSeason? Prior, IReadOnlyList<SetupCoach> Coaches, IReadOnlyList<CoachCandidate> Candidates, int ActiveCoaches);
+
 public interface ISeasonSetupService
 {
     Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
@@ -58,6 +69,8 @@ public interface ISeasonSetupService
     Task<Result<DoubleDogPlan>> GetSetupDoubleDogWeeksAsync(CancellationToken cancellationToken = default);
     Task<Result<DoubleDogPlan>> UpdateSetupDoubleDogWeeksAsync(UserId actor, IReadOnlyList<int> weeks, CancellationToken cancellationToken = default);
     Task<Result<FinesAndPayoutsPlan>> GetSetupFinesAndPayoutsAsync(CancellationToken cancellationToken = default);
+    Task<Result<CoachesPlan>> GetSetupCoachesAsync(CancellationToken cancellationToken = default);
+    Task<Result<CoachesPlan>> UpdateSetupCoachesAsync(UserId actor, IReadOnlyList<CoachEntry> coaches, CancellationToken cancellationToken = default);
     Task<Result<LeagueSettingsPlan>> GetSetupLeagueSettingsAsync(CancellationToken cancellationToken = default);
     Task<Result<LeagueSettingsPlan>> UpdateSetupLeagueSettingsAsync(UserId actor, LeagueRules rules, CancellationToken cancellationToken = default);
     Task<Result<FinesAndPayoutsPlan>> UpdateSetupFinesAndPayoutsAsync(UserId actor, Money missedPickFine, IReadOnlyList<PayoutPlan> plans, CancellationToken cancellationToken = default);
@@ -215,6 +228,92 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
                 await audit.AppendAsync(actor, "season.setup.double-dogs.updated", season.Id.Value.ToString(), before, season.DoubleDogWeekNumbers, cancellationToken: cancellationToken);
             return await DoubleDogPlanAsync(season, cancellationToken);
         }, cancellationToken);
+
+    public async Task<Result<CoachesPlan>> GetSetupCoachesAsync(CancellationToken cancellationToken = default)
+    {
+        var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
+        return setup is null ? Result<CoachesPlan>.Failure("season.missing", "No season is in Setup.") : Result<CoachesPlan>.Success(await CoachesAsync(setup, cancellationToken));
+    }
+
+    // The complete desired coach list: people are reused by email (never renamed or re-roled), new people become Coach users, and unlisted Setup-season Coach memberships are made inactive, not deleted. Nothing is emailed and no roster is created.
+    public async Task<Result<CoachesPlan>> UpdateSetupCoachesAsync(UserId actor, IReadOnlyList<CoachEntry> coaches, CancellationToken cancellationToken = default)
+    {
+        var valid = CoachRoster.Validate(coaches);
+        if (!valid.IsSuccess) return Result<CoachesPlan>.Failure(valid.Error!.Code, valid.Error.Message);
+        return await InSetupAsync(async season =>
+        {
+            var emails = valid.Value!.Select(coach => coach.Email.Value).ToArray();
+            var found = await database.Users.FromSqlInterpolated($"""select * from identity.users where lower("Email") = any({emails})""").ToListAsync(cancellationToken);
+            var memberships = await database.Memberships.Where(membership => membership.SeasonId == season.Id).ToListAsync(cancellationToken);
+            var people = await database.Users.AsNoTracking().Where(user => memberships.Select(membership => membership.UserId).Contains(user.Id)).ToListAsync(cancellationToken);
+            people.AddRange(found.Where(user => people.All(person => person.Id != user.Id)));
+            List<CoachState> State() => memberships.Where(membership => membership.Role == MembershipRole.Coach)
+                .Select(membership => new CoachState(people.First(person => person.Id == membership.UserId).Email.Value, people.First(person => person.Id == membership.UserId).Name, membership.IsActive))
+                .OrderBy(state => state.Email, StringComparer.Ordinal).ToList();
+            var before = State();
+
+            // Resolve and check everyone first so a bad row changes nothing.
+            var plan = new List<(ValidCoach Coach, User? Existing)>();
+            foreach (var coach in valid.Value!)
+            {
+                var matches = found.Where(user => string.Equals(user.Email.Value, coach.Email.Value, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (matches.Count > 1) return Result<CoachesPlan>.Failure("season.coaches", $"More than one person already uses {coach.Email.Value}; resolve the duplicate before adding them.");
+                var existing = matches.SingleOrDefault();
+                if (existing is { IsActive: false }) return Result<CoachesPlan>.Failure("season.coaches", $"{coach.Email.Value} belongs to a deactivated person and cannot be added as a coach.");
+                if (existing is not null && memberships.FirstOrDefault(membership => membership.UserId == existing.Id) is { Role: not MembershipRole.Coach })
+                    return Result<CoachesPlan>.Failure("season.coaches", $"{coach.Email.Value} is already an administrator or commissioner of this season and cannot also be a coach.");
+                plan.Add((coach, existing));
+            }
+
+            var desired = new HashSet<UserId>();
+            foreach (var (coach, existing) in plan)
+            {
+                var user = existing ?? new User(new UserId(Guid.NewGuid()), coach.Email, coach.Name, UserRole.Coach);
+                if (existing is null) { database.Users.Add(user); people.Add(user); }
+                desired.Add(user.Id);
+                var membership = memberships.FirstOrDefault(value => value.UserId == user.Id);
+                if (membership is null)
+                {
+                    membership = new Membership(new MembershipId(Guid.NewGuid()), user.Id, season.Id, MembershipRole.Coach);
+                    database.Memberships.Add(membership);
+                    memberships.Add(membership);
+                }
+                else if (!membership.IsActive) membership.Reactivate();
+            }
+
+            foreach (var membership in memberships.Where(value => value.Role == MembershipRole.Coach && value.IsActive && !desired.Contains(value.UserId)))
+                membership.Deactivate();
+
+            var after = State();
+            if (!before.SequenceEqual(after))
+                await audit.AppendAsync(actor, "season.setup.coaches.updated", season.Id.Value.ToString(), before, after, cancellationToken: cancellationToken);
+            return Result<CoachesPlan>.Success(await CoachesAsync(season, cancellationToken));
+        }, cancellationToken);
+    }
+
+    private sealed record CoachState(string Email, string Name, bool Active);
+
+    private async Task<CoachesPlan> CoachesAsync(Season setup, CancellationToken cancellationToken)
+    {
+        var memberships = await database.Memberships.AsNoTracking().Where(membership => membership.SeasonId == setup.Id && membership.Role == MembershipRole.Coach).ToListAsync(cancellationToken);
+        var users = (await database.Users.AsNoTracking().ToListAsync(cancellationToken)).ToDictionary(user => user.Id);
+        var coaches = memberships.Select(membership => new SetupCoach(membership.Id.Value, membership.UserId.Value, users[membership.UserId].Name, users[membership.UserId].Email.Value, membership.IsActive))
+            .OrderBy(coach => coach.Name, StringComparer.OrdinalIgnoreCase).ThenBy(coach => coach.Email, StringComparer.Ordinal).ToList();
+        // The newest earlier season, by year then state then id so the choice is the same every time; nothing is copied automatically.
+        var prior = (await database.Seasons.AsNoTracking().Where(season => season.State != SeasonState.Setup).ToListAsync(cancellationToken))
+            .OrderByDescending(season => season.Year).ThenByDescending(season => season.State).ThenBy(season => season.Id.Value).FirstOrDefault();
+        var active = coaches.Where(coach => coach.Active).Select(coach => coach.UserId).ToHashSet();
+        IReadOnlyList<CoachCandidate> candidates = [];
+        if (prior is not null)
+        {
+            var prior_ = await database.Memberships.AsNoTracking().Where(membership => membership.SeasonId == prior.Id && membership.Role == MembershipRole.Coach && membership.IsActive).ToListAsync(cancellationToken);
+            candidates = prior_.Select(membership => users[membership.UserId]).Where(user => user.IsActive)
+                .Select(user => new CoachCandidate(user.Id.Value, user.Name, user.Email.Value, active.Contains(user.Id.Value)))
+                .OrderBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase).ThenBy(candidate => candidate.Email, StringComparer.Ordinal).ToList();
+        }
+
+        return new CoachesPlan(prior is null ? null : new PriorSeason(prior.Id.Value, prior.Year, prior.Name), coaches, candidates, coaches.Count(coach => coach.Active));
+    }
 
     public async Task<Result<LeagueSettingsPlan>> GetSetupLeagueSettingsAsync(CancellationToken cancellationToken = default)
     {

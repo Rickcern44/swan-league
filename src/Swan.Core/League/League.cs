@@ -3,8 +3,8 @@ using Swan.Core.Common;
 namespace Swan.Core.League;
 
 public enum SeasonState { Setup, Live, Completed }
-// Where the Setup wizard resumes; Coaches is the first step that is not built yet, so it means every implemented step is done.
-public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts, LeagueSettings, Coaches }
+// Where the Setup wizard resumes; ReviewAndCreate is the first step that is not built yet, so it means every implemented step is done.
+public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts, LeagueSettings, Coaches, ReviewAndCreate }
 public enum MembershipRole { Commissioner, Administrator, Coach }
 public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null) : ITeamPickLockSettings
 {
@@ -145,6 +145,7 @@ public sealed class Membership(MembershipId id, UserId userId, SeasonId seasonId
     public bool IsActive { get; private set; } = true;
     public void Invite() => Raise(new MembershipInvited(Id));
     public void Deactivate() => IsActive = false;
+    public void Reactivate() => IsActive = true;
 }
 public sealed record MembershipInvited(MembershipId MembershipId) : IDomainEvent;
 public sealed record SeasonActivated(SeasonId SeasonId) : IDomainEvent;

@@ -37,6 +37,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("PUT", "/api/admin/seasons/setup/fines-and-payouts")]
     [InlineData("GET", "/api/admin/seasons/setup/league-settings")]
     [InlineData("PUT", "/api/admin/seasons/setup/league-settings")]
+    [InlineData("GET", "/api/admin/seasons/setup/coaches")]
+    [InlineData("PUT", "/api/admin/seasons/setup/coaches")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -668,6 +670,72 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task AdminReadsAndSavesTheCoachList()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/coaches");
+        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = new object[] { new { email = "Pat@Example.com", name = "Pat", role = "Admin" }, new { email = "lee@example.com", name = "Lee" } } });
+        var empty = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = Array.Empty<object>() });
+
+        read.EnsureSuccessStatusCode();
+        saved.EnsureSuccessStatusCode();
+        empty.EnsureSuccessStatusCode();
+        Assert.Equal(["coaches:get", "coaches:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:Pat@Example.com/Pat;lee@example.com/Lee", "coaches:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:"], service.Calls);
+        var body = await read.Content.ReadAsStringAsync();
+        Assert.Contains("\"activeCoaches\":1", body);
+        Assert.Contains("\"email\":\"pat@example.com\"", body);
+        Assert.Contains("\"selected\":false", body);
+    }
+
+    [Fact]
+    public async Task AnonymousCannotReadOrSaveTheCoachList()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/coaches");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = Array.Empty<object>() });
+
+        Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"coaches":null}""")]
+    [InlineData("""{"coaches":[null]}""")]
+    [InlineData("""{"coaches":"pat@example.com"}""")]
+    [InlineData("""{"coaches":[{"email":5,"name":"x"}]}""")]
+    public async Task MissingNullOrMalformedCoachListsAreBadRequestAndNeverReachTheService(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsync("/api/admin/seasons/setup/coaches", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.coaches", HttpStatusCode.BadRequest)]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("season.locked", HttpStatusCode.Conflict)]
+    public async Task CoachRejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/coaches");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = new[] { new { email = "a@example.com", name = "A" } } });
+
+        Assert.Equal(expected, write.StatusCode);
+        Assert.Equal(expected, read.StatusCode);
+        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -803,6 +871,22 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
             Calls.Add($"rules:put:{actor.Value}:{rules.TeamMayAlsoBeDog}:{string.Join(",", rules.PointColors.Entries.Select(entry => $"{entry.Points}={entry.Color}"))}:{rules.RecordHolder}");
             return Task.FromResult(Failure is { } error ? Result<LeagueSettingsPlan>.Failure(error.Code, error.Message) : Result<LeagueSettingsPlan>.Success(RulesPlan(rules)));
         }
+
+        public Task<Result<CoachesPlan>> GetSetupCoachesAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("coaches:get");
+            return Task.FromResult(Failure is { } error ? Result<CoachesPlan>.Failure(error.Code, error.Message) : Result<CoachesPlan>.Success(CoachesView()));
+        }
+
+        public Task<Result<CoachesPlan>> UpdateSetupCoachesAsync(UserId actor, IReadOnlyList<CoachEntry> coaches, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"coaches:put:{actor.Value}:{string.Join(";", coaches.Select(coach => $"{coach.Email}/{coach.Name}"))}");
+            return Task.FromResult(Failure is { } error ? Result<CoachesPlan>.Failure(error.Code, error.Message) : Result<CoachesPlan>.Success(CoachesView()));
+        }
+
+        private static CoachesPlan CoachesView() => new(new PriorSeason(Guid.Parse("33333333-3333-3333-3333-333333333333"), 2025, "2025 Season"),
+            [new SetupCoach(Guid.Parse("44444444-4444-4444-4444-444444444444"), Guid.Parse("55555555-5555-5555-5555-555555555555"), "Pat", "pat@example.com", true)],
+            [new CoachCandidate(Guid.Parse("66666666-6666-6666-6666-666666666666"), "Lee", "lee@example.com", false)], 1);
 
         private static LeagueSettingsPlan RulesPlan(LeagueRules rules) => new(rules.TeamMayAlsoBeDog, rules.PointColors.Entries, rules.RecordHolder);
 

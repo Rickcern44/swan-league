@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Caching.Memory;
 using Swan.Core;
 using Swan.Core.Common;
+using Swan.Core.Identity;
 using Swan.Core.Integrations;
 using Swan.Core.League;
 using Swan.Core.Picks;
@@ -1161,6 +1162,257 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal("season.missing", (await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, CustomRules()))).Error!.Code);
         Assert.Equal(LeagueRules.Default, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).Settings.Rules);
         Assert.Equal(0, await RuleAudits());
+    }
+
+    private async Task<User> AddUser(string email, string name, UserRole role = UserRole.Coach, bool active = true)
+    {
+        var user = new User(new UserId(Guid.NewGuid()), new Email(email), name, role);
+        if (!active) user.Deactivate();
+        await using var database = CreateDatabase();
+        database.Users.Add(user);
+        await database.SaveChangesAsync();
+        return user;
+    }
+
+    private async Task<Membership> AddMembershipFor(UserId user, SeasonId season, MembershipRole role = MembershipRole.Coach, bool active = true)
+    {
+        var membership = new Membership(new MembershipId(Guid.NewGuid()), user, season, role);
+        if (!active) membership.Deactivate();
+        await using var database = CreateDatabase();
+        database.Memberships.Add(membership);
+        await database.SaveChangesAsync();
+        return membership;
+    }
+
+    private async Task<SeasonId> AddLiveSeason(int year)
+    {
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), year, $"{year} Season", isSimulation: false).Value!;
+        Assert.True(season.ActivateWithDogs().IsSuccess);
+        await using var database = CreateDatabase();
+        database.Seasons.Add(season);
+        await database.SaveChangesAsync();
+        return season.Id;
+    }
+
+    private static CoachEntry C(string email, string name) => new(email, name);
+
+    private Task<(int Rosters, int Ballots, int Scores, int Weeks)> DependentCounts() => Run(async (service, database) => (await database.Rosters.CountAsync(), await database.Ballots.CountAsync(), await database.WeekScores.CountAsync(), await database.Weeks.CountAsync()));
+
+    private Task<(int Users, int Memberships, int Audits)> PeopleCounts() => Run(async (service, database) => (await database.Users.CountAsync(), await database.Memberships.CountAsync(), await database.AuditEntries.CountAsync()));
+
+    private Task<int> CoachAudits() => Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.coaches.updated"));
+
+    [Fact]
+    public async Task CoachesNeedASetupSeasonAndStartEmptyWithNoPriorSeason()
+    {
+        await Migrate();
+        Assert.Equal("season.missing", (await Run(service => service.GetSetupCoachesAsync())).Error!.Code);
+        Assert.Equal("season.missing", (await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A")]))).Error!.Code);
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var plan = await Run(service => service.GetSetupCoachesAsync());
+
+        Assert.True(plan.IsSuccess);
+        Assert.Null(plan.Value!.Prior);
+        Assert.Empty(plan.Value.Coaches);
+        Assert.Empty(plan.Value.Candidates);
+        Assert.Equal(0, plan.Value.ActiveCoaches);
+        Assert.Equal(0, await Run((service, database) => database.Users.CountAsync()));
+    }
+
+    [Fact]
+    public async Task CarryForwardCandidatesComeFromTheNewestEarlierSeasonOnlyAndNothingIsCopiedAutomatically()
+    {
+        await Migrate();
+        var older = await AddLiveSeason(2024);
+        var newer = await AddLiveSeason(2025);
+        var pat = await AddUser("pat@example.com", "Pat");
+        var lee = await AddUser("lee@example.com", "Lee");
+        var old = await AddUser("old@example.com", "Old Timer");
+        var gone = await AddUser("gone@example.com", "Gone", active: false);
+        var boss = await AddUser("boss@example.com", "Boss", UserRole.Admin);
+        await AddMembershipFor(pat.Id, newer);
+        await AddMembershipFor(lee.Id, newer);
+        await AddMembershipFor(lee.Id, older);
+        await AddMembershipFor(old.Id, older);
+        await AddMembershipFor(gone.Id, newer);
+        await AddMembershipFor(boss.Id, newer, MembershipRole.Administrator);
+        await AddMembershipFor((await AddUser("quit@example.com", "Quit")).Id, newer, active: false);
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var plan = await Run(service => service.GetSetupCoachesAsync());
+
+        Assert.Equal((newer.Value, 2025), (plan.Value!.Prior!.Id, plan.Value.Prior.Year));
+        Assert.Equal(["lee@example.com", "pat@example.com"], plan.Value.Candidates.Select(candidate => candidate.Email));
+        Assert.All(plan.Value.Candidates, candidate => Assert.False(candidate.Selected));
+        Assert.Empty(plan.Value.Coaches);
+        Assert.Equal(0, await Run((service, database) => database.Memberships.CountAsync(membership => membership.SeasonId != newer && membership.SeasonId != older)));
+    }
+
+    [Fact]
+    public async Task SelectingACarryForwardCandidateCreatesOnlyAMembershipForTheSetupSeason()
+    {
+        await Migrate();
+        var prior = await AddLiveSeason(2025);
+        var pat = await AddUser("pat@example.com", "Pat Smith", UserRole.Coach);
+        await AddMembershipFor(pat.Id, prior);
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var before = await DependentCounts();
+
+        var saved = await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("PAT@example.com", "A different name")]));
+
+        Assert.True(saved.IsSuccess);
+        var coach = Assert.Single(saved.Value!.Coaches);
+        Assert.Equal((pat.Id.Value, "Pat Smith", "pat@example.com", true), (coach.UserId, coach.Name, coach.Email, coach.Active));
+        Assert.True(Assert.Single(saved.Value.Candidates).Selected);
+        Assert.Equal(1, await Run((service, database) => database.Memberships.CountAsync(membership => membership.SeasonId == created.Value!.Id && membership.UserId == pat.Id)));
+        Assert.Equal(1, await Run((service, database) => database.Users.CountAsync()));
+        Assert.Equal(before, await DependentCounts());
+        var user = await Run((service, database) => database.Users.AsNoTracking().SingleAsync());
+        Assert.Equal(("Pat Smith", UserRole.Coach), (user.Name, user.Role));
+    }
+
+    [Fact]
+    public async Task NewPeopleBecomeCoachUsersWithTheirEmailNormalizedAndAnExistingPersonIsNeverRenamedOrRerolled()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var admin = await AddUser("boss@example.com", "The Boss", UserRole.Admin);
+
+        var saved = await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("  New.Coach@Example.COM ", "  New Coach "), C("lee@example.com", "Lee")]));
+
+        Assert.True(saved.IsSuccess);
+        Assert.Equal(["lee@example.com", "new.coach@example.com"], saved.Value!.Coaches.Select(coach => coach.Email).Order());
+        var users = await Run((service, database) => database.Users.AsNoTracking().OrderBy(user => user.Name).ToListAsync());
+        Assert.All(users.Where(user => user.Id != admin.Id), user => Assert.Equal(UserRole.Coach, user.Role));
+        Assert.Equal("New Coach", users.Single(user => user.Email.Value == "new.coach@example.com").Name);
+        // Naming an existing administrator as a coach elsewhere leaves their global role and name alone.
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("boss@example.com", "Renamed Boss")]))).IsSuccess);
+        var boss = await Run((service, database) => database.Users.AsNoTracking().SingleAsync(user => user.Id == admin.Id));
+        Assert.Equal(("The Boss", UserRole.Admin), (boss.Name, boss.Role));
+    }
+
+    [Fact]
+    public async Task AnExistingPersonWithADifferentlyCasedStoredEmailIsReusedNotDuplicated()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var mixed = await AddUser("Mixed.Case@Example.com", "Mixed");
+
+        var saved = await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("mixed.case@example.com", "Ignored")]));
+
+        Assert.True(saved.IsSuccess);
+        Assert.Equal(mixed.Id.Value, Assert.Single(saved.Value!.Coaches).UserId);
+        Assert.Equal(1, await Run((service, database) => database.Users.CountAsync()));
+    }
+
+    [Fact]
+    public async Task UnselectedCoachesBecomeInactiveNotDeletedAndReselectingReactivatesTheSameMembership()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var first = await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A"), C("b@example.com", "B")]));
+        var membershipOfB = first.Value!.Coaches.Single(coach => coach.Email == "b@example.com").MembershipId;
+
+        var second = await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A")]));
+        var inactive = second.Value!.Coaches.Single(coach => coach.Email == "b@example.com");
+        var third = await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A"), C("b@example.com", "B")]));
+
+        Assert.Equal((membershipOfB, false), (inactive.MembershipId, inactive.Active));
+        Assert.Equal(1, second.Value.ActiveCoaches);
+        Assert.Equal(2, third.Value!.ActiveCoaches);
+        Assert.Equal(membershipOfB, third.Value.Coaches.Single(coach => coach.Email == "b@example.com").MembershipId);
+        Assert.Equal(2, await Run((service, database) => database.Memberships.CountAsync(membership => membership.SeasonId == created.Value!.Id)));
+        Assert.Equal(3, await CoachAudits());
+    }
+
+    [Fact]
+    public async Task SavingNeverTouchesOtherSeasonsOrAdministratorAndCommissionerMemberships()
+    {
+        await Migrate();
+        var live = await AddLiveSeason(2025);
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        var liveCoach = await AddMembershipFor((await AddUser("live@example.com", "Live")).Id, live);
+        var admin = await AddMembershipFor((await AddUser("adm@example.com", "Adm", UserRole.Admin)).Id, created.Value!.Id, MembershipRole.Administrator);
+        var commissioner = await AddMembershipFor((await AddUser("com@example.com", "Com", UserRole.Admin)).Id, created.Value.Id, MembershipRole.Commissioner);
+
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A")]))).IsSuccess);
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, []))).IsSuccess);
+
+        var memberships = await Run((service, database) => database.Memberships.AsNoTracking().ToListAsync());
+        Assert.True(memberships.Single(membership => membership.Id == liveCoach.Id).IsActive);
+        Assert.True(memberships.Single(membership => membership.Id == admin.Id).IsActive);
+        Assert.True(memberships.Single(membership => membership.Id == commissioner.Id).IsActive);
+        Assert.False(memberships.Single(membership => membership.SeasonId == created.Value.Id && membership.Role == MembershipRole.Coach).IsActive);
+    }
+
+    [Fact]
+    public async Task AnInvalidOrConflictingListChangesNothingAtAll()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("keep@example.com", "Keep")]))).IsSuccess);
+        var adminUser = await AddUser("adm@example.com", "Adm", UserRole.Admin);
+        await AddMembershipFor(adminUser.Id, created.Value!.Id, MembershipRole.Administrator);
+        await AddUser("gone@example.com", "Gone", active: false);
+        await AddUser("Twin@example.com", "Twin One");
+        await AddUser("twin@example.com", "Twin Two");
+        var stateBefore = await PeopleCounts();
+
+        var bad = new[]
+        {
+            new[] { C("new@example.com", "New"), C("not-an-email", "Bad") },
+            new[] { C("new@example.com", "New"), C("NEW@example.com", "Dup") },
+            new[] { C("new@example.com", "New"), C("blank@example.com", "  ") },
+            new[] { C("new@example.com", "New"), C("adm@example.com", "Adm") },
+            new[] { C("new@example.com", "New"), C("gone@example.com", "Gone") },
+            new[] { C("new@example.com", "New"), C("twin@example.com", "Twin") },
+        };
+        foreach (var entries in bad)
+        {
+            var result = await Run(service => service.UpdateSetupCoachesAsync(Admin, entries));
+            Assert.Equal("season.coaches", result.Error!.Code);
+        }
+
+        Assert.Equal(stateBefore, await PeopleCounts());
+        Assert.Equal(["keep@example.com"], (await Run(service => service.GetSetupCoachesAsync())).Value!.Coaches.Where(coach => coach.Active).Select(coach => coach.Email));
+    }
+
+    [Fact]
+    public async Task ReplayingTheSameListWritesNoAuditAndARealChangeAuditsBeforeAndAfter()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A"), C("b@example.com", "B")]))).IsSuccess);
+        Assert.Equal(1, await CoachAudits());
+
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("B@example.com", "Whatever"), C("a@example.com", "A")]))).IsSuccess);
+        Assert.Equal(1, await CoachAudits());
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A")]))).IsSuccess);
+
+        Assert.Equal(2, await CoachAudits());
+        var audit = (await Run((service, database) => database.AuditEntries.Where(entry => entry.Action == "season.setup.coaches.updated").ToListAsync())).OrderBy(entry => entry.At).Last();
+        Assert.Equal((Admin, created.Value!.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("b@example.com", audit.Details);
+        Assert.Contains("\"before\"", audit.Details);
+        Assert.Matches("\"Active\":\\s*true", audit.Details);
+        Assert.Matches("\"Active\":\\s*false", audit.Details);
+    }
+
+    [Fact]
+    public async Task TheSavedCoachListIsWhatThePayoutCalculatorCounts()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        Assert.Equal(0, (await Run(service => service.GetSetupFinesAndPayoutsAsync())).Value!.ActiveCoaches);
+
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A"), C("b@example.com", "B"), C("c@example.com", "C")]))).IsSuccess);
+        Assert.Equal(3, (await Run(service => service.GetSetupFinesAndPayoutsAsync())).Value!.ActiveCoaches);
+        Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("a@example.com", "A")]))).IsSuccess);
+
+        var plan = (await Run(service => service.GetSetupFinesAndPayoutsAsync())).Value!;
+        Assert.Equal(1, plan.ActiveCoaches);
+        Assert.Equal(60m, plan.Pools[0].Pot);
     }
 
     private async Task Migrate()

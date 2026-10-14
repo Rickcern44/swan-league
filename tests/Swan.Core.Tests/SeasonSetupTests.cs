@@ -209,6 +209,7 @@ public sealed class SeasonSetupTests
     [InlineData(SetupStep.FinesAndPayouts)]
     [InlineData(SetupStep.LeagueSettings)]
     [InlineData(SetupStep.Coaches)]
+    [InlineData(SetupStep.ReviewAndCreate)]
     [InlineData(SetupStep.Basics)]
     public void SetupResumeStepCanBeSavedAndOnlyItChanges(SetupStep step)
     {
@@ -224,7 +225,7 @@ public sealed class SeasonSetupTests
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(9)]
+    [InlineData(10)]
     [InlineData(99)]
     public void UnknownSetupStepIsRejectedAndLeavesTheStep(int value)
     {

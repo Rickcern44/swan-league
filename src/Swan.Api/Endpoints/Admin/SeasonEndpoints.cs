@@ -35,6 +35,10 @@ public sealed record PointColorRequest(int? Points, ColorTier? Color);
 
 public sealed record UpdateLeagueSettingsRequest(bool? TeamMayAlsoBeDog, List<PointColorRequest?>? PointColors, RecordHolderMode? RecordHolder);
 
+public sealed record CoachEntryRequest(string? Email, string? Name);
+
+public sealed record UpdateCoachesRequest(List<CoachEntryRequest?>? Coaches);
+
 public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
@@ -160,6 +164,15 @@ public static class SeasonEndpoints
                 ? Results.Unauthorized()
                 : LeagueSettingsResult(await service.UpdateSetupLeagueSettingsAsync(new UserId(actor), rules.Value!, cancellationToken));
         });
+        seasons.MapGet("/setup/coaches", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
+            CoachesResult(await service.GetSetupCoachesAsync(cancellationToken)));
+        // Prepares the coach list only: no invitation or email is sent from here.
+        seasons.MapPut("/setup/coaches", async (UpdateCoachesRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            request.Coaches is null || request.Coaches.Any(coach => coach is null)
+                ? Results.BadRequest(new Error("season.coaches", "Send the full list of coaches (it may be empty)."))
+                : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                    ? Results.Unauthorized()
+                    : CoachesResult(await service.UpdateSetupCoachesAsync(new UserId(actor), request.Coaches.Select(coach => new CoachEntry(coach!.Email, coach.Name)).ToList(), cancellationToken)));
         return endpoints;
     }
 
@@ -171,6 +184,14 @@ public static class SeasonEndpoints
         { Error.Code: "schedule.config" } unconfigured => Results.Json(unconfigured.Error, statusCode: StatusCodes.Status503ServiceUnavailable),
         { Error.Code: "schedule.provider" } unavailable => Results.Json(unavailable.Error, statusCode: StatusCodes.Status502BadGateway),
         { Error.Code: "schedule.invalid" or "schedule.empty" } unusable => Results.Json(unusable.Error, statusCode: StatusCodes.Status422UnprocessableEntity),
+        var rejected => Results.Conflict(rejected.Error)
+    };
+
+    private static IResult CoachesResult(Result<CoachesPlan> result) => result switch
+    {
+        { IsSuccess: true } ok => Results.Ok(ok.Value),
+        { Error.Code: "season.coaches" } invalid => Results.BadRequest(invalid.Error),
+        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
         var rejected => Results.Conflict(rejected.Error)
     };
 
