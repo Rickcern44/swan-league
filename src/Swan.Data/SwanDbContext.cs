@@ -103,7 +103,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 .HasConversion(value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null), value => JsonSerializer.Deserialize<List<PayoutPlan>>(value, (JsonSerializerOptions?)null)!,
                     new ValueComparer<IReadOnlyList<PayoutPlan>>((left, right) => JsonSerializer.Serialize(left, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(right, (JsonSerializerOptions?)null), value => JsonSerializer.Serialize(value, (JsonSerializerOptions?)null).GetHashCode(), value => value.ToList()))
                 .HasDefaultValueSql("'[]'");
-            entity.Property(season => season.Settings).HasConversion(value => $"{value.BuyIn.Amount}|{value.BuyIn.Currency}|{value.DoubleDogWeeks}|{value.TeamPickDeadlineEastern}", value => ParseSeasonSettings(value));
+            entity.Property(season => season.Settings).HasConversion(value => $"{value.BuyIn.Amount}|{value.BuyIn.Currency}|{value.DoubleDogWeeks}|{value.TeamPickDeadlineEastern}|{value.Rules.TeamMayAlsoBeDog}|{string.Join(",", value.Rules.PointColors.Entries.Select(entry => entry.Color))}|{value.Rules.RecordHolder}", value => ParseSeasonSettings(value));
         });
         modelBuilder.Entity<Membership>(entity =>
         {
@@ -379,7 +379,16 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
     private static SeasonSettings ParseSeasonSettings(string value)
     {
         var parts = value.Split('|');
-        return new SeasonSettings(new Money(decimal.Parse(parts[0]), parts[1]), int.Parse(parts[2]), parts.Length > 3 && TimeOnly.TryParse(parts[3], out var deadline) ? deadline : null);
+        // Values saved before R17 to R19 existed stop after the deadline and read back with the defaults.
+        return new SeasonSettings(new Money(decimal.Parse(parts[0]), parts[1]), int.Parse(parts[2]), parts.Length > 3 && TimeOnly.TryParse(parts[3], out var deadline) ? deadline : null) { Rules = ParseLeagueRules(parts) };
+    }
+
+    private static LeagueRules ParseLeagueRules(string[] parts)
+    {
+        if (parts.Length < 7 || !bool.TryParse(parts[4], out var teamMayAlsoBeDog) || !Enum.TryParse<RecordHolderMode>(parts[6], out var recordHolder)) return LeagueRules.Default;
+        var colors = parts[5].Split(',').Select(name => Enum.TryParse<ColorTier>(name, out var color) ? (ColorTier?)color : null).ToArray();
+        var mapped = colors.Length == 4 && colors.All(color => color is not null) ? PointColors.Create(colors.Select((color, index) => new PointColor(index + 1, color!.Value)).ToList()) : null;
+        return mapped is { IsSuccess: true } ? new LeagueRules(teamMayAlsoBeDog, mapped.Value!, recordHolder) : LeagueRules.Default;
     }
 
     private static WeekType ParseWeekType(string value)

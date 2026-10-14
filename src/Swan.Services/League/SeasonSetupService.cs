@@ -40,6 +40,8 @@ public sealed record PoolPayout(string Pool, decimal Stake, decimal Pot, IReadOn
 // Configured is false until an administrator saves the plans; the calculator counts this season's active coach memberships only.
 public sealed record FinesAndPayoutsPlan(bool Configured, decimal? MissedPickFine, int ActiveCoaches, IReadOnlyList<PoolPayout> Pools);
 
+public sealed record LeagueSettingsPlan(bool TeamMayAlsoBeDog, IReadOnlyList<PointColor> PointColors, RecordHolderMode RecordHolder);
+
 public interface ISeasonSetupService
 {
     Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default);
@@ -56,6 +58,8 @@ public interface ISeasonSetupService
     Task<Result<DoubleDogPlan>> GetSetupDoubleDogWeeksAsync(CancellationToken cancellationToken = default);
     Task<Result<DoubleDogPlan>> UpdateSetupDoubleDogWeeksAsync(UserId actor, IReadOnlyList<int> weeks, CancellationToken cancellationToken = default);
     Task<Result<FinesAndPayoutsPlan>> GetSetupFinesAndPayoutsAsync(CancellationToken cancellationToken = default);
+    Task<Result<LeagueSettingsPlan>> GetSetupLeagueSettingsAsync(CancellationToken cancellationToken = default);
+    Task<Result<LeagueSettingsPlan>> UpdateSetupLeagueSettingsAsync(UserId actor, LeagueRules rules, CancellationToken cancellationToken = default);
     Task<Result<FinesAndPayoutsPlan>> UpdateSetupFinesAndPayoutsAsync(UserId actor, Money missedPickFine, IReadOnlyList<PayoutPlan> plans, CancellationToken cancellationToken = default);
 }
 
@@ -211,6 +215,26 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
                 await audit.AppendAsync(actor, "season.setup.double-dogs.updated", season.Id.Value.ToString(), before, season.DoubleDogWeekNumbers, cancellationToken: cancellationToken);
             return await DoubleDogPlanAsync(season, cancellationToken);
         }, cancellationToken);
+
+    public async Task<Result<LeagueSettingsPlan>> GetSetupLeagueSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        var setup = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.State == SeasonState.Setup, cancellationToken);
+        return setup is null ? Result<LeagueSettingsPlan>.Failure("season.missing", "No season is in Setup.") : Result<LeagueSettingsPlan>.Success(ToPlan(setup.Settings.Rules));
+    }
+
+    // R17 to R19 are saved together under the Setup row lock; an identical save writes nothing.
+    public Task<Result<LeagueSettingsPlan>> UpdateSetupLeagueSettingsAsync(UserId actor, LeagueRules rules, CancellationToken cancellationToken = default) =>
+        InSetupAsync(async season =>
+        {
+            var before = season.Settings.Rules;
+            var edited = season.SaveLeagueRules(rules);
+            if (!edited.IsSuccess) return Result<LeagueSettingsPlan>.Failure(edited.Error!.Code, edited.Error.Message);
+            if (before != season.Settings.Rules)
+                await audit.AppendAsync(actor, "season.setup.league-settings.updated", season.Id.Value.ToString(), ToPlan(before), ToPlan(season.Settings.Rules), cancellationToken: cancellationToken);
+            return Result<LeagueSettingsPlan>.Success(ToPlan(season.Settings.Rules));
+        }, cancellationToken);
+
+    private static LeagueSettingsPlan ToPlan(LeagueRules rules) => new(rules.TeamMayAlsoBeDog, rules.PointColors.Entries, rules.RecordHolder);
 
     public async Task<Result<FinesAndPayoutsPlan>> GetSetupFinesAndPayoutsAsync(CancellationToken cancellationToken = default)
     {

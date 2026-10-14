@@ -245,6 +245,50 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.Equal(2, points[StandingPool.RegularSeason]);
     }
 
+    [Theory]
+    [InlineData(true, 3)]
+    [InlineData(false, 0)]
+    public async Task RuleSeventeenFromTheSeasonDecidesWhetherATeamThatIsAlsoTheDogScoresAsADog(bool teamMayAlsoBeDog, int expectedDogPoints)
+    {
+        var season = new SeasonId(Guid.NewGuid());
+        await SeedSeason(season, teamMayAlsoBeDog);
+        var seeded = await SeedLockedWeek(withDog: true, season: season, dogTeamIsAlsoPicked: true);
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[0], 7, 14));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[1], 1, 0));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[2], 1, 0));
+
+        await Run(service => service.FinalizeAsync(Admin, seeded.Week));
+
+        var lines = Assert.Single(await LoadScores(seeded.Week)).Lines;
+        Assert.Equal(expectedDogPoints, Assert.Single(lines, line => line.Source == ScoreSource.DogPick).Points);
+        // The team pick itself is unaffected by R17 (the away team won game 0, so its point value counts either way).
+        Assert.Equal(1, lines.Count(line => line.Source == ScoreSource.TeamPick && line.Points > 0 && line.TeamId == lines.Single(dog => dog.Source == ScoreSource.DogPick).TeamId));
+    }
+
+    [Fact]
+    public async Task ChangingRuleSeventeenAfterAWeekIsFinalDoesNotRescoreItButARecomputeUsesTheCurrentRule()
+    {
+        var season = new SeasonId(Guid.NewGuid());
+        await SeedSeason(season, teamMayAlsoBeDog: true);
+        var seeded = await SeedLockedWeek(withDog: true, season: season, dogTeamIsAlsoPicked: true);
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[0], 7, 14));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[1], 1, 0));
+        await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[2], 1, 0));
+        await Run(service => service.FinalizeAsync(Admin, seeded.Week));
+        Assert.Equal(3, Assert.Single(Assert.Single(await LoadScores(seeded.Week)).Lines, line => line.Source == ScoreSource.DogPick).Points);
+
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlInterpolatedAsync($"""update league.seasons set "Settings" = replace("Settings", '|True|', '|False|') where "Id" = {season.Value}""");
+        }
+
+        // No automatic re-score of the completed week...
+        Assert.Equal(3, Assert.Single(Assert.Single(await LoadScores(seeded.Week)).Lines, line => line.Source == ScoreSource.DogPick).Points);
+        // ...but an explicit recompute applies the rule as it now stands.
+        Assert.True((await Run(service => service.RecomputeAsync(Admin, seeded.Week))).IsSuccess);
+        Assert.Equal(0, Assert.Single(Assert.Single(await LoadScores(seeded.Week)).Lines, line => line.Source == ScoreSource.DogPick).Points);
+    }
+
     [Fact]
     public async Task SeasonRecomputeCorrectsOnlyFinalRegularWeeksAndIsIdempotent()
     {
@@ -388,18 +432,19 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
 
     private sealed record LockedWeek(WeekId Week, List<GameId> Games, MembershipId Membership);
 
-    private async Task SeedSeason(SeasonId season)
+    private async Task SeedSeason(SeasonId season, bool teamMayAlsoBeDog = true)
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
         // Live, because only one season may be in Setup at a time.
         var created = Season.CreateBlank(season, 2026, "Test season", isSimulation: false).Value!;
+        Assert.True(created.SaveLeagueRules(LeagueRules.Default with { TeamMayAlsoBeDog = teamMayAlsoBeDog }).IsSuccess);
         Assert.True(created.ActivateWithDogs().IsSuccess);
         database.Seasons.Add(created);
         await database.SaveChangesAsync();
     }
 
-    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular, bool withDog = false, SeasonId? season = null, int number = 1, bool final = false)
+    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular, bool withDog = false, SeasonId? season = null, int number = 1, bool final = false, bool dogTeamIsAlsoPicked = false)
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
@@ -413,7 +458,9 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
             games.Add(game.Id);
             Assert.True(week.AddLine(game.Id, new Spread(-3m)).IsSuccess);
             Assert.True(week.ApproveLatestLine(game.Id).IsSuccess);
-            Assert.True(ballot.AddPick(new TeamPick(game.HomeTeamId, game.Id, DateTimeOffset.UtcNow.AddDays(2)), DateTimeOffset.UtcNow).IsSuccess);
+            // With dogTeamIsAlsoPicked the first pick is the same away team that is also the week's dog (R17).
+            var picked = dogTeamIsAlsoPicked && index == 0 ? game.AwayTeamId : game.HomeTeamId;
+            Assert.True(ballot.AddPick(new TeamPick(picked, game.Id, DateTimeOffset.UtcNow.AddDays(2)), DateTimeOffset.UtcNow).IsSuccess);
             if (withDog && index == 0) Assert.True(ballot.AddDog(new DogPick(game.AwayTeamId, game.Id, DateTimeOffset.UtcNow.AddDays(2)), false, DateTimeOffset.UtcNow).IsSuccess);
         }
 

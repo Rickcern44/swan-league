@@ -35,6 +35,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("PUT", "/api/admin/seasons/setup/double-dog-weeks")]
     [InlineData("GET", "/api/admin/seasons/setup/fines-and-payouts")]
     [InlineData("PUT", "/api/admin/seasons/setup/fines-and-payouts")]
+    [InlineData("GET", "/api/admin/seasons/setup/league-settings")]
+    [InlineData("PUT", "/api/admin/seasons/setup/league-settings")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -570,6 +572,98 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
     }
 
+    private static object LeagueBody(bool dog = false, string recordHolder = "MostOccurrences", object[]? colors = null) => new
+    {
+        teamMayAlsoBeDog = dog,
+        pointColors = colors ?? [new { points = 1, color = "Red" }, new { points = 2, color = "Yellow" }, new { points = 3, color = "Blue" }, new { points = 4, color = "Green" }],
+        recordHolder,
+    };
+
+    [Fact]
+    public async Task AdminReadsAndSavesTheLeagueSettings()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings");
+        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody());
+
+        read.EnsureSuccessStatusCode();
+        saved.EnsureSuccessStatusCode();
+        Assert.Equal(["rules:get", "rules:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:False:1=Red,2=Yellow,3=Blue,4=Green:MostOccurrences"], service.Calls);
+        var body = await read.Content.ReadAsStringAsync();
+        Assert.Contains("\"teamMayAlsoBeDog\":true", body);
+        Assert.Contains("\"color\":\"Green\"", body);
+        Assert.Contains("\"recordHolder\":\"FirstOccurrence\"", body);
+    }
+
+    [Fact]
+    public async Task AnonymousCannotReadOrSaveTheLeagueSettings()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody());
+
+        Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"teamMayAlsoBeDog":true}""")]
+    [InlineData("""{"teamMayAlsoBeDog":null,"pointColors":[],"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":null,"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[null],"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[],"recordHolder":null}""")]
+    [InlineData("""{"teamMayAlsoBeDog":"yes","pointColors":[],"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[{"points":1,"color":"Purple"}],"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[{"points":"one","color":"Green"}],"recordHolder":"FirstOccurrence"}""")]
+    [InlineData("""{"teamMayAlsoBeDog":true,"pointColors":[],"recordHolder":"Whenever"}""")]
+    public async Task MissingNullOrMalformedSettingsAreBadRequestAndNeverReachTheService(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsync("/api/admin/seasons/setup/league-settings", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
+    [Fact]
+    public async Task AColorMappingThatIsNotOneToOneIsBadRequestWithAReasonAndNeverReachesTheService()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var duplicateColor = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(colors: [new { points = 1, color = "Red" }, new { points = 2, color = "Red" }, new { points = 3, color = "Blue" }, new { points = 4, color = "Green" }]));
+        var missingPoint = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(colors: [new { points = 1, color = "Red" }, new { points = 2, color = "Yellow" }, new { points = 3, color = "Blue" }]));
+        var undefinedRecord = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", new { teamMayAlsoBeDog = true, pointColors = new[] { new { points = 1, color = "Green" }, new { points = 2, color = "Blue" }, new { points = 3, color = "Yellow" }, new { points = 4, color = "Red" } }, recordHolder = 9 });
+
+        Assert.All(new[] { duplicateColor, missingPoint, undefinedRecord }, response => Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode));
+        Assert.Contains("season.league-settings", await duplicateColor.Content.ReadAsStringAsync());
+        Assert.Contains("only one point value", await duplicateColor.Content.ReadAsStringAsync());
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("season.locked", HttpStatusCode.Conflict)]
+    [InlineData("season.league-settings", HttpStatusCode.BadRequest)]
+    public async Task LeagueSettingsRejectionsMapToExpectedStatusCodes(string code, HttpStatusCode expected)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
+
+        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings");
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody());
+
+        Assert.Equal(expected, write.StatusCode);
+        Assert.Equal(expected, read.StatusCode);
+        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -693,6 +787,20 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
             Calls.Add($"payouts:put:{actor.Value}:{missedPickFine.Amount}{missedPickFine.Currency}:{string.Join(";", plans.Select(plan => $"{plan.Pool}={string.Join(",", plan.Places.Select(place => $"{place.Position}@{place.Percent}"))}"))}");
             return Task.FromResult(Failure is { } error ? Result<FinesAndPayoutsPlan>.Failure(error.Code, error.Message) : Result<FinesAndPayoutsPlan>.Success(PayoutsPlan()));
         }
+
+        public Task<Result<LeagueSettingsPlan>> GetSetupLeagueSettingsAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Add("rules:get");
+            return Task.FromResult(Failure is { } error ? Result<LeagueSettingsPlan>.Failure(error.Code, error.Message) : Result<LeagueSettingsPlan>.Success(RulesPlan(LeagueRules.Default)));
+        }
+
+        public Task<Result<LeagueSettingsPlan>> UpdateSetupLeagueSettingsAsync(UserId actor, LeagueRules rules, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"rules:put:{actor.Value}:{rules.TeamMayAlsoBeDog}:{string.Join(",", rules.PointColors.Entries.Select(entry => $"{entry.Points}={entry.Color}"))}:{rules.RecordHolder}");
+            return Task.FromResult(Failure is { } error ? Result<LeagueSettingsPlan>.Failure(error.Code, error.Message) : Result<LeagueSettingsPlan>.Success(RulesPlan(rules)));
+        }
+
+        private static LeagueSettingsPlan RulesPlan(LeagueRules rules) => new(rules.TeamMayAlsoBeDog, rules.PointColors.Entries, rules.RecordHolder);
 
         private static FinesAndPayoutsPlan PayoutsPlan() => new(true, 5.00m, 2, [new PoolPayout("Main", 60m, 120m, [new PoolPayoutPlace(1, 100m, 120m)])]);
 

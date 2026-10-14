@@ -3,10 +3,14 @@ using Swan.Core.Common;
 namespace Swan.Core.League;
 
 public enum SeasonState { Setup, Live, Completed }
-// Where the Setup wizard resumes; LeagueSettings is the first step that is not built yet, so it means every implemented step is done.
-public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts, LeagueSettings }
+// Where the Setup wizard resumes; Coaches is the first step that is not built yet, so it means every implemented step is done.
+public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts, LeagueSettings, Coaches }
 public enum MembershipRole { Commissioner, Administrator, Coach }
-public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null) : ITeamPickLockSettings;
+public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null) : ITeamPickLockSettings
+{
+    // R17 to R19. A season stored before they existed has the defaults.
+    public LeagueRules Rules { get; init; } = LeagueRules.Default;
+}
 public sealed record PlayoffRules(bool PicksRequired);
 public sealed record RosterWindow(DateTimeOffset OpensAt, DateTimeOffset ClosesAt);
 public sealed record PoolDefinition(string Name, Money Stake);
@@ -73,6 +77,13 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     {
         if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
         Settings = Settings with { TeamPickDeadlineEastern = deadlineEastern };
+        return Result<bool>.Success(true);
+    }
+
+    public Result<bool> SaveLeagueRules(LeagueRules rules)
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.locked", "Only a season in Setup can be edited.");
+        Settings = Settings with { Rules = rules };
         return Result<bool>.Success(true);
     }
 

@@ -30,6 +30,10 @@ public sealed record PayoutPlanRequest(string? Pool, List<PayoutPlaceRequest?>? 
 
 public sealed record UpdateFinesAndPayoutsRequest(decimal? MissedPickFine, string? Currency, List<PayoutPlanRequest?>? Payouts);
 
+public sealed record PointColorRequest(int Points, ColorTier Color);
+
+public sealed record UpdateLeagueSettingsRequest(bool? TeamMayAlsoBeDog, List<PointColorRequest?>? PointColors, RecordHolderMode? RecordHolder);
+
 public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
@@ -142,6 +146,19 @@ public static class SeasonEndpoints
                         new Money(fine, request.Currency ?? "USD"),
                         request.Payouts.Select(plan => new PayoutPlan(plan!.Pool!, plan.Places!.Select(place => new PayoutPlace(place!.Position, place.Percent)).ToList())).ToList(),
                         cancellationToken)));
+        seasons.MapGet("/setup/league-settings", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
+            LeagueSettingsResult(await service.GetSetupLeagueSettingsAsync(cancellationToken)));
+        seasons.MapPut("/setup/league-settings", async (UpdateLeagueSettingsRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+        {
+            if (request.TeamMayAlsoBeDog is not { } teamMayAlsoBeDog || request.PointColors is null || request.PointColors.Any(entry => entry is null) || request.RecordHolder is not { } recordHolder)
+                return Results.BadRequest(new Error("season.league-settings", "Send R17, the four point colors and the record-holder choice."));
+            var colors = PointColors.Create(request.PointColors.Select(entry => new PointColor(entry!.Points, entry.Color)).ToList());
+            var rules = colors.IsSuccess ? LeagueRules.Create(teamMayAlsoBeDog, colors.Value!, recordHolder) : Result<LeagueRules>.Failure(colors.Error!.Code, colors.Error.Message);
+            if (!rules.IsSuccess) return Results.BadRequest(rules.Error);
+            return !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                ? Results.Unauthorized()
+                : LeagueSettingsResult(await service.UpdateSetupLeagueSettingsAsync(new UserId(actor), rules.Value!, cancellationToken));
+        });
         return endpoints;
     }
 
@@ -153,6 +170,14 @@ public static class SeasonEndpoints
         { Error.Code: "schedule.config" } unconfigured => Results.Json(unconfigured.Error, statusCode: StatusCodes.Status503ServiceUnavailable),
         { Error.Code: "schedule.provider" } unavailable => Results.Json(unavailable.Error, statusCode: StatusCodes.Status502BadGateway),
         { Error.Code: "schedule.invalid" or "schedule.empty" } unusable => Results.Json(unusable.Error, statusCode: StatusCodes.Status422UnprocessableEntity),
+        var rejected => Results.Conflict(rejected.Error)
+    };
+
+    private static IResult LeagueSettingsResult(Result<LeagueSettingsPlan> result) => result switch
+    {
+        { IsSuccess: true } ok => Results.Ok(ok.Value),
+        { Error.Code: "season.league-settings" } invalid => Results.BadRequest(invalid.Error),
+        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
         var rejected => Results.Conflict(rejected.Error)
     };
 

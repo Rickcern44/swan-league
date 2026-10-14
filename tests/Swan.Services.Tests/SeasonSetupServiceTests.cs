@@ -1038,6 +1038,123 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(0, await PayoutAudits());
     }
 
+    private static LeagueRules CustomRules() => LeagueRules.Create(false, PointColors.Create([new PointColor(1, ColorTier.Red), new PointColor(2, ColorTier.Yellow), new PointColor(3, ColorTier.Blue), new PointColor(4, ColorTier.Green)]).Value!, RecordHolderMode.MostOccurrences).Value!;
+
+    private Task<int> RuleAudits() => Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.league-settings.updated"));
+
+    [Fact]
+    public async Task ANewSeasonReadsTheLeagueDefaults()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var plan = await Run(service => service.GetSetupLeagueSettingsAsync());
+
+        Assert.True(plan.IsSuccess);
+        Assert.True(plan.Value!.TeamMayAlsoBeDog);
+        Assert.Equal(RecordHolderMode.FirstOccurrence, plan.Value.RecordHolder);
+        Assert.Equal([(1, ColorTier.Green), (2, ColorTier.Blue), (3, ColorTier.Yellow), (4, ColorTier.Red)], plan.Value.PointColors.Select(entry => (entry.Points, entry.Color)));
+    }
+
+    [Fact]
+    public async Task SavingPersistsAllThreeSettingsAuditsBeforeAndAfterAndKeepsEveryOtherSetting()
+    {
+        await Migrate();
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: true));
+        Assert.True((await Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)))).IsSuccess);
+        var before = (await Run(service => service.GetSetupAsync())).Value!;
+
+        var saved = await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, CustomRules()));
+        var reloaded = (await Run(service => service.GetSetupAsync())).Value!;
+
+        Assert.True(saved.IsSuccess);
+        var plan = (await Run(service => service.GetSetupLeagueSettingsAsync())).Value!;
+        Assert.False(plan.TeamMayAlsoBeDog);
+        Assert.Equal(RecordHolderMode.MostOccurrences, plan.RecordHolder);
+        Assert.Equal([(1, ColorTier.Red), (2, ColorTier.Yellow), (3, ColorTier.Blue), (4, ColorTier.Green)], plan.PointColors.Select(entry => (entry.Points, entry.Color)));
+        Assert.Equal(before.Settings with { Rules = CustomRules() }, reloaded.Settings);
+        Assert.Equal((before.Id, before.Year, before.Name, before.IsSimulation), (reloaded.Id, reloaded.Year, reloaded.Name, reloaded.IsSimulation));
+        Assert.Equal(new TimeOnly(11, 30), reloaded.Settings.TeamPickDeadlineEastern);
+        Assert.Equal(before.Pools, reloaded.Pools);
+        Assert.Equal(1, await RuleAudits());
+        var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.league-settings.updated"));
+        Assert.Equal((Admin, created.Value!.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
+        Assert.Contains("Green", audit.Details);
+        Assert.Contains("Red", audit.Details);
+        Assert.Contains("MostOccurrences", audit.Details);
+        Assert.Contains("FirstOccurrence", audit.Details);
+    }
+
+    [Fact]
+    public async Task ReplayingTheSameRulesWritesNoAuditAndARealChangeWritesOneMore()
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        Assert.True((await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, LeagueRules.Default))).IsSuccess);
+        Assert.Equal(0, await RuleAudits());
+        Assert.True((await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, CustomRules()))).IsSuccess);
+
+        Assert.True((await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, CustomRules()))).IsSuccess);
+        Assert.Equal(1, await RuleAudits());
+        Assert.True((await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, CustomRules() with { TeamMayAlsoBeDog = true }))).IsSuccess);
+
+        Assert.Equal(2, await RuleAudits());
+    }
+
+    [Fact]
+    public async Task SeasonsSavedBeforeTheRulesExistedLoadTheDefaultsAndKeepEveryOtherField()
+    {
+        await Migrate();
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, '125.50|USD|4|', 1)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, '100|USD|3|11:30 AM', 0)""");
+        }
+
+        var seasons = await Run((service, database) => database.Seasons.AsNoTracking().OrderBy(season => season.State).ToListAsync());
+
+        Assert.All(seasons, season => Assert.Equal(LeagueRules.Default, season.Settings.Rules));
+        Assert.Equal((new Money(100m, "USD"), 3, new TimeOnly(11, 30)), (seasons[0].Settings.BuyIn, seasons[0].Settings.DoubleDogWeeks, seasons[0].Settings.TeamPickDeadlineEastern));
+        Assert.Equal((new Money(125.50m, "USD"), 4, (TimeOnly?)null), (seasons[1].Settings.BuyIn, seasons[1].Settings.DoubleDogWeeks, seasons[1].Settings.TeamPickDeadlineEastern));
+        var saved = await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, CustomRules()));
+        Assert.True(saved.IsSuccess);
+        var setup = (await Run(service => service.GetSetupAsync())).Value!;
+        Assert.Equal((new Money(100m, "USD"), 3, new TimeOnly(11, 30)), (setup.Settings.BuyIn, setup.Settings.DoubleDogWeeks, setup.Settings.TeamPickDeadlineEastern));
+    }
+
+    [Fact]
+    public async Task ALegacyStoredValueWithGarbledRulesFallsBackToTheDefaultsInsteadOfFailingToLoad()
+    {
+        await Migrate();
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, '100|USD|3||maybe|Green,Green,Blue,Red|Sometimes', 1)""");
+        }
+
+        var season = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());
+
+        Assert.Equal(LeagueRules.Default, season.Settings.Rules);
+        Assert.Equal(new Money(100m, "USD"), season.Settings.BuyIn);
+    }
+
+    [Fact]
+    public async Task LeagueSettingsWithNoSetupSeasonAreMissingAndALiveSeasonIsNeverChanged()
+    {
+        await Migrate();
+        var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2025, "2025 Season", isSimulation: false).Value!;
+        Assert.True(live.ActivateWithDogs().IsSuccess);
+        await using (var database = CreateDatabase())
+        {
+            database.Seasons.Add(live);
+            await database.SaveChangesAsync();
+        }
+
+        Assert.Equal("season.missing", (await Run(service => service.GetSetupLeagueSettingsAsync())).Error!.Code);
+        Assert.Equal("season.missing", (await Run(service => service.UpdateSetupLeagueSettingsAsync(Admin, CustomRules()))).Error!.Code);
+        Assert.Equal(LeagueRules.Default, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).Settings.Rules);
+        Assert.Equal(0, await RuleAudits());
+    }
+
     private async Task Migrate()
     {
         await using var database = CreateDatabase();

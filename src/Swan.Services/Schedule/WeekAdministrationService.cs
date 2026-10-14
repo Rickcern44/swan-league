@@ -109,9 +109,10 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
         return finalized.IsSuccess ? await RebuildScoresAsync(week, cancellationToken) : finalized;
     }
 
-    // Scoring settings are not persisted yet, so the policy defaults apply.
+    // R17 comes from the season (a week with no stored season keeps the default); the other scoring settings are not configurable yet.
     private async Task<Result<bool>> RebuildScoresAsync(Week week, CancellationToken cancellationToken)
     {
+        var settings = new RegularScoringSettings((await database.Seasons.AsNoTracking().FirstOrDefaultAsync(season => season.Id == week.SeasonId, cancellationToken))?.Settings.Rules.TeamMayAlsoBeDog ?? true);
         var ballots = await database.Ballots.Where(ballot => ballot.WeekId == week.Id).ToListAsync(cancellationToken);
         // Nothing enforces one ballot per member and week, so refuse to guess which duplicate counts.
         if (ballots.GroupBy(ballot => ballot.MembershipId).Any(group => group.Count() > 1)) return Result<bool>.Failure("week.ballots", "A member has more than one ballot for this week.");
@@ -126,7 +127,7 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
                 database.WeekScores.Add(score);
             }
 
-            score.Recompute(RegularScoringPolicy.Recompute(ballot, games, new RegularScoringSettings()));
+            score.Recompute(RegularScoringPolicy.Recompute(ballot, games, settings));
         }
 
         return Result<bool>.Success(true);
