@@ -125,6 +125,7 @@ function Card({
   return (
     <form
       className={wide ? "card wide" : "card"}
+      noValidate
       aria-label={title}
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
@@ -216,6 +217,7 @@ const wizardSteps = [
   "Weeks and dogs",
   "Fines and payouts",
   "League settings",
+  "Coaches",
 ] as const;
 const lastStep = wizardSteps.length - 1;
 const stepSlugs = [
@@ -227,8 +229,9 @@ const stepSlugs = [
   "dogs",
   "payouts",
   "rules",
+  "coaches",
 ];
-const upcoming = ["Coaches"];
+const upcoming = ["Review and create"];
 
 function SetupCards({
   season,
@@ -595,7 +598,15 @@ function SetupCards({
         />
       )}
       {view === 7 && (
-        <RulesStep season={season} onSeason={onSeason} onBack={back} />
+        <RulesStep
+          season={season}
+          onSeason={onSeason}
+          onBack={back}
+          onContinue={() => goTo(8)}
+        />
+      )}
+      {view === 8 && (
+        <CoachesStep season={season} onSeason={onSeason} onBack={back} />
       )}
       <p>Coming next: {upcoming.join(" → ")}</p>
     </>
@@ -1246,10 +1257,12 @@ function RulesStep({
   season,
   onSeason,
   onBack,
+  onContinue,
 }: {
   season: Season;
   onSeason: (season: Season) => void;
   onBack?: () => void;
+  onContinue: () => void;
 }) {
   const [plan, setPlan] = useState<RulesPlan>();
   const [notice, setNotice] = useState<Notice>();
@@ -1285,7 +1298,7 @@ function RulesStep({
     if (!("value" in saved))
       return setNotice({ kind: "error", text: saved.error });
     setPlan(saved.value);
-    // Coaches is the next unbuilt step; the resume point never moves backwards.
+    // Coaches is the next page; the resume point never moves backwards.
     const target = Math.max(season.setupStep, 8);
     if (target !== season.setupStep) {
       const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
@@ -1298,7 +1311,7 @@ function RulesStep({
         });
       onSeason(recorded.value);
     }
-    setNotice({ kind: "saved", text: "League settings saved" });
+    onContinue();
   }
 
   return (
@@ -1392,6 +1405,253 @@ function RulesStep({
               ))}
             </ul>
           </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+type CoachPerson = { userId: string; name: string; email: string };
+type CoachesPlan = {
+  prior: { id: string; year: number; name: string } | null;
+  coaches: (CoachPerson & { membershipId: string; active: boolean })[];
+  candidates: (CoachPerson & { selected: boolean })[];
+  activeCoaches: number;
+};
+type NewCoach = { key: number; email: string; name: string };
+
+const looksLikeEmail = (value: string) =>
+  /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/.test(value.trim());
+
+// Prepares the coach list only: people carried forward from the previous season, coaches already saved, and new email/name rows. No invitation or email is sent from here.
+function CoachesStep({
+  season,
+  onSeason,
+  onBack,
+}: {
+  season: Season;
+  onSeason: (season: Season) => void;
+  onBack?: () => void;
+}) {
+  const [plan, setPlan] = useState<CoachesPlan>();
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [kept, setKept] = useState<CoachPerson[]>([]);
+  const [added, setAdded] = useState<NewCoach[]>([]);
+  const [notice, setNotice] = useState<Notice>();
+  const nextKey = useRef(1);
+
+  const load = (loaded: CoachesPlan) => {
+    setPlan(loaded);
+    setChosen(
+      loaded.candidates
+        .filter((candidate) => candidate.selected)
+        .map((candidate) => candidate.userId),
+    );
+    // Saved active coaches who are not offered as carry-forward people stay visible so they can be removed.
+    setKept(
+      loaded.coaches.filter(
+        (coach) =>
+          coach.active &&
+          !loaded.candidates.some(
+            (candidate) => candidate.userId === coach.userId,
+          ),
+      ),
+    );
+    setAdded([]);
+  };
+
+  useEffect(() => {
+    void send<CoachesPlan>("GET", "/api/admin/seasons/setup/coaches").then(
+      (result) =>
+        "value" in result
+          ? load(result.value)
+          : setNotice({ kind: "error", text: result.error }),
+    );
+  }, []);
+
+  const picked = plan
+    ? plan.candidates.filter((candidate) => chosen.includes(candidate.userId))
+    : [];
+  const count = picked.length + kept.length + added.length;
+
+  async function save() {
+    if (!plan) return;
+    const fail = (text: string) => setNotice({ kind: "error", text });
+    const list = [
+      ...picked.map((person) => ({ email: person.email, name: person.name })),
+      ...kept.map((person) => ({ email: person.email, name: person.name })),
+      ...added.map((row) => ({
+        email: row.email.trim().toLowerCase(),
+        name: row.name.trim(),
+      })),
+    ];
+    for (const [index, row] of added.entries()) {
+      if (!looksLikeEmail(row.email))
+        return fail(`New coach ${index + 1}: enter a valid email address.`);
+      if (row.name.trim() === "")
+        return fail(`New coach ${index + 1}: enter a display name.`);
+    }
+    const emails = list.map((entry) => entry.email.toLowerCase());
+    const repeated = emails.find(
+      (email, index) => emails.indexOf(email) !== index,
+    );
+    if (repeated) return fail(`${repeated} is listed more than once.`);
+
+    const saved = await send<CoachesPlan>(
+      "PUT",
+      "/api/admin/seasons/setup/coaches",
+      { coaches: list },
+    );
+    if (!("value" in saved)) return fail(saved.error);
+    load(saved.value);
+    // Review and create is the next unbuilt step; the resume point never moves backwards.
+    const target = Math.max(season.setupStep, 9);
+    if (target !== season.setupStep) {
+      const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
+        step: target,
+      });
+      if (!("value" in recorded))
+        return fail(
+          `Saved, but your progress could not be recorded: ${recorded.error}`,
+        );
+      onSeason(recorded.value);
+    }
+    setNotice({ kind: "saved", text: "Coaches saved" });
+  }
+
+  return (
+    <Card
+      title="Coaches"
+      wide
+      notice={notice}
+      action={plan ? "Save & continue" : undefined}
+      onBack={onBack}
+      onSubmit={() => void save()}
+    >
+      {!plan && !notice && <span>Loading the coach list…</span>}
+      {plan && (
+        <>
+          <span className="hint">
+            This only prepares the coach list for this season. No invitations or
+            emails are sent from here.
+          </span>
+          <span className="hint" role="status">
+            {`${count} ${count === 1 ? "coach" : "coaches"} selected`}
+          </span>
+          {count === 0 && (
+            <span className="hint">
+              No coaches yet. You can continue; the Review step will warn you
+              before the season is created.
+            </span>
+          )}
+          {plan.prior && plan.candidates.length > 0 && (
+            <fieldset className="division">
+              <legend>{`Carry forward from ${plan.prior.name}`}</legend>
+              {plan.candidates.map((candidate) => (
+                <label key={candidate.userId} className="check">
+                  <input
+                    type="checkbox"
+                    checked={chosen.includes(candidate.userId)}
+                    onChange={(event) => {
+                      const { checked } = event.target;
+                      setChosen((current) =>
+                        checked
+                          ? [...current, candidate.userId]
+                          : current.filter((id) => id !== candidate.userId),
+                      );
+                    }}
+                  />
+                  {`${candidate.name} (${candidate.email})`}
+                </label>
+              ))}
+            </fieldset>
+          )}
+          {kept.length > 0 && (
+            <fieldset className="division">
+              <legend>Already on this season's list</legend>
+              {kept.map((person) => (
+                <div key={person.userId} className="place-row">
+                  <span>{`${person.name} (${person.email})`}</span>
+                  <span />
+                  <span />
+                  <button
+                    type="button"
+                    className="secondary"
+                    aria-label={`Remove ${person.name}`}
+                    onClick={() =>
+                      setKept((current) =>
+                        current.filter(
+                          (other) => other.userId !== person.userId,
+                        ),
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </fieldset>
+          )}
+          <fieldset className="division">
+            <legend>New coaches</legend>
+            {added.map((row, index) => (
+              <div key={row.key} className="coach-row">
+                <input
+                  type="email"
+                  aria-label={`New coach ${index + 1} email`}
+                  value={row.email}
+                  onChange={(event) => {
+                    const { value } = event.target;
+                    setAdded((current) =>
+                      current.map((other) =>
+                        other.key === row.key
+                          ? { ...other, email: value }
+                          : other,
+                      ),
+                    );
+                  }}
+                />
+                <input
+                  aria-label={`New coach ${index + 1} name`}
+                  value={row.name}
+                  onChange={(event) => {
+                    const { value } = event.target;
+                    setAdded((current) =>
+                      current.map((other) =>
+                        other.key === row.key
+                          ? { ...other, name: value }
+                          : other,
+                      ),
+                    );
+                  }}
+                />
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-label={`Remove new coach ${index + 1}`}
+                  onClick={() =>
+                    setAdded((current) =>
+                      current.filter((other) => other.key !== row.key),
+                    )
+                  }
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                setAdded((current) => [
+                  ...current,
+                  { key: nextKey.current++, email: "", name: "" },
+                ])
+              }
+            >
+              Add coach
+            </button>
+          </fieldset>
         </>
       )}
     </Card>

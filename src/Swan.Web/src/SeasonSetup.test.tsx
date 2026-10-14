@@ -156,10 +156,34 @@ const rulesPlan = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const coachesPlan = (
+  coaches: { name: string; email: string; active?: boolean }[] = [],
+  candidates: { name: string; email: string; selected?: boolean }[] = [],
+) => ({
+  prior: candidates.length
+    ? { id: "p1", year: 2025, name: "2025 Season" }
+    : null,
+  coaches: coaches.map((coach, index) => ({
+    membershipId: `m${index}`,
+    userId: `u-${coach.email}`,
+    name: coach.name,
+    email: coach.email,
+    active: coach.active ?? true,
+  })),
+  candidates: candidates.map((candidate) => ({
+    userId: `u-${candidate.email}`,
+    name: candidate.name,
+    email: candidate.email,
+    selected: candidate.selected ?? false,
+  })),
+  activeCoaches: coaches.filter((coach) => coach.active ?? true).length,
+});
+
 type Reply = { status: number; body?: unknown };
 let replies: Record<
   string,
-  Reply | ((body: { step: number; weeks?: number[] }) => Reply)
+  | Reply
+  | ((body: { step: number; weeks?: number[]; coaches?: unknown[] }) => Reply)
 >;
 let calls: { method: string; url: string; body?: unknown }[];
 
@@ -207,6 +231,7 @@ beforeEach(() => {
     [DOGS]: { status: 200, body: dogPlan() },
     [FINES]: { status: 200, body: finesPlan() },
     [RULES]: { status: 200, body: rulesPlan() },
+    [COACHES]: { status: 200, body: coachesPlan() },
     [SCHEDULE]: {
       status: 200,
       body: plan({ imported: false, fingerprint: null, weeks: [] }),
@@ -227,6 +252,8 @@ const FINES = "GET /api/admin/seasons/setup/fines-and-payouts";
 const SAVE_FINES = "PUT /api/admin/seasons/setup/fines-and-payouts";
 const RULES = "GET /api/admin/seasons/setup/league-settings";
 const SAVE_RULES = "PUT /api/admin/seasons/setup/league-settings";
+const COACHES = "GET /api/admin/seasons/setup/coaches";
+const SAVE_COACHES = "PUT /api/admin/seasons/setup/coaches";
 const SAVE_TEAMS = "PUT /api/admin/seasons/setup/teams";
 const STEP = "PUT /api/admin/seasons/setup/step";
 const putCalls = () =>
@@ -259,7 +286,7 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
   fireEvent.click(within(card).getByRole("button", { name: "Create season" }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
-  expect(screen.getByText("Step 1 of 8")).toBeVisible();
+  expect(screen.getByText("Step 1 of 9")).toBeVisible();
   expect(screen.getByLabelText("Season name")).toHaveValue("2027 Swan League");
   expect(calls.find((call) => call.method === "POST")).toMatchObject({
     body: { year: 2027, name: "2027 Swan League", isSimulation: true },
@@ -271,15 +298,16 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
 });
 
 test.each([
-  [0, "Basics", "Step 1 of 8"],
-  [1, "Money", "Step 2 of 8"],
-  [2, "Weekly deadline", "Step 3 of 8"],
-  [3, "Teams and point values", "Step 4 of 8"],
-  [4, "Schedule import", "Step 5 of 8"],
-  [5, "Weeks and dogs", "Step 6 of 8"],
-  [6, "Fines and payouts", "Step 7 of 8"],
-  [7, "League settings", "Step 8 of 8"],
-  [8, "League settings", "Step 8 of 8"],
+  [0, "Basics", "Step 1 of 9"],
+  [1, "Money", "Step 2 of 9"],
+  [2, "Weekly deadline", "Step 3 of 9"],
+  [3, "Teams and point values", "Step 4 of 9"],
+  [4, "Schedule import", "Step 5 of 9"],
+  [5, "Weeks and dogs", "Step 6 of 9"],
+  [6, "Fines and payouts", "Step 7 of 9"],
+  [7, "League settings", "Step 8 of 9"],
+  [8, "Coaches", "Step 9 of 9"],
+  [9, "Coaches", "Step 9 of 9"],
 ])(
   "a fresh load resumes at the saved step %i",
   async (setupStep, form, position) => {
@@ -326,7 +354,7 @@ test("Save & continue on Basics saves it, records Money as the resume point and 
   fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
   expect(await screen.findByRole("form", { name: "Money" })).toBeVisible();
-  expect(screen.getByText("Step 2 of 8")).toBeVisible();
+  expect(screen.getByText("Step 2 of 9")).toBeVisible();
   expect(putCalls()).toEqual(["/", "/step"]);
   expect(
     calls.find(
@@ -503,16 +531,16 @@ test("a failed resume-point save is reported and the page does not advance", asy
 
 test("later steps are listed as upcoming and cannot be opened", async () => {
   stubApi("Admin");
-  replies[SETUP] = { status: 200, body: season({ setupStep: 8 }) };
+  replies[SETUP] = { status: 200, body: season({ setupStep: 9 }) };
   render(<App />);
 
-  await screen.findByRole("form", { name: "League settings" });
+  await screen.findByRole("form", { name: "Coaches" });
   const next = screen.getByText(/Coming next/);
-  expect(next).not.toHaveTextContent("League settings");
-  expect(next).toHaveTextContent("Coaches");
+  expect(next).not.toHaveTextContent(/Coaches/);
+  expect(next).toHaveTextContent("Review and create");
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /coaches/i }),
+    screen.queryByRole("button", { name: /review and create/i }),
   ).not.toBeInTheDocument();
 });
 
@@ -601,7 +629,9 @@ test("confirming imports with the previewed fingerprint, records Weeks and dogs 
   expect(
     within(form).queryByRole("button", { name: /Preview|Import/ }),
   ).not.toBeInTheDocument();
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Review and create",
+  );
 });
 
 test("an empty preview says nothing is published yet and that manual import stays available", async () => {
@@ -812,7 +842,9 @@ test("saving sends the chosen weeks, records the next step and moves on to Fines
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 6 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Review and create",
+  );
 });
 
 test("a server rejection is shown beside the page, keeps the choice and records no progress", async () => {
@@ -1105,7 +1137,9 @@ test("saving sends the fine and every plan, records the next step and moves on t
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 7 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Review and create",
+  );
 });
 
 test("a server rejection stays beside the page, keeps the edits and records no progress", async () => {
@@ -1202,7 +1236,7 @@ test("the page says plainly what each setting does today", async () => {
   ).not.toBeInTheDocument();
 });
 
-test("changed settings are sent in the API shape, the next step is recorded and the page stays", async () => {
+test("changed settings are sent in the API shape, the next step is recorded and the wizard moves on to Coaches", async () => {
   replies[SAVE_RULES] = { status: 200, body: rulesPlan() };
   replies[STEP] = stepReply();
   const form = await openRules();
@@ -1219,7 +1253,7 @@ test("changed settings are sent in the API shape, the next step is recorded and 
     within(form).getByRole("button", { name: "Save & continue" }),
   );
 
-  expect(await within(form).findByText("League settings saved")).toBeVisible();
+  expect(await screen.findByRole("form", { name: "Coaches" })).toBeVisible();
   expect(
     calls.find(
       (call) => call.method === "PUT" && call.url.endsWith("/league-settings"),
@@ -1239,7 +1273,9 @@ test("changed settings are sent in the API shape, the next step is recorded and 
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 8 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Review and create",
+  );
 });
 
 test("a color used twice is explained without a request and keeps the choices", async () => {
@@ -1291,6 +1327,222 @@ test("a failed load shows an error and leaves Back", async () => {
   render(<App />);
 
   const form = await screen.findByRole("form", { name: "League settings" });
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent("Boom");
+  expect(
+    within(form).queryByRole("button", { name: "Save & continue" }),
+  ).not.toBeInTheDocument();
+  expect(within(form).getByRole("button", { name: "Back" })).toBeVisible();
+});
+
+const openCoaches = async (plan = coachesPlan()) => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 8 }) };
+  replies[COACHES] = { status: 200, body: plan };
+  render(<App />);
+  const form = await screen.findByRole("form", { name: "Coaches" });
+  await within(form).findByText(/coach(es)? selected/);
+  return form;
+};
+
+test("the Coaches page starts empty, warns about zero coaches and says nothing is sent", async () => {
+  const form = await openCoaches();
+
+  expect(within(form).getByText("0 coaches selected")).toBeVisible();
+  expect(within(form).getByText(/No coaches yet/)).toBeVisible();
+  expect(
+    within(form).getByText(/only prepares the coach list/i),
+  ).toHaveTextContent(/no invitations or emails are sent/i);
+  expect(putCalls()).toEqual([]);
+});
+
+test("carry-forward candidates from the previous season are unchecked until chosen and already-selected ones are checked", async () => {
+  const form = await openCoaches(
+    coachesPlan(
+      [{ name: "Lee", email: "lee@example.com" }],
+      [
+        { name: "Lee", email: "lee@example.com", selected: true },
+        { name: "Pat Smith", email: "pat@example.com" },
+      ],
+    ),
+  );
+
+  expect(within(form).getByText(/2025 Season/)).toBeVisible();
+  expect(within(form).getByLabelText("Lee (lee@example.com)")).toBeChecked();
+  const pat = within(form).getByLabelText("Pat Smith (pat@example.com)");
+  expect(pat).not.toBeChecked();
+  expect(within(form).getByText("1 coach selected")).toBeVisible();
+  fireEvent.click(pat);
+  expect(within(form).getByText("2 coaches selected")).toBeVisible();
+  fireEvent.click(pat);
+  expect(within(form).getByText("1 coach selected")).toBeVisible();
+});
+
+test("coaches already saved who are not carry-forward people are listed and can be removed, inactive ones are not", async () => {
+  const form = await openCoaches(
+    coachesPlan([
+      { name: "New One", email: "new@example.com" },
+      { name: "Dropped", email: "dropped@example.com", active: false },
+    ]),
+  );
+
+  expect(within(form).getByText("New One (new@example.com)")).toBeVisible();
+  expect(within(form).queryByText(/Dropped/)).not.toBeInTheDocument();
+  fireEvent.click(within(form).getByRole("button", { name: "Remove New One" }));
+  expect(within(form).getByText("0 coaches selected")).toBeVisible();
+});
+
+test("saving sends the complete list of carried-forward and new coaches, records the next step and keeps the page", async () => {
+  replies[SAVE_COACHES] = {
+    status: 200,
+    body: coachesPlan([
+      { name: "Pat Smith", email: "pat@example.com" },
+      { name: "Sam", email: "sam@example.com" },
+    ]),
+  };
+  replies[STEP] = stepReply();
+  const form = await openCoaches(
+    coachesPlan([], [{ name: "Pat Smith", email: "pat@example.com" }]),
+  );
+  fireEvent.click(within(form).getByLabelText("Pat Smith (pat@example.com)"));
+  fireEvent.click(within(form).getByRole("button", { name: "Add coach" }));
+  fireEvent.change(within(form).getByLabelText("New coach 1 email"), {
+    target: { value: "  Sam@Example.com " },
+  });
+  fireEvent.change(within(form).getByLabelText("New coach 1 name"), {
+    target: { value: "Sam" },
+  });
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByText("Coaches saved")).toBeVisible();
+  expect(
+    calls.find(
+      (call) => call.method === "PUT" && call.url.endsWith("/coaches"),
+    ),
+  ).toMatchObject({
+    body: {
+      coaches: [
+        { email: "pat@example.com", name: "Pat Smith" },
+        { email: "sam@example.com", name: "Sam" },
+      ],
+    },
+  });
+  expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
+    body: { step: 9 },
+  });
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Review and create",
+  );
+});
+
+test("zero coaches can be saved and the empty list is sent", async () => {
+  replies[SAVE_COACHES] = { status: 200, body: coachesPlan() };
+  replies[STEP] = stepReply();
+  const form = await openCoaches();
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByText("Coaches saved")).toBeVisible();
+  expect(
+    calls.find(
+      (call) => call.method === "PUT" && call.url.endsWith("/coaches"),
+    ),
+  ).toMatchObject({ body: { coaches: [] } });
+});
+
+test.each([
+  ["a malformed email", "not-an-email", "Sam", /valid email/i],
+  ["a blank name", "sam@example.com", "   ", /name/i],
+])(
+  "%s is explained without a request and keeps the row",
+  async (_label, email, name, message) => {
+    const form = await openCoaches();
+    fireEvent.click(within(form).getByRole("button", { name: "Add coach" }));
+    fireEvent.change(within(form).getByLabelText("New coach 1 email"), {
+      target: { value: email },
+    });
+    fireEvent.change(within(form).getByLabelText("New coach 1 name"), {
+      target: { value: name },
+    });
+
+    fireEvent.click(
+      within(form).getByRole("button", { name: "Save & continue" }),
+    );
+
+    expect(await within(form).findByRole("alert")).toHaveTextContent(message);
+    expect(within(form).getByLabelText("New coach 1 email")).toHaveValue(email);
+    expect(putCalls()).toEqual([]);
+  },
+);
+
+test("the same email twice, even in different case or against a carried-forward person, is explained without a request", async () => {
+  const form = await openCoaches(
+    coachesPlan(
+      [],
+      [{ name: "Pat", email: "pat@example.com", selected: true }],
+    ),
+  );
+  fireEvent.click(within(form).getByRole("button", { name: "Add coach" }));
+  fireEvent.change(within(form).getByLabelText("New coach 1 email"), {
+    target: { value: "PAT@example.com" },
+  });
+  fireEvent.change(within(form).getByLabelText("New coach 1 name"), {
+    target: { value: "Pat again" },
+  });
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    /more than once/i,
+  );
+  expect(putCalls()).toEqual([]);
+});
+
+test("a server rejection stays beside the page, keeps the rows and records no progress", async () => {
+  replies[SAVE_COACHES] = {
+    status: 400,
+    body: {
+      code: "season.coaches",
+      message:
+        "gone@example.com belongs to a deactivated person and cannot be added as a coach.",
+    },
+  };
+  const form = await openCoaches();
+  fireEvent.click(within(form).getByRole("button", { name: "Add coach" }));
+  fireEvent.change(within(form).getByLabelText("New coach 1 email"), {
+    target: { value: "gone@example.com" },
+  });
+  fireEvent.change(within(form).getByLabelText("New coach 1 name"), {
+    target: { value: "Gone" },
+  });
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "deactivated",
+  );
+  expect(within(form).getByLabelText("New coach 1 email")).toHaveValue(
+    "gone@example.com",
+  );
+  expect(calls.some((call) => call.url.endsWith("/step"))).toBe(false);
+});
+
+test("a failed load shows an error and leaves Back", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 8 }) };
+  replies[COACHES] = { status: 500, body: { title: "Boom" } };
+  render(<App />);
+
+  const form = await screen.findByRole("form", { name: "Coaches" });
 
   expect(await within(form).findByRole("alert")).toHaveTextContent("Boom");
   expect(
@@ -1399,7 +1651,9 @@ test("saving valid finishes sends the complete set, records Schedule import and 
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 4 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent(
+    "Review and create",
+  );
 });
 
 test("a server rejection of the finishes stays beside the page and does not record progress", async () => {
