@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.Caching.Memory;
 using Swan.Core;
 using Swan.Core.Common;
 using Swan.Core.Integrations;
@@ -711,6 +712,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     }
 
     private readonly FakeScheduleProvider provider = new();
+    private readonly MemoryCache previews = new(new MemoryCacheOptions());
 
     private sealed class FakeScheduleProvider : IScheduleProvider
     {
@@ -808,6 +810,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
         Assert.True(imported.IsSuccess);
         Assert.True(imported.Value!.Imported);
+        Assert.Equal(1, provider.Calls);
         Assert.Equal((2, 3, 1), await Counts());
         var weeks = await Run((service, database) => database.Weeks.AsNoTracking().OrderBy(week => week.Number).ToListAsync());
         Assert.Equal([1, 18], weeks.Select(week => week.Number));
@@ -841,18 +844,35 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AScheduleThatChangedSinceThePreviewIsRefused()
+    public async Task ImportSavesExactlyWhatWasPreviewedEvenIfTheProviderChangedAfterwardsWithoutAskingItAgain()
     {
         var (teams, _) = await SetupWithTeams();
         ProviderReturns(PG("10", 1, teams[0], teams[1]));
         var preview = await Run(service => service.PreviewScheduleAsync());
-        ProviderReturns(PG("10", 1, teams[0], teams[1], Kickoff.AddHours(3)));
+        ProviderReturns(PG("10", 1, teams[0], teams[1], Kickoff.AddHours(3)), PG("99", 2, teams[2], teams[3]));
 
         var imported = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
-        var forged = await Run(service => service.ImportScheduleAsync(Admin, "ABC"));
 
-        Assert.Equal("schedule.changed", imported.Error!.Code);
+        Assert.True(imported.IsSuccess);
+        Assert.Equal(1, provider.Calls);
+        var game = (await Run((service, database) => database.Weeks.AsNoTracking().SingleAsync())).Games.Single();
+        Assert.Equal(("10", Kickoff), (game.ProviderGameId, game.Kickoff.Value));
+    }
+
+    [Fact]
+    public async Task ImportRefusesAFingerprintThatWasNeverPreviewedOrHasExpiredAndNeverCallsTheProvider()
+    {
+        var (teams, _) = await SetupWithTeams();
+        ProviderReturns(PG("10", 1, teams[0], teams[1]));
+        var preview = await Run(service => service.PreviewScheduleAsync());
+        var forged = await Run(service => service.ImportScheduleAsync(Admin, "ABC"));
+        previews.Clear();
+
+        var expired = await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!));
+
         Assert.Equal("schedule.changed", forged.Error!.Code);
+        Assert.Equal("schedule.changed", expired.Error!.Code);
+        Assert.Equal(1, provider.Calls);
         Assert.Equal((0, 0, 0), await Counts());
     }
 
@@ -885,23 +905,9 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
             if (name == "no games") Assert.True(preview.IsSuccess);
             else Assert.Equal("schedule.invalid", preview.Error!.Code);
-            Assert.Equal(name == "no games" ? "schedule.empty" : "schedule.invalid", imported.Error!.Code);
+            Assert.Equal("schedule.changed", imported.Error!.Code);
             Assert.Equal((0, 0, 0), await Counts());
         }
-    }
-
-    [Theory]
-    [InlineData("schedule.config")]
-    [InlineData("schedule.provider")]
-    public async Task ImportWithAProviderProblemSavesNothing(string code)
-    {
-        await SetupWithTeams();
-        provider.Reply = Result<ProviderSchedule>.Failure(code, "nope");
-
-        var imported = await Run(service => service.ImportScheduleAsync(Admin, "ANY"));
-
-        Assert.Equal(code, imported.Error!.Code);
-        Assert.Equal((0, 0, 0), await Counts());
     }
 
     [Fact]
@@ -959,7 +965,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     private async Task<T> Run<T>(Func<SeasonSetupService, SwanDbContext, Task<T>> action)
     {
         await using var database = CreateDatabase();
-        return await action(new SeasonSetupService(database, new AuditService(database, new SystemClock()), provider, new SystemClock()), database);
+        return await action(new SeasonSetupService(database, new AuditService(database, new SystemClock()), provider, previews, new SystemClock()), database);
     }
 
     private SwanDbContext CreateDatabase() => new(new DbContextOptionsBuilder<SwanDbContext>().UseNpgsql(postgres.GetConnectionString(), npgsql => npgsql.EnableRetryOnFailure()).Options);

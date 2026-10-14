@@ -91,6 +91,16 @@ export E2E_RESET_SETUP_TEAMS_CMD="podman exec <postgres container> sh -c 'PGPASS
 
 `E2E_RESET_SETUP_SEASON_CMD` is the same with `...; delete from league.seasons where "State" = 0` appended. Sign-in links are limited to one per address per minute, so wait a minute between runs.
 
+## Schedule provider key
+
+The Schedule import page reads the NFL schedule from BALLDONTLIE. Put the API key in the API project's .NET user secrets (never in a file you commit):
+
+```sh
+dotnet user-secrets set "ExternalServices:BallDontLie:ApiKey" "<your key>" --project src/Swan.Api
+```
+
+Without it the preview reports that the provider is not configured. The provider rate limits requests, and a preview of a full season takes three, so wait a minute between previews.
+
 ## Troubleshooting
 
 After a sandboxed .NET build, run `dotnet build-server shutdown` before starting the AppHost; AppHost builds require permission to write their user-level runfile cache.

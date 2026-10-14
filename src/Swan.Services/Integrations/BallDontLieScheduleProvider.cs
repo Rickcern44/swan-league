@@ -60,7 +60,12 @@ public sealed partial class BallDontLieScheduleProvider(HttpClient http, IOption
 
             return Unavailable("The schedule provider returned too many pages.");
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("The schedule request timed out.");
+            return Unavailable("The schedule provider timed out; it may be rate limiting requests. Try again in a minute.");
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         {
             // Only the exception type is logged: messages can quote request details.
             logger.LogWarning("The schedule request failed: {Type}.", exception.GetType().Name);

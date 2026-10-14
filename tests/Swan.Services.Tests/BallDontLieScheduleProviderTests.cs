@@ -141,6 +141,18 @@ public sealed class BallDontLieScheduleProviderTests
         Assert.DoesNotContain(Key, fetched.Error.Message);
     }
 
+    [Fact]
+    public async Task ATimeoutIsReportedAsPossibleRateLimitingNotAsUnreachable()
+    {
+        var (provider, _) = Create(Key, _ => throw new TaskCanceledException("The request was canceled due to the configured timeout."));
+
+        var fetched = await provider.FetchRegularSeasonAsync(2026);
+
+        Assert.Equal("schedule.provider", fetched.Error!.Code);
+        Assert.Contains("rate limit", fetched.Error.Message);
+        Assert.DoesNotContain(Key, fetched.Error.Message);
+    }
+
     [Theory]
     [InlineData("not json")]
     [InlineData("""{"data":"nope"}""")]
