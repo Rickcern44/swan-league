@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
@@ -227,12 +226,28 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
             var edited = season.SaveFinesAndPayouts(missedPickFine, plans);
             if (!edited.IsSuccess) return Result<FinesAndPayoutsPlan>.Failure(edited.Error!.Code, edited.Error.Message);
             var after = Describe(season);
-            if (!JsonSerializer.Serialize(before).Equals(JsonSerializer.Serialize(after), StringComparison.Ordinal))
+            if (!SameValues(before, after))
                 await audit.AppendAsync(actor, "season.setup.fines-and-payouts.updated", season.Id.Value.ToString(), before, after, cancellationToken: cancellationToken);
             return Result<FinesAndPayoutsPlan>.Success(await FinesAndPayoutsAsync(season, cancellationToken));
         }, cancellationToken);
 
-    private static object Describe(Season season) => new { MissedPickFine = season.MissedPickFine?.Amount, Plans = season.PayoutPlans };
+    private sealed record Described(decimal? MissedPickFine, IReadOnlyList<PayoutPlan> Plans);
+
+    private static Described Describe(Season season) => new(season.MissedPickFine?.Amount, season.PayoutPlans);
+
+    // Compared by value, not text: 5 and 5.00 (or 70 and 70.00) are the same configuration and must not look like a change.
+    private static bool SameValues(Described before, Described after) =>
+        before.MissedPickFine == after.MissedPickFine
+        && before.Plans.Select(plan => (plan.Pool, Places: plan.Places.Select(place => (place.Position, place.Percent)).ToList()))
+            .SequenceEqual(after.Plans.Select(plan => (plan.Pool, Places: plan.Places.Select(place => (place.Position, place.Percent)).ToList())), new PlanComparer());
+
+    private sealed class PlanComparer : IEqualityComparer<(string Pool, List<(int Position, decimal Percent)> Places)>
+    {
+        public bool Equals((string Pool, List<(int Position, decimal Percent)> Places) left, (string Pool, List<(int Position, decimal Percent)> Places) right) =>
+            left.Pool == right.Pool && left.Places.SequenceEqual(right.Places);
+
+        public int GetHashCode((string Pool, List<(int Position, decimal Percent)> Places) value) => value.Pool.GetHashCode();
+    }
 
     private async Task<FinesAndPayoutsPlan> FinesAndPayoutsAsync(Season season, CancellationToken cancellationToken)
     {

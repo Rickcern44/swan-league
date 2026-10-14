@@ -966,6 +966,23 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(2, await PayoutAudits());
     }
 
+    [Theory]
+    [InlineData("5", "70", "30")]
+    [InlineData("5.0", "70.0", "30.0")]
+    [InlineData("5.00", "70.00", "30.00")]
+    public async Task ResavingTheSameValuesWithADifferentDecimalScaleWritesNoAudit(string fine, string first, string second)
+    {
+        await Migrate();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        Assert.True((await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(5.00m, "USD"), Plans(PP(1, 70.00m), PP(2, 30.00m))))).IsSuccess);
+        Assert.Equal(1, await PayoutAudits());
+
+        var replay = await Run(service => service.UpdateSetupFinesAndPayoutsAsync(Admin, new Money(decimal.Parse(fine), "USD"), Plans(PP(1, decimal.Parse(first)), PP(2, decimal.Parse(second)))));
+
+        Assert.True(replay.IsSuccess);
+        Assert.Equal(1, await PayoutAudits());
+    }
+
     [Fact]
     public async Task AnInvalidConfigurationIsRejectedAndKeepsTheSavedOneWithoutAuditing()
     {
