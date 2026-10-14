@@ -512,7 +512,7 @@ test("later steps are listed as upcoming and cannot be opened", async () => {
   expect(next).toHaveTextContent("Coaches");
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /coaches|review/i }),
+    screen.queryByRole("button", { name: /coaches/i }),
   ).not.toBeInTheDocument();
 });
 

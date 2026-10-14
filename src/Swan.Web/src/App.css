@@ -270,7 +270,7 @@ form.card.wide {
   padding: 0.5rem 0.6rem;
 }
 
-.card.wide label input {
+.card.wide label input:not([type="checkbox"]):not([type="radio"]) {
   width: 100%;
   max-width: 12rem;
 }

@@ -180,12 +180,8 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await expect(
       schedule.getByText(/Nothing is saved until you confirm/),
     ).toBeVisible();
-    await expect(page.getByText(/Coming next/)).toContainText(
-      "League settings",
-    );
-    await expect(
-      page.getByRole("button", { name: /league|settings/i }),
-    ).toHaveCount(0);
+    await expect(page.getByText(/Coming next/)).toContainText("Coaches");
+    await expect(page.getByRole("button", { name: /coaches/i })).toHaveCount(0);
     await schedule.getByRole("button", { name: "Preview schedule" }).click();
     // Whatever the provider says (a schedule, nothing published yet, or no key configured) is shown, with an explicit import step only if games came back.
     await expect(
