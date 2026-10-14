@@ -1420,6 +1420,9 @@ type CoachesPlan = {
 };
 type NewCoach = { key: number; email: string; name: string };
 
+// The same limits the server enforces (CoachRoster).
+const maxCoachName = 200;
+const maxCoachEmail = 320;
 const looksLikeEmail = (value: string) =>
   /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/.test(value.trim());
 
@@ -1486,10 +1489,14 @@ function CoachesStep({
       })),
     ];
     for (const [index, row] of added.entries()) {
-      if (!looksLikeEmail(row.email))
-        return fail(`New coach ${index + 1}: enter a valid email address.`);
-      if (row.name.trim() === "")
-        return fail(`New coach ${index + 1}: enter a display name.`);
+      if (!looksLikeEmail(row.email) || row.email.trim().length > maxCoachEmail)
+        return fail(
+          `New coach ${index + 1}: enter a valid email address (up to ${maxCoachEmail} characters).`,
+        );
+      if (row.name.trim() === "" || row.name.trim().length > maxCoachName)
+        return fail(
+          `New coach ${index + 1}: enter a display name (up to ${maxCoachName} characters).`,
+        );
     }
     const emails = list.map((entry) => entry.email.toLowerCase());
     const repeated = emails.find(

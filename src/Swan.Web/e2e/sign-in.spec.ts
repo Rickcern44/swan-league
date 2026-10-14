@@ -106,7 +106,9 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
   try {
     // The seeded database may or may not already hold a Setup season.
     const start = page.getByRole("form", { name: "Start a new season" });
-    if (await start.isVisible()) {
+    // `original` came from the API, so branch on that rather than on what the page happens to be showing while it is still loading.
+    if (!original) {
+      await expect(start).toBeVisible();
       await start.getByLabel("Season year").fill("2027");
       await start.getByLabel("Season name").fill("2027 Swan League");
       await start.getByRole("button", { name: "Create season" }).click();

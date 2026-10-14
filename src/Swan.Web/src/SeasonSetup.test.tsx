@@ -1478,6 +1478,18 @@ test("zero coaches can be saved and the empty list is sent", async () => {
 test.each([
   ["a malformed email", "not-an-email", "Sam", /valid email/i],
   ["a blank name", "sam@example.com", "   ", /name/i],
+  [
+    "a name over 200 characters",
+    "sam@example.com",
+    "n".repeat(201),
+    /200 characters/,
+  ],
+  [
+    "an email over 320 characters",
+    `${"e".repeat(320)}@example.com`,
+    "Sam",
+    /320 characters/,
+  ],
 ])(
   "%s is explained without a request and keeps the row",
   async (_label, email, name, message) => {
