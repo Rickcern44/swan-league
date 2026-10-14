@@ -208,7 +208,7 @@ const reviewData = (overrides: Record<string, unknown> = {}) => ({
     5,
   ),
   teamPickDeadlineEastern: "11:30:00",
-  teams: { entered: 32, total: 32, teams: [] },
+  teams: { entered: 32, total: 32, teams: catalog(true).teams },
   schedule: {
     weeks: 18,
     games: 272,
@@ -1669,6 +1669,46 @@ test("the review shows every saved choice from the saved data", async () => {
     within(form).getByRole("button", { name: "Finish setup" }),
   ).toBeEnabled();
   expect(putCalls()).toEqual([]);
+});
+
+test("the review lists every division's finishes and point values", async () => {
+  const form = await openReview();
+
+  const teams = within(form).getByRole("list", { name: "Teams by division" });
+  expect(within(teams).getAllByRole("listitem")).toHaveLength(8);
+  expect(
+    within(teams).getByText(
+      "AFC East: 1st AFC East Team 1 (1 pt) · 2nd AFC East Team 2 (2 pts) · 3rd AFC East Team 3 (3 pts) · 4th AFC East Team 4 (4 pts)",
+    ),
+  ).toBeVisible();
+  expect(
+    within(teams).getByText(/^NFC West: 1st NFC West Team 1/),
+  ).toBeVisible();
+});
+
+test("a team without a finish is shown as not set in its division line", async () => {
+  const partial = catalog(true).teams.map((team) =>
+    team.teamId === "AFC East-3"
+      ? { ...team, finishPosition: null, pointValue: null }
+      : team,
+  );
+  const form = await openReview(
+    reviewData({
+      ready: false,
+      blockers: [
+        blocker(
+          "teams",
+          "Teams and point values are incomplete: 31 of 32 teams have a division finish.",
+          "TeamsAndPoints",
+        ),
+      ],
+      teams: { entered: 31, total: 32, teams: partial },
+    }),
+  );
+
+  expect(
+    within(form).getByText(/AFC East: .*AFC East Team 3 not set/),
+  ).toBeVisible();
 });
 
 test("the page says exactly what finishing setup does not do", async () => {

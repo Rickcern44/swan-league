@@ -1696,7 +1696,7 @@ type Review = {
   money: { buyIn: number; pools: { name: string; stake: number }[] };
   payouts: FinesPlan;
   teamPickDeadlineEastern: string | null;
-  teams: { entered: number; total: number };
+  teams: { entered: number; total: number; teams: TeamRow[] };
   schedule: { weeks: number; games: number; complete: boolean };
   doubleDogWeeks: number[];
   leagueSettings: RulesPlan;
@@ -1861,6 +1861,30 @@ function ReviewStep({
             <span>{`${review.teams.entered} of ${review.teams.total} teams have a division finish`}</span>
             <span>{`${review.schedule.weeks} weeks, ${review.schedule.games} games imported`}</span>
             <span>{`Double-dog weeks: ${review.doubleDogWeeks.length > 0 ? review.doubleDogWeeks.join(", ") : "none chosen"}`}</span>
+          </fieldset>
+          <fieldset className="division">
+            <legend>Teams and point values</legend>
+            <ul className="issues" aria-label="Teams by division">
+              {[
+                ...new Set(review.teams.teams.map((team) => team.division)),
+              ].map((division) => (
+                <li key={division}>
+                  {`${division}: ${review.teams.teams
+                    .filter((team) => team.division === division)
+                    .sort(
+                      (a, b) =>
+                        (a.finishPosition ?? 99) - (b.finishPosition ?? 99) ||
+                        a.name.localeCompare(b.name),
+                    )
+                    .map((team) =>
+                      team.finishPosition === null
+                        ? `${team.name} not set`
+                        : `${ordinal(team.finishPosition)} ${team.name} (${team.pointValue} ${team.pointValue === 1 ? "pt" : "pts"})`,
+                    )
+                    .join(" · ")}`}
+                </li>
+              ))}
+            </ul>
           </fieldset>
           <fieldset className="division">
             <legend>League settings and coaches</legend>
