@@ -212,10 +212,19 @@ const wizardSteps = [
   "Teams and point values",
   "Schedule import",
   "Weeks and dogs",
+  "Fines and payouts",
 ] as const;
 const lastStep = wizardSteps.length - 1;
-const stepSlugs = ["basics", "money", "deadline", "teams", "schedule", "dogs"];
-const upcoming = ["Fines and payouts"];
+const stepSlugs = [
+  "basics",
+  "money",
+  "deadline",
+  "teams",
+  "schedule",
+  "dogs",
+  "payouts",
+];
+const upcoming = ["League settings"];
 
 function SetupCards({
   season,
@@ -566,7 +575,15 @@ function SetupCards({
         />
       )}
       {view === 5 && (
-        <DogsStep season={season} onSeason={onSeason} onBack={back} />
+        <DogsStep
+          season={season}
+          onSeason={onSeason}
+          onBack={back}
+          onContinue={() => goTo(6)}
+        />
+      )}
+      {view === 6 && (
+        <FinesStep season={season} onSeason={onSeason} onBack={back} />
       )}
       <p>Coming next: {upcoming.join(" → ")}</p>
     </>
@@ -757,10 +774,12 @@ function DogsStep({
   season,
   onSeason,
   onBack,
+  onContinue,
 }: {
   season: Season;
   onSeason: (season: Season) => void;
   onBack?: () => void;
+  onContinue: () => void;
 }) {
   const [plan, setPlan] = useState<DogPlan>();
   const [chosen, setChosen] = useState<number[]>([]);
@@ -798,7 +817,7 @@ function DogsStep({
     if (!("value" in saved))
       return setNotice({ kind: "error", text: saved.error });
     setPlan(saved.value);
-    // Fines and payouts is the next unbuilt step; the resume point never moves backwards.
+    // Fines and payouts is the next page; the resume point never moves backwards.
     const target = Math.max(season.setupStep, 6);
     if (target !== season.setupStep) {
       const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
@@ -811,7 +830,7 @@ function DogsStep({
         });
       onSeason(recorded.value);
     }
-    setNotice({ kind: "saved", text: "Double-dog weeks saved" });
+    onContinue();
   }
 
   const full = chosen.length >= 4;
@@ -853,6 +872,279 @@ function DogsStep({
               </li>
             ))}
           </ul>
+        </>
+      )}
+    </Card>
+  );
+}
+
+type PoolPayout = {
+  pool: string;
+  stake: number;
+  pot: number;
+  places: { position: number; percent: number; amount: number }[];
+};
+type FinesPlan = {
+  configured: boolean;
+  missedPickFine: number | null;
+  activeCoaches: number;
+  pools: PoolPayout[];
+};
+type PlaceRow = { position: number; percent: string };
+
+const ordinal = (n: number) => {
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = ["th", "st", "nd", "rd"][teen || n % 10 > 3 ? 0 : n % 10];
+  return `${n}${suffix}`;
+};
+const hundredths = (value: string) => Math.round(Number(value) * 100);
+const validPercent = (value: string) =>
+  value.trim() !== "" &&
+  Number.isFinite(Number(value)) &&
+  Number(value) > 0 &&
+  Math.abs(Number(value) * 100 - hundredths(value)) < 1e-6;
+
+// The same sharing rule the server applies: every placing but the first is its percent of the pot rounded down to the cent, and first place takes the remainder.
+function shares(potCents: number, rows: PlaceRow[]) {
+  const ordered = [...rows].sort((a, b) => a.position - b.position);
+  const amounts = ordered.map((row) =>
+    Math.floor((potCents * hundredths(row.percent)) / 10000),
+  );
+  if (amounts.length > 0)
+    amounts[0] =
+      potCents - amounts.slice(1).reduce((sum, cents) => sum + cents, 0);
+  return ordered.map((row, index) => ({
+    position: row.position,
+    cents: amounts[index],
+  }));
+}
+
+const totalHundredths = (rows: PlaceRow[]) =>
+  rows.reduce(
+    (sum, row) =>
+      sum +
+      (Number.isFinite(Number(row.percent)) ? hundredths(row.percent) : 0),
+    0,
+  );
+const rowsValid = (rows: PlaceRow[]) =>
+  rows.length > 0 &&
+  rows.every((row) => validPercent(row.percent)) &&
+  totalHundredths(rows) === 10000;
+
+// The fine and each pool's payout percentages; the calculator uses this season's active coach count and moves no money.
+function FinesStep({
+  season,
+  onSeason,
+  onBack,
+}: {
+  season: Season;
+  onSeason: (season: Season) => void;
+  onBack?: () => void;
+}) {
+  const [plan, setPlan] = useState<FinesPlan>();
+  const [fine, setFine] = useState("5.00");
+  const [rows, setRows] = useState<Record<string, PlaceRow[]>>({});
+  const [notice, setNotice] = useState<Notice>();
+
+  const load = (loaded: FinesPlan) => {
+    setPlan(loaded);
+    setFine((loaded.missedPickFine ?? 5).toFixed(2));
+    setRows(
+      Object.fromEntries(
+        loaded.pools.map((pool) => [
+          pool.pool,
+          pool.places.length > 0
+            ? pool.places.map((place) => ({
+                position: place.position,
+                percent: place.percent.toFixed(2),
+              }))
+            : [{ position: 1, percent: "100.00" }],
+        ]),
+      ),
+    );
+  };
+
+  useEffect(() => {
+    void send<FinesPlan>(
+      "GET",
+      "/api/admin/seasons/setup/fines-and-payouts",
+    ).then((result) =>
+      "value" in result
+        ? load(result.value)
+        : setNotice({ kind: "error", text: result.error }),
+    );
+  }, []);
+
+  const change = (pool: string, update: (current: PlaceRow[]) => PlaceRow[]) =>
+    setRows((current) => ({ ...current, [pool]: update(current[pool]) }));
+
+  async function save() {
+    if (!plan) return;
+    const fail = (text: string) => setNotice({ kind: "error", text });
+    const fineValue = Number(fine);
+    if (fine.trim() === "" || !validPercent(fine) || fineValue <= 0)
+      return fail(
+        "The missed-pick fine must be greater than zero and in whole cents.",
+      );
+    for (const pool of plan.pools)
+      if (!rowsValid(rows[pool.pool]))
+        return fail(
+          `${pool.pool}: every placing needs a percentage above zero, and they must total exactly 100.00 (they total ${(totalHundredths(rows[pool.pool]) / 100).toFixed(2)}).`,
+        );
+
+    const saved = await send<FinesPlan>(
+      "PUT",
+      "/api/admin/seasons/setup/fines-and-payouts",
+      {
+        missedPickFine: fineValue,
+        payouts: plan.pools.map((pool) => ({
+          pool: pool.pool,
+          places: [...rows[pool.pool]]
+            .sort((a, b) => a.position - b.position)
+            .map((row) => ({
+              position: row.position,
+              percent: Number(row.percent),
+            })),
+        })),
+      },
+    );
+    if (!("value" in saved)) return fail(saved.error);
+    load(saved.value);
+    // League settings is the next unbuilt step; the resume point never moves backwards.
+    const target = Math.max(season.setupStep, 7);
+    if (target !== season.setupStep) {
+      const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
+        step: target,
+      });
+      if (!("value" in recorded))
+        return fail(
+          `Saved, but your progress could not be recorded: ${recorded.error}`,
+        );
+      onSeason(recorded.value);
+    }
+    setNotice({ kind: "saved", text: "Fines and payouts saved" });
+  }
+
+  const coaches = plan?.activeCoaches ?? 0;
+  return (
+    <Card
+      title="Fines and payouts"
+      notice={notice}
+      action={plan ? "Save & continue" : undefined}
+      onBack={onBack}
+      onSubmit={() => void save()}
+    >
+      {!plan && !notice && <span>Loading the payout settings…</span>}
+      {plan && (
+        <>
+          <span className="hint">{`${coaches} active ${coaches === 1 ? "coach" : "coaches"}`}</span>
+          <label>
+            Missed team-pick fine
+            <input
+              type="number"
+              step="0.01"
+              value={fine}
+              onChange={(event) => setFine(event.target.value)}
+            />
+          </label>
+          {plan.pools.map((pool) => {
+            const current = rows[pool.pool] ?? [];
+            const total = totalHundredths(current);
+            const potCents = Math.round(pool.stake * 100) * coaches;
+            return (
+              <fieldset key={pool.pool} className="division">
+                <legend>{`${pool.pool} pool`}</legend>
+                <span className="hint">{`${pool.pool} pool · ${dollars(Math.round(pool.stake * 100))} per coach · current pot ${dollars(potCents)}`}</span>
+                {[...current]
+                  .sort((a, b) => a.position - b.position)
+                  .map((row) => (
+                    <div key={row.position} className="place-row">
+                      <span>{`${ordinal(row.position)} place`}</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        aria-label={`${pool.pool} ${ordinal(row.position)} place percent`}
+                        value={row.percent}
+                        onChange={(event) => {
+                          const { value } = event.target;
+                          change(pool.pool, (existing) =>
+                            existing.map((other) =>
+                              other.position === row.position
+                                ? { ...other, percent: value }
+                                : other,
+                            ),
+                          );
+                        }}
+                      />
+                      <span>%</span>
+                      {current.length > 1 && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          aria-label={`Remove ${pool.pool} ${ordinal(row.position)} place`}
+                          onClick={() =>
+                            change(pool.pool, (existing) =>
+                              existing.filter(
+                                (other) => other.position !== row.position,
+                              ),
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-label={`Add ${pool.pool} placing`}
+                  onClick={() =>
+                    change(pool.pool, (existing) => [
+                      ...existing,
+                      {
+                        position:
+                          Math.max(0, ...existing.map((row) => row.position)) +
+                          1,
+                        percent: "",
+                      },
+                    ])
+                  }
+                >
+                  + Add placing
+                </button>
+                <span className="hint">
+                  {`${pool.pool} total ${(total / 100).toFixed(2)}%${rowsValid(current) ? "" : " — must be 100.00%"}`}
+                </span>
+              </fieldset>
+            );
+          })}
+          <div className="calculator">
+            <strong>Calculator</strong>
+            {coaches === 0 && (
+              <span role="status" className="hint">
+                No active coaches yet. Payouts update as coaches are added.
+              </span>
+            )}
+            <ul>
+              {plan.pools.map((pool) => {
+                const current = rows[pool.pool] ?? [];
+                const potCents = Math.round(pool.stake * 100) * coaches;
+                return (
+                  <li key={pool.pool}>
+                    {rowsValid(current)
+                      ? `${pool.pool}: ${shares(potCents, current)
+                          .map(
+                            (share) =>
+                              `${ordinal(share.position)} ${dollars(share.cents)}`,
+                          )
+                          .join(" · ")}`
+                      : `${pool.pool}: fix the percentages to see payouts`}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </>
       )}
     </Card>
