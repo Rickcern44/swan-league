@@ -248,3 +248,29 @@ button.secondary {
   padding-left: 1.1rem;
   font-size: 0.9rem;
 }
+
+/* A card whose content is wide forms (fines and payouts) keeps one column at every width and lets its boxes shrink instead of overflowing. */
+form.card.wide {
+  grid-template-columns: 1fr;
+}
+
+.division {
+  min-width: 0;
+}
+
+.place-row {
+  grid-template-columns: 4.5rem minmax(0, 1fr) auto auto;
+}
+
+.place-row input {
+  min-width: 0;
+}
+
+.place-row button {
+  padding: 0.5rem 0.6rem;
+}
+
+.card.wide label input {
+  width: 100%;
+  max-width: 12rem;
+}

@@ -9,7 +9,7 @@ const mailpitUrl = process.env.E2E_MAILPIT_URL;
 const resetSetupSeason = process.env.E2E_RESET_SETUP_SEASON_CMD;
 const resetSetupTeams = process.env.E2E_RESET_SETUP_TEAMS_CMD;
 // A Setup season that had no fines and payouts configured is put back with, e.g.
-// psql -c 'update league.seasons set "PayoutPlans" = '"'"'[]'"'"', "MissedPickFine" = 5.00 where "State" = 0'
+// psql -c 'update league.seasons set "PayoutPlans" = (chr(91) || chr(93)), "MissedPickFine" = 5.00 where "State" = 0'
 const resetSetupPayouts = process.env.E2E_RESET_SETUP_PAYOUTS_CMD;
 
 async function signIn(page: import("@playwright/test").Page, email: string) {
@@ -221,7 +221,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     const fines = page.getByRole("form", { name: "Fines and payouts" });
     await expect(fines).toBeVisible();
     await expect(page.getByText("Step 7 of 7")).toBeVisible();
-    await expect(fines.getByText(/active coach/)).toBeVisible();
+    await expect(fines.getByText(/^\d+ active coaches?$/)).toBeVisible();
     await expect(fines.getByLabel("Main 1st place percent")).toHaveValue(
       /^100/,
     );

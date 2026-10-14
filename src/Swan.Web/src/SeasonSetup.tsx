@@ -112,6 +112,7 @@ function Card({
   onSubmit,
   action,
   onBack,
+  wide,
 }: {
   title: string;
   notice: Notice;
@@ -119,10 +120,11 @@ function Card({
   onSubmit: () => void;
   action?: string;
   onBack?: () => void;
+  wide?: boolean;
 }) {
   return (
     <form
-      className="card"
+      className={wide ? "card wide" : "card"}
       aria-label={title}
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
@@ -1029,6 +1031,7 @@ function FinesStep({
   return (
     <Card
       title="Fines and payouts"
+      wide
       notice={notice}
       action={plan ? "Save & continue" : undefined}
       onBack={onBack}

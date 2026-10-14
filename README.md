@@ -89,7 +89,7 @@ The E2E test edits the Setup season and puts it back, so run it only against a d
 export E2E_RESET_SETUP_TEAMS_CMD="podman exec <postgres container> sh -c 'PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -U postgres -d swan -c \"delete from schedule.season_teams where \\\"SeasonId\\\" in (select \\\"Id\\\" from league.seasons where \\\"State\\\" = 0)\"'"
 ```
 
-If the test saves fines and payouts on a season that had none configured, `E2E_RESET_SETUP_PAYOUTS_CMD` puts that back (for example `update league.seasons set "PayoutPlans" = '[]', "MissedPickFine" = 5.00 where "State" = 0`). `E2E_RESET_SETUP_SEASON_CMD` is the same with `...; delete from league.seasons where "State" = 0` appended. Sign-in links are limited to one per address per minute, so wait a minute between runs.
+If the test saves fines and payouts on a season that had none configured, `E2E_RESET_SETUP_PAYOUTS_CMD` puts that back (for example `update league.seasons set "PayoutPlans" = (chr(91) || chr(93)), "MissedPickFine" = 5.00 where "State" = 0`; `chr(91) || chr(93)` is `[]` and avoids nested shell quotes). `E2E_RESET_SETUP_SEASON_CMD` is the same with `...; delete from league.seasons where "State" = 0` appended. Sign-in links are limited to one per address per minute, so wait a minute between runs.
 
 ## Schedule provider key
 
