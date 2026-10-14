@@ -113,6 +113,7 @@ function Card({
   action,
   onBack,
   wide,
+  actionDisabled,
 }: {
   title: string;
   notice: Notice;
@@ -121,6 +122,7 @@ function Card({
   action?: string;
   onBack?: () => void;
   wide?: boolean;
+  actionDisabled?: boolean;
 }) {
   return (
     <form
@@ -142,7 +144,11 @@ function Card({
             Back
           </button>
         )}
-        {action && <button type="submit">{action}</button>}
+        {action && (
+          <button type="submit" disabled={actionDisabled}>
+            {action}
+          </button>
+        )}
       </div>
     </form>
   );
@@ -218,6 +224,7 @@ const wizardSteps = [
   "Fines and payouts",
   "League settings",
   "Coaches",
+  "Review and create",
 ] as const;
 const lastStep = wizardSteps.length - 1;
 const stepSlugs = [
@@ -230,8 +237,9 @@ const stepSlugs = [
   "payouts",
   "rules",
   "coaches",
+  "review",
 ];
-const upcoming = ["Review and create"];
+const upcoming: string[] = [];
 
 function SetupCards({
   season,
@@ -606,9 +614,22 @@ function SetupCards({
         />
       )}
       {view === 8 && (
-        <CoachesStep season={season} onSeason={onSeason} onBack={back} />
+        <CoachesStep
+          season={season}
+          onSeason={onSeason}
+          onBack={back}
+          onContinue={() => goTo(9)}
+        />
       )}
-      <p>Coming next: {upcoming.join(" → ")}</p>
+      {view === 9 && (
+        <ReviewStep
+          season={season}
+          onSeason={onSeason}
+          onBack={back}
+          onFix={goTo}
+        />
+      )}
+      {upcoming.length > 0 && <p>Coming next: {upcoming.join(" → ")}</p>}
     </>
   );
 }
@@ -1431,10 +1452,12 @@ function CoachesStep({
   season,
   onSeason,
   onBack,
+  onContinue,
 }: {
   season: Season;
   onSeason: (season: Season) => void;
   onBack?: () => void;
+  onContinue: () => void;
 }) {
   const [plan, setPlan] = useState<CoachesPlan>();
   const [chosen, setChosen] = useState<string[]>([]);
@@ -1511,7 +1534,7 @@ function CoachesStep({
     );
     if (!("value" in saved)) return fail(saved.error);
     load(saved.value);
-    // Review and create is the next unbuilt step; the resume point never moves backwards.
+    // Review and create is the next page; the resume point never moves backwards.
     const target = Math.max(season.setupStep, 9);
     if (target !== season.setupStep) {
       const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
@@ -1523,7 +1546,7 @@ function CoachesStep({
         );
       onSeason(recorded.value);
     }
-    setNotice({ kind: "saved", text: "Coaches saved" });
+    onContinue();
   }
 
   return (
@@ -1656,6 +1679,193 @@ function CoachesStep({
             >
               Add coach
             </button>
+          </fieldset>
+        </>
+      )}
+    </Card>
+  );
+}
+
+type ReviewIssue = { code: string; message: string; step: string };
+type Review = {
+  completed: boolean;
+  ready: boolean;
+  blockers: ReviewIssue[];
+  warnings: ReviewIssue[];
+  basics: { year: number; name: string; isSimulation: boolean };
+  money: { buyIn: number; pools: { name: string; stake: number }[] };
+  payouts: FinesPlan;
+  teamPickDeadlineEastern: string | null;
+  teams: { entered: number; total: number };
+  schedule: { weeks: number; games: number; complete: boolean };
+  doubleDogWeeks: number[];
+  leagueSettings: RulesPlan;
+  activeCoaches: number;
+};
+
+// The wizard page each issue's `step` name belongs to.
+const stepPages: Record<string, number> = {
+  Basics: 0,
+  Money: 1,
+  WeeklyDeadline: 2,
+  TeamsAndPoints: 3,
+  ScheduleImport: 4,
+  WeeksAndDogs: 5,
+  FinesAndPayouts: 6,
+  LeagueSettings: 7,
+  Coaches: 8,
+};
+
+const clock = (value: string | null) => {
+  if (!value) return "the default time";
+  const [hours, minutes] = value.split(":").map(Number);
+  return `${hours % 12 === 0 ? 12 : hours % 12}:${String(minutes).padStart(2, "0")} ${hours < 12 ? "AM" : "PM"}`;
+};
+
+// Everything here is read from saved data. Finishing setup only records that the wizard is complete.
+function ReviewStep({
+  season,
+  onSeason,
+  onBack,
+  onFix,
+}: {
+  season: Season;
+  onSeason: (season: Season) => void;
+  onBack?: () => void;
+  onFix: (page: number) => void;
+}) {
+  const [review, setReview] = useState<Review>();
+  const [notice, setNotice] = useState<Notice>();
+
+  useEffect(() => {
+    void send<Review>("GET", "/api/admin/seasons/setup/review").then(
+      (result) =>
+        "value" in result
+          ? setReview(result.value)
+          : setNotice({ kind: "error", text: result.error }),
+    );
+  }, []);
+
+  async function finish() {
+    const finished = await send<Review>(
+      "POST",
+      "/api/admin/seasons/setup/review/finish",
+    );
+    if (!("value" in finished))
+      return setNotice({ kind: "error", text: finished.error });
+    setReview(finished.value);
+    setNotice(undefined);
+    onSeason({ ...season, setupStep: 10 });
+  }
+
+  const issue = (entry: ReviewIssue, kind: "blocker" | "warning") => {
+    const page = stepPages[entry.step];
+    return (
+      <li key={entry.code} className={`issue ${kind}`}>
+        <span>{entry.message}</span>
+        {page !== undefined && (
+          <button
+            type="button"
+            className="secondary"
+            aria-label={`Fix: ${wizardSteps[page]}`}
+            onClick={() => onFix(page)}
+          >
+            Fix
+          </button>
+        )}
+      </li>
+    );
+  };
+
+  const blocked = review ? review.blockers.length > 0 : true;
+  const done = review?.completed && !blocked;
+  return (
+    <Card
+      title="Review and create"
+      wide
+      notice={notice}
+      action={review && !done ? "Finish setup" : undefined}
+      actionDisabled={blocked}
+      onBack={onBack}
+      onSubmit={() => void finish()}
+    >
+      {!review && !notice && <span>Loading the review…</span>}
+      {review && (
+        <>
+          <span className="hint">
+            Finishing setup only marks this draft as complete. It does not
+            activate the season, send invitations or emails, open the roster
+            window, create rosters or move any money.
+          </span>
+          {done && (
+            <span role="status" className="done">
+              {`Setup is finished. ${review.basics.name} is still a draft in Setup: nothing has been activated, sent or created.`}
+            </span>
+          )}
+          {review.completed && blocked && (
+            <span className="hint">
+              Setup was finished earlier, but something has changed since.
+            </span>
+          )}
+          {review.blockers.length > 0 && (
+            <fieldset className="division">
+              <legend>Needs fixing</legend>
+              <ul className="issues">
+                {review.blockers.map((entry) => issue(entry, "blocker"))}
+              </ul>
+            </fieldset>
+          )}
+          {review.warnings.length > 0 && (
+            <fieldset className="division">
+              <legend>Worth a look</legend>
+              <ul className="issues">
+                {review.warnings.map((entry) => issue(entry, "warning"))}
+              </ul>
+            </fieldset>
+          )}
+          {blocked && (
+            <span className="hint">
+              Fix the blockers above to finish setup.
+            </span>
+          )}
+          <fieldset className="division">
+            <legend>Basics</legend>
+            <span>{`${review.basics.name} (${review.basics.year})`}</span>
+            <span>{`Simulation season: ${review.basics.isSimulation ? "yes" : "no"}`}</span>
+          </fieldset>
+          <fieldset className="division">
+            <legend>Money</legend>
+            <span>{`Buy-in ${dollars(Math.round(review.money.buyIn * 100))}`}</span>
+            <span>
+              {review.money.pools
+                .map(
+                  (pool) =>
+                    `${pool.name} ${dollars(Math.round(pool.stake * 100))}`,
+                )
+                .join(" · ")}
+            </span>
+            <span>{`Missed team-pick fine ${review.payouts.missedPickFine === null ? "not set" : dollars(Math.round(review.payouts.missedPickFine * 100))}`}</span>
+            <ul className="issues">
+              {review.payouts.pools.map((pool) => (
+                <li key={pool.pool}>
+                  {pool.places.length === 0
+                    ? `${pool.pool}: not set`
+                    : `${pool.pool}: ${pool.places.map((place) => `${ordinal(place.position)} ${place.percent.toFixed(2)}%`).join(" · ")}`}
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+          <fieldset className="division">
+            <legend>Schedule and teams</legend>
+            <span>{`Team picks lock Sundays at ${clock(review.teamPickDeadlineEastern)} Eastern`}</span>
+            <span>{`${review.teams.entered} of ${review.teams.total} teams have a division finish`}</span>
+            <span>{`${review.schedule.weeks} weeks, ${review.schedule.games} games imported`}</span>
+            <span>{`Double-dog weeks: ${review.doubleDogWeeks.length > 0 ? review.doubleDogWeeks.join(", ") : "none chosen"}`}</span>
+          </fieldset>
+          <fieldset className="division">
+            <legend>League settings and coaches</legend>
+            <span>{`R17 ${review.leagueSettings.teamMayAlsoBeDog ? "on" : "off"} · R18 ${review.leagueSettings.pointColors.map((entry) => `${entry.points} ${entry.color}`).join(", ")} · R19 ${review.leagueSettings.recordHolder === "FirstOccurrence" ? "first occurrence" : "most occurrences"}`}</span>
+            <span>{`${review.activeCoaches} active ${review.activeCoaches === 1 ? "coach" : "coaches"}`}</span>
           </fieldset>
         </>
       )}

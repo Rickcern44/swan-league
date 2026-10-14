@@ -122,7 +122,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     const basics = page.getByRole("form", { name: "Basics" });
     await expect(basics).toBeVisible();
-    await expect(page.getByText("Step 1 of 9")).toBeVisible();
+    await expect(page.getByText("Step 1 of 10")).toBeVisible();
     await expect(page.getByRole("form", { name: "Money" })).toHaveCount(0);
     await basics.getByLabel("Season name").fill("E2E Swan League");
     await basics.getByLabel("Simulation season").check();
@@ -131,10 +131,10 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Closing the browser and coming back opens the saved step.
     const money = page.getByRole("form", { name: "Money" });
     await expect(money).toBeVisible();
-    await expect(page.getByText("Step 2 of 9")).toBeVisible();
+    await expect(page.getByText("Step 2 of 10")).toBeVisible();
     await page.reload();
     await expect(money).toBeVisible();
-    await expect(page.getByText("Step 2 of 9")).toBeVisible();
+    await expect(page.getByText("Step 2 of 10")).toBeVisible();
 
     // Back navigates without saving; reloading still resumes at Money.
     await money.getByRole("button", { name: "Back" }).click();
@@ -160,13 +160,13 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     const deadline = page.getByRole("form", { name: "Weekly deadline" });
     await expect(deadline).toBeVisible();
-    await expect(page.getByText("Step 3 of 9")).toBeVisible();
+    await expect(page.getByText("Step 3 of 10")).toBeVisible();
     await deadline.getByLabel("Team picks lock Sundays at").fill("11:30");
     await deadline.getByRole("button", { name: "Save & continue" }).click();
 
     const teams = page.getByRole("form", { name: "Teams and point values" });
     await expect(teams).toBeVisible();
-    await expect(page.getByText("Step 4 of 9")).toBeVisible();
+    await expect(page.getByText("Step 4 of 10")).toBeVisible();
 
     // Each division, one team per finish (wait for the catalog to load first: all() does not).
     await expect(teams.getByRole("group")).toHaveCount(8);
@@ -191,7 +191,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Saving the teams moves on to Schedule import, which only previews: the provider is contacted on demand and nothing is imported here.
     const schedule = page.getByRole("form", { name: "Schedule import" });
     await expect(schedule).toBeVisible();
-    await expect(page.getByText("Step 5 of 9")).toBeVisible();
+    await expect(page.getByText("Step 5 of 10")).toBeVisible();
     await expect(
       schedule.getByText(/Nothing is saved until you confirm/),
     ).toBeVisible();
@@ -216,7 +216,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Reloading opens the saved Schedule page; Back returns to Teams with the saved finishes.
     await page.reload();
     await expect(schedule).toBeVisible();
-    await expect(page.getByText("Step 5 of 9")).toBeVisible();
+    await expect(page.getByText("Step 5 of 10")).toBeVisible();
 
     // Weeks and dogs reads only the imported schedule: with none imported it says so instead of listing weeks.
     await page.request.put("/api/admin/seasons/setup/step", {
@@ -225,7 +225,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await page.reload();
     const dogs = page.getByRole("form", { name: "Weeks and dogs" });
     await expect(dogs).toBeVisible();
-    await expect(page.getByText("Step 6 of 9")).toBeVisible();
+    await expect(page.getByText("Step 6 of 10")).toBeVisible();
     await expect(dogs.getByRole("alert")).toContainText(
       "Import the full regular-season schedule",
     );
@@ -240,7 +240,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await page.reload();
     const fines = page.getByRole("form", { name: "Fines and payouts" });
     await expect(fines).toBeVisible();
-    await expect(page.getByText("Step 7 of 9")).toBeVisible();
+    await expect(page.getByText("Step 7 of 10")).toBeVisible();
     await expect(fines.getByText(/^\d+ active coaches?$/)).toBeVisible();
     await expect(fines.getByLabel("Main 1st place percent")).toHaveValue(
       /^100/,
@@ -261,7 +261,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Saving moves on to League settings: defaults first, then change R17, R18 and R19 and see them again after a reload.
     const rules = page.getByRole("form", { name: "League settings" });
     await expect(rules).toBeVisible();
-    await expect(page.getByText("Step 8 of 9")).toBeVisible();
+    await expect(page.getByText("Step 8 of 10")).toBeVisible();
     await expect(rules.getByLabel(/R17/)).toBeChecked();
     await expect(rules.getByLabel("1 point color")).toHaveValue("Green");
     await expect(rules.getByLabel("First occurrence")).toBeChecked();
@@ -283,11 +283,10 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     // Saving moves on to Coaches: the seeded demo season offers its coaches to carry forward; nothing is sent or created until saved.
     const coaches = page.getByRole("form", { name: "Coaches" });
+    const review = page.getByRole("form", { name: "Review and create" });
     await expect(coaches).toBeVisible();
-    await expect(page.getByText("Step 9 of 9")).toBeVisible();
-    await expect(page.getByText(/Coming next/)).toContainText(
-      "Review and create",
-    );
+    await expect(page.getByText("Step 9 of 10")).toBeVisible();
+    await expect(page.getByText(/Coming next/)).toHaveCount(0);
     await expect(
       coaches.getByText(/No invitations or emails are sent/),
     ).toBeVisible();
@@ -306,8 +305,31 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
       await coaches.getByLabel("New coach 1 name").fill("E2E New Coach");
       await expect(coaches.getByText("3 coaches selected")).toBeVisible();
       await coaches.getByRole("button", { name: "Save & continue" }).click();
-      await expect(coaches.getByText("Coaches saved")).toBeVisible();
+
+      // Saving moves on to Review and create. This run imports no schedule and saves no double-dog weeks, so it shows what still needs fixing and finishing stays disabled.
+      await expect(review).toBeVisible();
+      await expect(page.getByText("Step 10 of 10")).toBeVisible();
+      await expect(review.getByText("3 active coaches")).toBeVisible();
+      await expect(
+        review.getByText(/0 of 18 weeks are imported/),
+      ).toBeVisible();
+      await expect(
+        review.getByText(/Choose the 3 or 4 double-dog weeks/),
+      ).toBeVisible();
+      await expect(
+        review.getByText(/Finishing setup only marks this draft/),
+      ).toContainText("does not activate the season");
+      await expect(
+        review.getByRole("button", { name: "Finish setup" }),
+      ).toBeDisabled();
+      await review
+        .getByRole("button", { name: "Fix: Schedule import" })
+        .click();
+      await expect(schedule).toBeVisible();
+      // Reloading resumes at the saved step (Review and create), not at the page that was just visited.
       await page.reload();
+      await expect(review).toBeVisible();
+      await review.getByRole("button", { name: "Back" }).click();
       await expect(coaches).toBeVisible();
       await expect(coaches.getByText("3 coaches selected")).toBeVisible();
       await expect(
@@ -324,6 +346,11 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
       await expect(rules).toBeVisible();
     }
     await page.reload();
+    // The saved resume point is Review and create when coaches were saved, otherwise still Coaches.
+    if (coachesBefore.length === 0) {
+      await expect(review).toBeVisible();
+      await review.getByRole("button", { name: "Back" }).click();
+    }
     await expect(coaches).toBeVisible();
     await coaches.getByRole("button", { name: "Back" }).click();
     await expect(rules).toBeVisible();

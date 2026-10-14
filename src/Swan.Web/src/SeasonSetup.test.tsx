@@ -179,6 +179,52 @@ const coachesPlan = (
   activeCoaches: coaches.filter((coach) => coach.active ?? true).length,
 });
 
+const reviewData = (overrides: Record<string, unknown> = {}) => ({
+  completed: false,
+  ready: true,
+  blockers: [],
+  warnings: [],
+  basics: { year: 2027, name: "2027 Swan League", isSimulation: true },
+  money: {
+    buyIn: 100,
+    pools: [
+      { name: "Main", stake: 60 },
+      { name: "Dog", stake: 20 },
+      { name: "Regular Season", stake: 10 },
+      { name: "Playoff", stake: 10 },
+    ],
+  },
+  payouts: finesPlan(
+    6,
+    {
+      Main: [
+        [1, 70],
+        [2, 30],
+      ],
+      Dog: [[1, 100]],
+      "Regular Season": [[1, 100]],
+      Playoff: [[1, 100]],
+    },
+    5,
+  ),
+  teamPickDeadlineEastern: "11:30:00",
+  teams: { entered: 32, total: 32, teams: [] },
+  schedule: {
+    weeks: 18,
+    games: 272,
+    complete: true,
+    firstKickoff: "2027-09-10T00:20:00+00:00",
+    lastKickoff: "2028-01-09T21:25:00+00:00",
+  },
+  doubleDogWeeks: [2, 12, 17],
+  leagueSettings: rulesPlan({
+    teamMayAlsoBeDog: false,
+    recordHolder: "MostOccurrences",
+  }),
+  activeCoaches: 6,
+  ...overrides,
+});
+
 type Reply = { status: number; body?: unknown };
 let replies: Record<
   string,
@@ -232,6 +278,7 @@ beforeEach(() => {
     [FINES]: { status: 200, body: finesPlan() },
     [RULES]: { status: 200, body: rulesPlan() },
     [COACHES]: { status: 200, body: coachesPlan() },
+    [REVIEW]: { status: 200, body: reviewData() },
     [SCHEDULE]: {
       status: 200,
       body: plan({ imported: false, fingerprint: null, weeks: [] }),
@@ -254,6 +301,8 @@ const RULES = "GET /api/admin/seasons/setup/league-settings";
 const SAVE_RULES = "PUT /api/admin/seasons/setup/league-settings";
 const COACHES = "GET /api/admin/seasons/setup/coaches";
 const SAVE_COACHES = "PUT /api/admin/seasons/setup/coaches";
+const REVIEW = "GET /api/admin/seasons/setup/review";
+const FINISH = "POST /api/admin/seasons/setup/review/finish";
 const SAVE_TEAMS = "PUT /api/admin/seasons/setup/teams";
 const STEP = "PUT /api/admin/seasons/setup/step";
 const putCalls = () =>
@@ -286,7 +335,7 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
   fireEvent.click(within(card).getByRole("button", { name: "Create season" }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
-  expect(screen.getByText("Step 1 of 9")).toBeVisible();
+  expect(screen.getByText("Step 1 of 10")).toBeVisible();
   expect(screen.getByLabelText("Season name")).toHaveValue("2027 Swan League");
   expect(calls.find((call) => call.method === "POST")).toMatchObject({
     body: { year: 2027, name: "2027 Swan League", isSimulation: true },
@@ -298,16 +347,17 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
 });
 
 test.each([
-  [0, "Basics", "Step 1 of 9"],
-  [1, "Money", "Step 2 of 9"],
-  [2, "Weekly deadline", "Step 3 of 9"],
-  [3, "Teams and point values", "Step 4 of 9"],
-  [4, "Schedule import", "Step 5 of 9"],
-  [5, "Weeks and dogs", "Step 6 of 9"],
-  [6, "Fines and payouts", "Step 7 of 9"],
-  [7, "League settings", "Step 8 of 9"],
-  [8, "Coaches", "Step 9 of 9"],
-  [9, "Coaches", "Step 9 of 9"],
+  [0, "Basics", "Step 1 of 10"],
+  [1, "Money", "Step 2 of 10"],
+  [2, "Weekly deadline", "Step 3 of 10"],
+  [3, "Teams and point values", "Step 4 of 10"],
+  [4, "Schedule import", "Step 5 of 10"],
+  [5, "Weeks and dogs", "Step 6 of 10"],
+  [6, "Fines and payouts", "Step 7 of 10"],
+  [7, "League settings", "Step 8 of 10"],
+  [8, "Coaches", "Step 9 of 10"],
+  [9, "Review and create", "Step 10 of 10"],
+  [10, "Review and create", "Step 10 of 10"],
 ])(
   "a fresh load resumes at the saved step %i",
   async (setupStep, form, position) => {
@@ -354,7 +404,7 @@ test("Save & continue on Basics saves it, records Money as the resume point and 
   fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
   expect(await screen.findByRole("form", { name: "Money" })).toBeVisible();
-  expect(screen.getByText("Step 2 of 9")).toBeVisible();
+  expect(screen.getByText("Step 2 of 10")).toBeVisible();
   expect(putCalls()).toEqual(["/", "/step"]);
   expect(
     calls.find(
@@ -529,19 +579,14 @@ test("a failed resume-point save is reported and the page does not advance", asy
   expect(screen.getByRole("form", { name: "Basics" })).toBeVisible();
 });
 
-test("later steps are listed as upcoming and cannot be opened", async () => {
+test("every wizard page exists, so nothing is listed as coming next and no placeholder pages are offered", async () => {
   stubApi("Admin");
-  replies[SETUP] = { status: 200, body: season({ setupStep: 9 }) };
+  replies[SETUP] = { status: 200, body: season({ setupStep: 10 }) };
   render(<App />);
 
-  await screen.findByRole("form", { name: "Coaches" });
-  const next = screen.getByText(/Coming next/);
-  expect(next).not.toHaveTextContent(/Coaches/);
-  expect(next).toHaveTextContent("Review and create");
+  await screen.findByRole("form", { name: "Review and create" });
+  expect(screen.queryByText(/Coming next/)).not.toBeInTheDocument();
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole("button", { name: /review and create/i }),
-  ).not.toBeInTheDocument();
 });
 
 const openSchedule = async (overrides: Record<string, unknown> = {}) => {
@@ -629,9 +674,7 @@ test("confirming imports with the previewed fingerprint, records Weeks and dogs 
   expect(
     within(form).queryByRole("button", { name: /Preview|Import/ }),
   ).not.toBeInTheDocument();
-  expect(screen.getByText(/Coming next/)).toHaveTextContent(
-    "Review and create",
-  );
+  expect(screen.queryByText(/Coming next/)).not.toBeInTheDocument();
 });
 
 test("an empty preview says nothing is published yet and that manual import stays available", async () => {
@@ -842,9 +885,7 @@ test("saving sends the chosen weeks, records the next step and moves on to Fines
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 6 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent(
-    "Review and create",
-  );
+  expect(screen.queryByText(/Coming next/)).not.toBeInTheDocument();
 });
 
 test("a server rejection is shown beside the page, keeps the choice and records no progress", async () => {
@@ -1137,9 +1178,7 @@ test("saving sends the fine and every plan, records the next step and moves on t
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 7 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent(
-    "Review and create",
-  );
+  expect(screen.queryByText(/Coming next/)).not.toBeInTheDocument();
 });
 
 test("a server rejection stays beside the page, keeps the edits and records no progress", async () => {
@@ -1273,9 +1312,7 @@ test("changed settings are sent in the API shape, the next step is recorded and 
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 8 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent(
-    "Review and create",
-  );
+  expect(screen.queryByText(/Coming next/)).not.toBeInTheDocument();
 });
 
 test("a color used twice is explained without a request and keeps the choices", async () => {
@@ -1437,7 +1474,9 @@ test("saving sends the complete list of carried-forward and new coaches, records
     within(form).getByRole("button", { name: "Save & continue" }),
   );
 
-  expect(await within(form).findByText("Coaches saved")).toBeVisible();
+  expect(
+    await screen.findByRole("form", { name: "Review and create" }),
+  ).toBeVisible();
   expect(
     calls.find(
       (call) => call.method === "PUT" && call.url.endsWith("/coaches"),
@@ -1453,9 +1492,7 @@ test("saving sends the complete list of carried-forward and new coaches, records
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 9 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent(
-    "Review and create",
-  );
+  expect(screen.queryByText(/Coming next/)).not.toBeInTheDocument();
 });
 
 test("zero coaches can be saved and the empty list is sent", async () => {
@@ -1467,7 +1504,9 @@ test("zero coaches can be saved and the empty list is sent", async () => {
     within(form).getByRole("button", { name: "Save & continue" }),
   );
 
-  expect(await within(form).findByText("Coaches saved")).toBeVisible();
+  expect(
+    await screen.findByRole("form", { name: "Review and create" }),
+  ).toBeVisible();
   expect(
     calls.find(
       (call) => call.method === "PUT" && call.url.endsWith("/coaches"),
@@ -1583,6 +1622,222 @@ test("a failed load shows an error and leaves Back", async () => {
   expect(within(form).getByRole("button", { name: "Back" })).toBeVisible();
 });
 
+const openReview = async (
+  review = reviewData(),
+  overrides: Record<string, unknown> = {},
+) => {
+  stubApi("Admin");
+  replies[SETUP] = {
+    status: 200,
+    body: season({ setupStep: 9, ...overrides }),
+  };
+  replies[REVIEW] = { status: 200, body: review };
+  render(<App />);
+  const form = await screen.findByRole("form", { name: "Review and create" });
+  await within(form).findByText(/2027 Swan League/);
+  return form;
+};
+
+const blocker = (code: string, message: string, step: string) => ({
+  code,
+  message,
+  step,
+});
+
+test("the review shows every saved choice from the saved data", async () => {
+  const form = await openReview();
+
+  expect(within(form).getByText(/2027 Swan League/)).toHaveTextContent("2027");
+  expect(within(form).getByText(/Simulation season/)).toBeVisible();
+  expect(within(form).getByText(/Buy-in \$100\.00/)).toBeVisible();
+  expect(within(form).getByText(/Main \$60\.00/)).toBeVisible();
+  expect(within(form).getByText(/Missed team-pick fine \$5\.00/)).toBeVisible();
+  expect(
+    within(form).getByText(/Main: 1st 70\.00% · 2nd 30\.00%/),
+  ).toBeVisible();
+  expect(
+    within(form).getByText(/Team picks lock Sundays at 11:30 AM Eastern/),
+  ).toBeVisible();
+  expect(
+    within(form).getByText(/32 of 32 teams have a division finish/),
+  ).toBeVisible();
+  expect(within(form).getByText(/18 weeks, 272 games/)).toBeVisible();
+  expect(within(form).getByText(/Double-dog weeks: 2, 12, 17/)).toBeVisible();
+  expect(within(form).getByText(/R17 off/)).toBeVisible();
+  expect(within(form).getByText(/6 active coaches/)).toBeVisible();
+  expect(
+    within(form).getByRole("button", { name: "Finish setup" }),
+  ).toBeEnabled();
+  expect(putCalls()).toEqual([]);
+});
+
+test("the page says exactly what finishing setup does not do", async () => {
+  const form = await openReview();
+
+  const note = within(form).getByText(
+    /Finishing setup only marks this draft as complete/,
+  );
+  expect(note).toHaveTextContent(/does not activate the season/i);
+  expect(note).toHaveTextContent(/send invitations or emails/i);
+  expect(note).toHaveTextContent(/roster window/i);
+  expect(note).toHaveTextContent(/move any money/i);
+  expect(
+    within(form).queryByRole("button", {
+      name: /activate|create season|invite/i,
+    }),
+  ).not.toBeInTheDocument();
+});
+
+test("blockers are listed with a Fix link to their step and the finish action is disabled", async () => {
+  const form = await openReview(
+    reviewData({
+      ready: false,
+      blockers: [
+        blocker(
+          "teams",
+          "Teams and point values are incomplete: 30 of 32 teams have a division finish.",
+          "TeamsAndPoints",
+        ),
+        blocker(
+          "payouts",
+          "Save the missed-pick fine and each pool's payout plan.",
+          "FinesAndPayouts",
+        ),
+      ],
+    }),
+  );
+
+  expect(
+    within(form).getByText(/30 of 32 teams have a division finish\./),
+  ).toBeVisible();
+  expect(
+    within(form).getByRole("button", { name: "Finish setup" }),
+  ).toBeDisabled();
+  expect(within(form).getByText(/Fix the blockers above/)).toBeVisible();
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Fix: Teams and point values" }),
+  );
+  expect(
+    await screen.findByRole("form", { name: "Teams and point values" }),
+  ).toBeVisible();
+});
+
+test("a zero-coach warning is shown with a Fix link but does not stop finishing", async () => {
+  const form = await openReview(
+    reviewData({
+      activeCoaches: 0,
+      warnings: [
+        blocker(
+          "no-coaches",
+          "No coaches have been added yet. You can finish setup now and add them later.",
+          "Coaches",
+        ),
+      ],
+    }),
+  );
+
+  expect(
+    within(form).getByText(/No coaches have been added yet/),
+  ).toBeVisible();
+  expect(
+    within(form).getByRole("button", { name: "Finish setup" }),
+  ).toBeEnabled();
+  fireEvent.click(within(form).getByRole("button", { name: "Fix: Coaches" }));
+  expect(await screen.findByRole("form", { name: "Coaches" })).toBeVisible();
+});
+
+test("finishing posts once, shows a durable confirmation and the season is still described as a draft in Setup", async () => {
+  replies[FINISH] = { status: 200, body: reviewData({ completed: true }) };
+  const form = await openReview();
+
+  fireEvent.click(within(form).getByRole("button", { name: "Finish setup" }));
+
+  expect(await within(form).findByText(/Setup is finished/)).toBeVisible();
+  expect(
+    calls.filter(
+      (call) => call.method === "POST" && call.url.endsWith("/review/finish"),
+    ),
+  ).toHaveLength(1);
+  expect(within(form).getByText(/still a draft in Setup/i)).toBeVisible();
+  expect(
+    within(form).queryByRole("button", { name: "Finish setup" }),
+  ).not.toBeInTheDocument();
+  expect(calls.some((call) => call.url.endsWith("/step"))).toBe(false);
+});
+
+test("a finished setup is shown as finished after a reload and resumes on the review page", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 10 }) };
+  replies[REVIEW] = { status: 200, body: reviewData({ completed: true }) };
+  render(<App />);
+
+  const form = await screen.findByRole("form", { name: "Review and create" });
+
+  expect(await within(form).findByText(/Setup is finished/)).toBeVisible();
+  expect(screen.getByText("Step 10 of 10")).toBeVisible();
+  expect(
+    within(form).queryByRole("button", { name: "Finish setup" }),
+  ).not.toBeInTheDocument();
+});
+
+test("a setup that was finished but has since lost something says so and cannot be finished again", async () => {
+  const form = await openReview(
+    reviewData({
+      completed: true,
+      ready: false,
+      blockers: [
+        blocker(
+          "schedule",
+          "The regular-season schedule is incomplete: 17 of 18 weeks are imported.",
+          "ScheduleImport",
+        ),
+      ],
+    }),
+  );
+
+  expect(
+    within(form).getByText(/finished earlier, but something has changed/i),
+  ).toBeVisible();
+  expect(
+    within(form).getByRole("button", { name: "Finish setup" }),
+  ).toBeDisabled();
+});
+
+test("a refusal from the server stays on the page and keeps the review", async () => {
+  replies[FINISH] = {
+    status: 409,
+    body: {
+      code: "setup.incomplete",
+      message:
+        "Setup cannot be finished yet: Teams and point values are incomplete.",
+    },
+  };
+  const form = await openReview();
+
+  fireEvent.click(within(form).getByRole("button", { name: "Finish setup" }));
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "cannot be finished yet",
+  );
+  expect(within(form).queryByText(/Setup is finished/)).not.toBeInTheDocument();
+  expect(within(form).getByText(/2027 Swan League/)).toBeVisible();
+});
+
+test("a failed load shows an error and leaves Back", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 9 }) };
+  replies[REVIEW] = { status: 500, body: { title: "Boom" } };
+  render(<App />);
+
+  const form = await screen.findByRole("form", { name: "Review and create" });
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent("Boom");
+  expect(
+    within(form).queryByRole("button", { name: "Finish setup" }),
+  ).not.toBeInTheDocument();
+  expect(within(form).getByRole("button", { name: "Back" })).toBeVisible();
+});
+
 test("a failed create shows its error in the start card", async () => {
   stubApi("Admin");
   replies["POST /api/admin/seasons"] = {
@@ -1683,9 +1938,7 @@ test("saving valid finishes sends the complete set, records Schedule import and 
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 4 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent(
-    "Review and create",
-  );
+  expect(screen.queryByText(/Coming next/)).not.toBeInTheDocument();
 });
 
 test("a server rejection of the finishes stays beside the page and does not record progress", async () => {
