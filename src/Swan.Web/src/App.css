@@ -274,3 +274,21 @@ form.card.wide {
   width: 100%;
   max-width: 12rem;
 }
+
+.fixed-rules {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.fixed-rules ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+
+.card.wide select {
+  width: 100%;
+  max-width: 12rem;
+}

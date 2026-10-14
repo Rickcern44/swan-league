@@ -144,6 +144,18 @@ const finesPlan = (
   })),
 });
 
+const rulesPlan = (overrides: Record<string, unknown> = {}) => ({
+  teamMayAlsoBeDog: true,
+  pointColors: [
+    { points: 1, color: "Green" },
+    { points: 2, color: "Blue" },
+    { points: 3, color: "Yellow" },
+    { points: 4, color: "Red" },
+  ],
+  recordHolder: "FirstOccurrence",
+  ...overrides,
+});
+
 type Reply = { status: number; body?: unknown };
 let replies: Record<
   string,
@@ -194,6 +206,7 @@ beforeEach(() => {
     [TEAMS]: { status: 200, body: catalog() },
     [DOGS]: { status: 200, body: dogPlan() },
     [FINES]: { status: 200, body: finesPlan() },
+    [RULES]: { status: 200, body: rulesPlan() },
     [SCHEDULE]: {
       status: 200,
       body: plan({ imported: false, fingerprint: null, weeks: [] }),
@@ -212,6 +225,8 @@ const DOGS = "GET /api/admin/seasons/setup/double-dog-weeks";
 const SAVE_DOGS = "PUT /api/admin/seasons/setup/double-dog-weeks";
 const FINES = "GET /api/admin/seasons/setup/fines-and-payouts";
 const SAVE_FINES = "PUT /api/admin/seasons/setup/fines-and-payouts";
+const RULES = "GET /api/admin/seasons/setup/league-settings";
+const SAVE_RULES = "PUT /api/admin/seasons/setup/league-settings";
 const SAVE_TEAMS = "PUT /api/admin/seasons/setup/teams";
 const STEP = "PUT /api/admin/seasons/setup/step";
 const putCalls = () =>
@@ -244,7 +259,7 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
   fireEvent.click(within(card).getByRole("button", { name: "Create season" }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
-  expect(screen.getByText("Step 1 of 7")).toBeVisible();
+  expect(screen.getByText("Step 1 of 8")).toBeVisible();
   expect(screen.getByLabelText("Season name")).toHaveValue("2027 Swan League");
   expect(calls.find((call) => call.method === "POST")).toMatchObject({
     body: { year: 2027, name: "2027 Swan League", isSimulation: true },
@@ -256,14 +271,15 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
 });
 
 test.each([
-  [0, "Basics", "Step 1 of 7"],
-  [1, "Money", "Step 2 of 7"],
-  [2, "Weekly deadline", "Step 3 of 7"],
-  [3, "Teams and point values", "Step 4 of 7"],
-  [4, "Schedule import", "Step 5 of 7"],
-  [5, "Weeks and dogs", "Step 6 of 7"],
-  [6, "Fines and payouts", "Step 7 of 7"],
-  [7, "Fines and payouts", "Step 7 of 7"],
+  [0, "Basics", "Step 1 of 8"],
+  [1, "Money", "Step 2 of 8"],
+  [2, "Weekly deadline", "Step 3 of 8"],
+  [3, "Teams and point values", "Step 4 of 8"],
+  [4, "Schedule import", "Step 5 of 8"],
+  [5, "Weeks and dogs", "Step 6 of 8"],
+  [6, "Fines and payouts", "Step 7 of 8"],
+  [7, "League settings", "Step 8 of 8"],
+  [8, "League settings", "Step 8 of 8"],
 ])(
   "a fresh load resumes at the saved step %i",
   async (setupStep, form, position) => {
@@ -310,7 +326,7 @@ test("Save & continue on Basics saves it, records Money as the resume point and 
   fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
   expect(await screen.findByRole("form", { name: "Money" })).toBeVisible();
-  expect(screen.getByText("Step 2 of 7")).toBeVisible();
+  expect(screen.getByText("Step 2 of 8")).toBeVisible();
   expect(putCalls()).toEqual(["/", "/step"]);
   expect(
     calls.find(
@@ -487,16 +503,16 @@ test("a failed resume-point save is reported and the page does not advance", asy
 
 test("later steps are listed as upcoming and cannot be opened", async () => {
   stubApi("Admin");
-  replies[SETUP] = { status: 200, body: season({ setupStep: 7 }) };
+  replies[SETUP] = { status: 200, body: season({ setupStep: 8 }) };
   render(<App />);
 
-  await screen.findByRole("form", { name: "Fines and payouts" });
+  await screen.findByRole("form", { name: "League settings" });
   const next = screen.getByText(/Coming next/);
-  expect(next).not.toHaveTextContent("Fines and payouts");
-  expect(next).toHaveTextContent("League settings");
+  expect(next).not.toHaveTextContent("League settings");
+  expect(next).toHaveTextContent("Coaches");
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /league|settings/i }),
+    screen.queryByRole("button", { name: /coaches|review/i }),
   ).not.toBeInTheDocument();
 });
 
@@ -585,7 +601,7 @@ test("confirming imports with the previewed fingerprint, records Weeks and dogs 
   expect(
     within(form).queryByRole("button", { name: /Preview|Import/ }),
   ).not.toBeInTheDocument();
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("League settings");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
 });
 
 test("an empty preview says nothing is published yet and that manual import stays available", async () => {
@@ -796,7 +812,7 @@ test("saving sends the chosen weeks, records the next step and moves on to Fines
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 6 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("League settings");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
 });
 
 test("a server rejection is shown beside the page, keeps the choice and records no progress", async () => {
@@ -1025,7 +1041,7 @@ test.each(["0", "-1", "5.001", ""])(
   },
 );
 
-test("saving sends the fine and every plan, records the next step and keeps the page", async () => {
+test("saving sends the fine and every plan, records the next step and moves on to League settings", async () => {
   replies[SAVE_FINES] = {
     status: 200,
     body: finesPlan(
@@ -1062,7 +1078,7 @@ test("saving sends the fine and every plan, records the next step and keeps the 
   );
 
   expect(
-    await within(form).findByText("Fines and payouts saved"),
+    await screen.findByRole("form", { name: "League settings" }),
   ).toBeVisible();
   expect(
     calls.find(
@@ -1089,7 +1105,7 @@ test("saving sends the fine and every plan, records the next step and keeps the 
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 7 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("League settings");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
 });
 
 test("a server rejection stays beside the page, keeps the edits and records no progress", async () => {
@@ -1132,6 +1148,157 @@ test("a failed load shows an error and leaves Back", async () => {
   expect(within(form).getByRole("button", { name: "Back" })).toBeVisible();
 });
 
+const openRules = async (plan = rulesPlan()) => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 7 }) };
+  replies[RULES] = { status: 200, body: plan };
+  render(<App />);
+  const form = await screen.findByRole("form", { name: "League settings" });
+  await within(form).findByLabelText(/R17/);
+  return form;
+};
+
+test("the League settings page shows the three settings with their defaults", async () => {
+  const form = await openRules();
+
+  expect(within(form).getByLabelText(/R17/)).toBeChecked();
+  expect(within(form).getByLabelText("1 point color")).toHaveValue("Green");
+  expect(within(form).getByLabelText("2 point color")).toHaveValue("Blue");
+  expect(within(form).getByLabelText("3 point color")).toHaveValue("Yellow");
+  expect(within(form).getByLabelText("4 point color")).toHaveValue("Red");
+  expect(within(form).getByLabelText("First occurrence")).toBeChecked();
+  expect(within(form).getByLabelText("Most occurrences")).not.toBeChecked();
+  expect(putCalls()).toEqual([]);
+});
+
+test("every other rule is listed as fixed and R17 to R19 are not among them", async () => {
+  const form = await openRules();
+
+  const fixed = within(form).getByRole("list", { name: "Fixed rules" });
+  const ids = within(fixed)
+    .getAllByRole("listitem")
+    .map((item) => item.textContent!.split(" ")[0]);
+  expect(ids).toEqual([
+    ..."R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R20 R21".split(
+      " ",
+    ),
+  ]);
+  expect(
+    within(fixed).getByText(/Each coach has exactly 9 NFL teams/),
+  ).toBeVisible();
+});
+
+test("the page says plainly what each setting does today", async () => {
+  const form = await openRules();
+
+  expect(
+    within(form).getByText(
+      /R17 takes effect the next time a week is scored or recomputed/,
+    ),
+  ).toBeVisible();
+  expect(within(form).getByText(/R18 and R19 are saved now/)).toBeVisible();
+  expect(
+    within(form).queryByText(/tie-?break(ers)? (are|is) (applied|enforced)/i),
+  ).not.toBeInTheDocument();
+});
+
+test("changed settings are sent in the API shape, the next step is recorded and the page stays", async () => {
+  replies[SAVE_RULES] = { status: 200, body: rulesPlan() };
+  replies[STEP] = stepReply();
+  const form = await openRules();
+  fireEvent.click(within(form).getByLabelText(/R17/));
+  fireEvent.change(within(form).getByLabelText("1 point color"), {
+    target: { value: "Red" },
+  });
+  fireEvent.change(within(form).getByLabelText("4 point color"), {
+    target: { value: "Green" },
+  });
+  fireEvent.click(within(form).getByLabelText("Most occurrences"));
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByText("League settings saved")).toBeVisible();
+  expect(
+    calls.find(
+      (call) => call.method === "PUT" && call.url.endsWith("/league-settings"),
+    ),
+  ).toMatchObject({
+    body: {
+      teamMayAlsoBeDog: false,
+      pointColors: [
+        { points: 1, color: "Red" },
+        { points: 2, color: "Blue" },
+        { points: 3, color: "Yellow" },
+        { points: 4, color: "Green" },
+      ],
+      recordHolder: "MostOccurrences",
+    },
+  });
+  expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
+    body: { step: 8 },
+  });
+  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
+});
+
+test("a color used twice is explained without a request and keeps the choices", async () => {
+  const form = await openRules();
+  fireEvent.change(within(form).getByLabelText("2 point color"), {
+    target: { value: "Green" },
+  });
+
+  expect(
+    within(form).getByText("Each color can be used for only one point value."),
+  ).toBeVisible();
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "only one point value",
+  );
+  expect(within(form).getByLabelText("2 point color")).toHaveValue("Green");
+  expect(putCalls()).toEqual([]);
+});
+
+test("a server rejection stays beside the page, keeps the edits and records no progress", async () => {
+  replies[SAVE_RULES] = {
+    status: 400,
+    body: {
+      code: "season.league-settings",
+      message: "Give each point value from 1 to 4 exactly one color.",
+    },
+  };
+  const form = await openRules();
+  fireEvent.click(within(form).getByLabelText(/R17/));
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save & continue" }),
+  );
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "exactly one color",
+  );
+  expect(within(form).getByLabelText(/R17/)).not.toBeChecked();
+  expect(calls.some((call) => call.url.endsWith("/step"))).toBe(false);
+});
+
+test("a failed load shows an error and leaves Back", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 7 }) };
+  replies[RULES] = { status: 500, body: { title: "Boom" } };
+  render(<App />);
+
+  const form = await screen.findByRole("form", { name: "League settings" });
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent("Boom");
+  expect(
+    within(form).queryByRole("button", { name: "Save & continue" }),
+  ).not.toBeInTheDocument();
+  expect(within(form).getByRole("button", { name: "Back" })).toBeVisible();
+});
+
 test("a failed create shows its error in the start card", async () => {
   stubApi("Admin");
   replies["POST /api/admin/seasons"] = {
@@ -1159,7 +1326,7 @@ test("the Teams page lists every team by division with its derived point value",
   const form = await screen.findByRole("form", {
     name: "Teams and point values",
   });
-  expect(within(form).getAllByRole("group")).toHaveLength(8);
+  expect(await within(form).findAllByRole("group")).toHaveLength(8);
   const east = within(form).getByRole("group", { name: "AFC East" });
   expect(within(east).getAllByRole("combobox")).toHaveLength(4);
   expect(within(east).getByLabelText("AFC East Team 3")).toHaveValue("3");
@@ -1232,7 +1399,7 @@ test("saving valid finishes sends the complete set, records Schedule import and 
   expect(calls.find((call) => call.url.endsWith("/step"))).toMatchObject({
     body: { step: 4 },
   });
-  expect(screen.getByText(/Coming next/)).toHaveTextContent("League settings");
+  expect(screen.getByText(/Coming next/)).toHaveTextContent("Coaches");
 });
 
 test("a server rejection of the finishes stays beside the page and does not record progress", async () => {

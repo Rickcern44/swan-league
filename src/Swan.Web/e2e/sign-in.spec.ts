@@ -84,6 +84,11 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
         await page.request.get("/api/admin/seasons/setup/fines-and-payouts")
       ).json()) as Finesplan)
     : undefined;
+  const rulesBefore = original
+    ? await (
+        await page.request.get("/api/admin/seasons/setup/league-settings")
+      ).json()
+    : undefined;
   let leftBehind = false;
   try {
     // The seeded database may or may not already hold a Setup season.
@@ -102,7 +107,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     const basics = page.getByRole("form", { name: "Basics" });
     await expect(basics).toBeVisible();
-    await expect(page.getByText("Step 1 of 7")).toBeVisible();
+    await expect(page.getByText("Step 1 of 8")).toBeVisible();
     await expect(page.getByRole("form", { name: "Money" })).toHaveCount(0);
     await basics.getByLabel("Season name").fill("E2E Swan League");
     await basics.getByLabel("Simulation season").check();
@@ -111,10 +116,10 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Closing the browser and coming back opens the saved step.
     const money = page.getByRole("form", { name: "Money" });
     await expect(money).toBeVisible();
-    await expect(page.getByText("Step 2 of 7")).toBeVisible();
+    await expect(page.getByText("Step 2 of 8")).toBeVisible();
     await page.reload();
     await expect(money).toBeVisible();
-    await expect(page.getByText("Step 2 of 7")).toBeVisible();
+    await expect(page.getByText("Step 2 of 8")).toBeVisible();
 
     // Back navigates without saving; reloading still resumes at Money.
     await money.getByRole("button", { name: "Back" }).click();
@@ -140,13 +145,13 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
     const deadline = page.getByRole("form", { name: "Weekly deadline" });
     await expect(deadline).toBeVisible();
-    await expect(page.getByText("Step 3 of 7")).toBeVisible();
+    await expect(page.getByText("Step 3 of 8")).toBeVisible();
     await deadline.getByLabel("Team picks lock Sundays at").fill("11:30");
     await deadline.getByRole("button", { name: "Save & continue" }).click();
 
     const teams = page.getByRole("form", { name: "Teams and point values" });
     await expect(teams).toBeVisible();
-    await expect(page.getByText("Step 4 of 7")).toBeVisible();
+    await expect(page.getByText("Step 4 of 8")).toBeVisible();
 
     // Each division, one team per finish (wait for the catalog to load first: all() does not).
     await expect(teams.getByRole("group")).toHaveCount(8);
@@ -171,7 +176,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Saving the teams moves on to Schedule import, which only previews: the provider is contacted on demand and nothing is imported here.
     const schedule = page.getByRole("form", { name: "Schedule import" });
     await expect(schedule).toBeVisible();
-    await expect(page.getByText("Step 5 of 7")).toBeVisible();
+    await expect(page.getByText("Step 5 of 8")).toBeVisible();
     await expect(
       schedule.getByText(/Nothing is saved until you confirm/),
     ).toBeVisible();
@@ -196,7 +201,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     // Reloading opens the saved Schedule page; Back returns to Teams with the saved finishes.
     await page.reload();
     await expect(schedule).toBeVisible();
-    await expect(page.getByText("Step 5 of 7")).toBeVisible();
+    await expect(page.getByText("Step 5 of 8")).toBeVisible();
 
     // Weeks and dogs reads only the imported schedule: with none imported it says so instead of listing weeks.
     await page.request.put("/api/admin/seasons/setup/step", {
@@ -205,7 +210,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await page.reload();
     const dogs = page.getByRole("form", { name: "Weeks and dogs" });
     await expect(dogs).toBeVisible();
-    await expect(page.getByText("Step 6 of 7")).toBeVisible();
+    await expect(page.getByText("Step 6 of 8")).toBeVisible();
     await expect(dogs.getByRole("alert")).toContainText(
       "Import the full regular-season schedule",
     );
@@ -220,7 +225,7 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await page.reload();
     const fines = page.getByRole("form", { name: "Fines and payouts" });
     await expect(fines).toBeVisible();
-    await expect(page.getByText("Step 7 of 7")).toBeVisible();
+    await expect(page.getByText("Step 7 of 8")).toBeVisible();
     await expect(fines.getByText(/^\d+ active coaches?$/)).toBeVisible();
     await expect(fines.getByLabel("Main 1st place percent")).toHaveValue(
       /^100/,
@@ -237,15 +242,42 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await fines.getByLabel("Main 2nd place percent").fill("30");
     await expect(fines.getByText("Main total 100.00%")).toBeVisible();
     await fines.getByRole("button", { name: "Save & continue" }).click();
-    await expect(fines.getByText("Fines and payouts saved")).toBeVisible();
+
+    // Saving moves on to League settings: defaults first, then change R17, R18 and R19 and see them again after a reload.
+    const rules = page.getByRole("form", { name: "League settings" });
+    await expect(rules).toBeVisible();
+    await expect(page.getByText("Step 8 of 8")).toBeVisible();
+    await expect(rules.getByLabel(/R17/)).toBeChecked();
+    await expect(rules.getByLabel("1 point color")).toHaveValue("Green");
+    await expect(rules.getByLabel("First occurrence")).toBeChecked();
+    await expect(
+      rules.getByRole("list", { name: "Fixed rules" }),
+    ).toContainText("Each coach has exactly 9 NFL teams");
+    await rules.getByLabel(/R17/).uncheck();
+    await rules.getByLabel("2 point color").selectOption("Green");
+    await expect(
+      rules.getByText("Each color can be used for only one point value."),
+    ).toBeVisible();
+    await rules.getByRole("button", { name: "Save & continue" }).click();
+    await expect(rules.getByRole("alert")).toContainText(
+      "only one point value",
+    );
+    await rules.getByLabel("1 point color").selectOption("Blue");
+    await rules.getByLabel("Most occurrences").check();
+    await rules.getByRole("button", { name: "Save & continue" }).click();
+    await expect(rules.getByText("League settings saved")).toBeVisible();
+    await expect(page.getByText(/Coming next/)).toContainText("Coaches");
     await page.reload();
+    await expect(rules).toBeVisible();
+    await expect(rules.getByLabel(/R17/)).not.toBeChecked();
+    await expect(rules.getByLabel("1 point color")).toHaveValue("Blue");
+    await expect(rules.getByLabel("2 point color")).toHaveValue("Green");
+    await expect(rules.getByLabel("Most occurrences")).toBeChecked();
+    await rules.getByRole("button", { name: "Back" }).click();
     await expect(fines).toBeVisible();
     await expect(fines.getByLabel("Missed team-pick fine")).toHaveValue("6.00");
     await expect(fines.getByLabel("Main 2nd place percent")).toHaveValue(
       "30.00",
-    );
-    await expect(page.getByText(/Coming next/)).toContainText(
-      "League settings",
     );
     await fines.getByRole("button", { name: "Back" }).click();
     await expect(dogs).toBeVisible();
@@ -313,6 +345,12 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
       else if (resetSetupPayouts)
         execSync(resetSetupPayouts, { stdio: "inherit" });
       else leftBehind = true;
+      if (rulesBefore)
+        await put("/api/admin/seasons/setup/league-settings", {
+          teamMayAlsoBeDog: rulesBefore.teamMayAlsoBeDog,
+          pointColors: rulesBefore.pointColors,
+          recordHolder: rulesBefore.recordHolder,
+        });
       await put("/api/admin/seasons/setup/step", { step: original.setupStep });
       await put("/api/admin/seasons/setup/deadline", {
         teamPickDeadlineEastern:

@@ -215,6 +215,7 @@ const wizardSteps = [
   "Schedule import",
   "Weeks and dogs",
   "Fines and payouts",
+  "League settings",
 ] as const;
 const lastStep = wizardSteps.length - 1;
 const stepSlugs = [
@@ -225,8 +226,9 @@ const stepSlugs = [
   "schedule",
   "dogs",
   "payouts",
+  "rules",
 ];
-const upcoming = ["League settings"];
+const upcoming = ["Coaches"];
 
 function SetupCards({
   season,
@@ -585,7 +587,15 @@ function SetupCards({
         />
       )}
       {view === 6 && (
-        <FinesStep season={season} onSeason={onSeason} onBack={back} />
+        <FinesStep
+          season={season}
+          onSeason={onSeason}
+          onBack={back}
+          onContinue={() => goTo(7)}
+        />
+      )}
+      {view === 7 && (
+        <RulesStep season={season} onSeason={onSeason} onBack={back} />
       )}
       <p>Coming next: {upcoming.join(" → ")}</p>
     </>
@@ -938,10 +948,12 @@ function FinesStep({
   season,
   onSeason,
   onBack,
+  onContinue,
 }: {
   season: Season;
   onSeason: (season: Season) => void;
   onBack?: () => void;
+  onContinue: () => void;
 }) {
   const [plan, setPlan] = useState<FinesPlan>();
   const [fine, setFine] = useState("5.00");
@@ -1012,7 +1024,7 @@ function FinesStep({
     );
     if (!("value" in saved)) return fail(saved.error);
     load(saved.value);
-    // League settings is the next unbuilt step; the resume point never moves backwards.
+    // League settings is the next page; the resume point never moves backwards.
     const target = Math.max(season.setupStep, 7);
     if (target !== season.setupStep) {
       const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
@@ -1024,7 +1036,7 @@ function FinesStep({
         );
       onSeason(recorded.value);
     }
-    setNotice({ kind: "saved", text: "Fines and payouts saved" });
+    onContinue();
   }
 
   const coaches = plan?.activeCoaches ?? 0;
@@ -1146,6 +1158,238 @@ function FinesStep({
                   </li>
                 );
               })}
+            </ul>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+type PointColorRow = { points: number; color: string };
+type RulesPlan = {
+  teamMayAlsoBeDog: boolean;
+  pointColors: PointColorRow[];
+  recordHolder: string;
+};
+
+const colorChoices = ["Green", "Blue", "Yellow", "Red"];
+// The fixed rules, in the PRD's words (R17 to R19 are the settings above them).
+const fixedRules: [string, string][] = [
+  ["R1", "Each coach has exactly 9 NFL teams on their season roster."],
+  ["R2", "Each week a coach starts exactly 3 of their 9 teams."],
+  [
+    "R3",
+    "A team's point value is its division finish last season: 1st = 1, 2nd = 2, 3rd = 3, 4th = 4.",
+  ],
+  [
+    "R4",
+    "A started team that wins scores its point value; a loss or tie scores 0.",
+  ],
+  [
+    "R5",
+    "Perfect Week: +3 bonus when all 3 started teams win; the dog is excluded.",
+  ],
+  [
+    "R6",
+    "Each team pick locks at the earlier of that team's kickoff and the weekly deadline.",
+  ],
+  [
+    "R7",
+    "Each week a coach picks 1 underdog (the +spread side); the double-dog weeks allow 2.",
+  ],
+  [
+    "R8",
+    "A dog pick must be submitted before that game's kickoff; Monday-night dogs are allowed until then.",
+  ],
+  [
+    "R9",
+    "A dog that wins outright scores its spread rounded up (+6.5 pays 7).",
+  ],
+  ["R10", "A missed team-pick submission is a fine, added to the fine pool."],
+  [
+    "R11",
+    "Going Perf = all 3 team picks and the dog win in one week; 0fer = all 3 picks and the dog lose.",
+  ],
+  [
+    "R12",
+    "Playoff teams earn 3 points for their coaches for qualifying, counted only in the playoff pool.",
+  ],
+  [
+    "R13",
+    "Playoff points use the team's season point value times the round multiplier: Wild Card x2, Divisional x4, Conference x6, Super Bowl x8.",
+  ],
+  [
+    "R14",
+    "The conference winner that held the #1 seed pays 10 points to coaches holding it.",
+  ],
+  [
+    "R15",
+    "Dog points count only in the dog pool, never in the main pool or the regular-season pool.",
+  ],
+  [
+    "R16",
+    "A coach may use the same team as a dog any number of times in a season; there is no repeated team or game within one double-dog week.",
+  ],
+  [
+    "R20",
+    "A team whose game kicks off before the Sunday deadline must be picked before that kickoff; the other picks stay open until the deadline.",
+  ],
+  [
+    "R21",
+    "A coach sees another coach's locked picks only after all of their own picks for that week are locked; admins always see everything.",
+  ],
+];
+
+// R17 to R19 are the only owner-controlled rules. Only R17 is used by anything yet (score recomputes); R18 and R19 are stored for later features.
+function RulesStep({
+  season,
+  onSeason,
+  onBack,
+}: {
+  season: Season;
+  onSeason: (season: Season) => void;
+  onBack?: () => void;
+}) {
+  const [plan, setPlan] = useState<RulesPlan>();
+  const [notice, setNotice] = useState<Notice>();
+
+  useEffect(() => {
+    void send<RulesPlan>(
+      "GET",
+      "/api/admin/seasons/setup/league-settings",
+    ).then((result) =>
+      "value" in result
+        ? setPlan(result.value)
+        : setNotice({ kind: "error", text: result.error }),
+    );
+  }, []);
+
+  const duplicate = plan
+    ? new Set(plan.pointColors.map((entry) => entry.color)).size !==
+      plan.pointColors.length
+    : false;
+
+  async function save() {
+    if (!plan) return;
+    if (duplicate)
+      return setNotice({
+        kind: "error",
+        text: "Each color can be used for only one point value.",
+      });
+    const saved = await send<RulesPlan>(
+      "PUT",
+      "/api/admin/seasons/setup/league-settings",
+      plan,
+    );
+    if (!("value" in saved))
+      return setNotice({ kind: "error", text: saved.error });
+    setPlan(saved.value);
+    // Coaches is the next unbuilt step; the resume point never moves backwards.
+    const target = Math.max(season.setupStep, 8);
+    if (target !== season.setupStep) {
+      const recorded = await send("PUT", "/api/admin/seasons/setup/step", {
+        step: target,
+      });
+      if (!("value" in recorded))
+        return setNotice({
+          kind: "error",
+          text: `Saved, but your progress could not be recorded: ${recorded.error}`,
+        });
+      onSeason(recorded.value);
+    }
+    setNotice({ kind: "saved", text: "League settings saved" });
+  }
+
+  return (
+    <Card
+      title="League settings"
+      wide
+      notice={notice}
+      action={plan ? "Save & continue" : undefined}
+      onBack={onBack}
+      onSubmit={() => void save()}
+    >
+      {!plan && !notice && <span>Loading the league settings…</span>}
+      {plan && (
+        <>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={plan.teamMayAlsoBeDog}
+              onChange={(event) =>
+                setPlan({ ...plan, teamMayAlsoBeDog: event.target.checked })
+              }
+            />
+            R17: A team may be both a started team and the same week's dog
+          </label>
+          <span className="hint">
+            R17 takes effect the next time a week is scored or recomputed; weeks
+            that are already scored are not changed.
+          </span>
+          <fieldset className="division">
+            <legend>R18: Tiebreaker colors for point values</legend>
+            {plan.pointColors.map((entry) => (
+              <label key={entry.points}>
+                {`${entry.points} point color`}
+                <select
+                  value={entry.color}
+                  onChange={(event) => {
+                    const { value } = event.target;
+                    setPlan({
+                      ...plan,
+                      pointColors: plan.pointColors.map((other) =>
+                        other.points === entry.points
+                          ? { ...other, color: value }
+                          : other,
+                      ),
+                    });
+                  }}
+                >
+                  {colorChoices.map((color) => (
+                    <option key={color} value={color}>
+                      {color}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            {duplicate && (
+              <span className="hint">
+                Each color can be used for only one point value.
+              </span>
+            )}
+          </fieldset>
+          <fieldset className="division">
+            <legend>R19: Who holds a Going Perf or 0fer record</legend>
+            {[
+              ["FirstOccurrence", "First occurrence"],
+              ["MostOccurrences", "Most occurrences"],
+            ].map(([value, label]) => (
+              <label key={value} className="check">
+                <input
+                  type="radio"
+                  name="recordHolder"
+                  checked={plan.recordHolder === value}
+                  onChange={() => setPlan({ ...plan, recordHolder: value })}
+                />
+                {label}
+              </label>
+            ))}
+            <span className="hint">First occurrence is the default.</span>
+          </fieldset>
+          <span className="hint">
+            R18 and R19 are saved now; the tiebreaker and records features that
+            will use them come later.
+          </span>
+          <div className="fixed-rules">
+            <strong>Fixed rules (not settings)</strong>
+            <ul aria-label="Fixed rules">
+              {fixedRules.map(([id, text]) => (
+                <li key={id}>
+                  <strong>{id}</strong> {text}
+                </li>
+              ))}
             </ul>
           </div>
         </>
