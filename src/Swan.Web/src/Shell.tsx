@@ -9,7 +9,12 @@ function destinations(role: "Admin" | "Coach"): Destination[] {
     { label: "Home", path: "/" },
     { label: "Week", path: "", soon: true },
     { label: "Standings", path: "", soon: true },
-    ...(role === "Admin" ? [{ label: "Season setup", path: "/setup" }] : []),
+    ...(role === "Admin"
+      ? [
+          { label: "Roster draft", path: "/draft" },
+          { label: "Season setup", path: "/setup" },
+        ]
+      : [{ label: "Roster", path: "/roster" }]),
   ];
 }
 
@@ -50,7 +55,11 @@ export default function Shell({
         <ul>
           {destinations(role).map((item) => {
             const current =
-              item.path === "/setup" ? inSetup : !inSetup && item.path === "/";
+              item.path === "/setup"
+                ? inSetup
+                : item.path === "/"
+                  ? !inSetup && path !== "/draft" && path !== "/roster"
+                  : path === item.path;
             return (
               <li key={item.label}>
                 {item.soon ? (

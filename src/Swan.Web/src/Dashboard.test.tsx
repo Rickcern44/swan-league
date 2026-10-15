@@ -158,15 +158,16 @@ test("keyboard order follows the page: skip link, header, navigation, then the c
   const names = focusable
     .filter((element) => element.tabIndex >= 0)
     .map((element) => element.textContent?.replace(/\s+/g, " ").trim());
-  expect(names).toHaveLength(7);
-  expect(names.slice(0, 4)).toEqual([
+  expect(names).toHaveLength(8);
+  expect(names.slice(0, 5)).toEqual([
     "Skip to main content",
     "Sign out",
     "Home",
+    "Roster draft",
     "Season setup",
   ]);
-  expect(names[4]).toContain("Lines need approval");
-  expect(names.slice(5)).toEqual(["Refresh", "Open Week 4"]);
+  expect(names[5]).toContain("Lines need approval");
+  expect(names.slice(6)).toEqual(["Refresh", "Open Week 4"]);
 });
 
 test("destinations that do not exist yet are labelled text, never links", async () => {

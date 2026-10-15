@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
+import CommissionerDraft from "./CommissionerDraft";
 import PickDesk from "./PickDesk";
+import RosterDraft from "./RosterDraft";
 import Dashboard from "./Dashboard";
 import SeasonSetup from "./SeasonSetup";
 import WeekWorkspace from "./WeekWorkspace";
@@ -78,7 +80,13 @@ export default function App() {
         onSignOut={() => void signOut()}
       >
         {user.role !== "Admin" ? (
-          <PickDesk />
+          path === "/roster" ? (
+            <RosterDraft />
+          ) : (
+            <PickDesk />
+          )
+        ) : path === "/draft" ? (
+          <CommissionerDraft />
         ) : inSetup ? (
           <SeasonSetup />
         ) : workspaceWeek ? (

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { formatDeadline, goTo } from "./draftTime";
 
 type Money = { amount: number; currency: string };
 type Season = {
@@ -1723,6 +1724,73 @@ const clock = (value: string | null) => {
 };
 
 // Everything here is read from saved data. Finishing setup only records that the wizard is complete.
+// The commissioner's next step after Setup is finished: set the roster draft deadline (Eastern Time) and start the season. The server checks the caller really is its commissioner.
+function StartSeason() {
+  const [deadline, setDeadline] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const [started, setStarted] = useState<string>();
+
+  async function start() {
+    if (!deadline) {
+      setProblem("Choose the roster draft deadline first.");
+      return;
+    }
+    setBusy(true);
+    setProblem("");
+    const result = await send<{ rosterDraftDeadline: string }>(
+      "POST",
+      "/api/admin/seasons/setup/activate",
+      { rosterDraftDeadlineEastern: deadline },
+    );
+    setBusy(false);
+    if (!("value" in result)) return setProblem(result.error);
+    setStarted(formatDeadline(result.value.rosterDraftDeadline));
+  }
+
+  if (started)
+    return (
+      <div role="status" className="done">
+        <span>{`The season is live. The roster draft is open until ${started}.`}</span>{" "}
+        <a
+          href="/draft"
+          onClick={(event) => {
+            event.preventDefault();
+            goTo("/draft");
+          }}
+        >
+          Open the roster draft
+        </a>
+      </div>
+    );
+
+  return (
+    <fieldset className="division" role="group" aria-label="Start the season">
+      <legend>Start the season</legend>
+      <span className="hint">
+        Starting the season cannot be undone. It opens the roster draft: coaches
+        choose and lock their nine teams until the deadline, and after that only
+        you, the commissioner, can correct a roster. Times are Eastern Time.
+      </span>
+      <label>
+        Roster draft deadline (Eastern Time)
+        <input
+          type="datetime-local"
+          value={deadline}
+          onChange={(event) => {
+            setDeadline(event.target.value);
+            setProblem("");
+          }}
+        />
+      </label>
+      {problem && <span role="alert">{problem}</span>}
+      <button type="button" disabled={busy} onClick={() => void start()}>
+        Start season
+      </button>
+    </fieldset>
+  );
+}
+
 function ReviewStep({
   season,
   onSeason,
@@ -1802,6 +1870,7 @@ function ReviewStep({
               {`Setup is finished. ${review.basics.name} is still a draft in Setup: nothing has been activated, sent or created.`}
             </span>
           )}
+          {done && <StartSeason />}
           {review.completed && blocked && (
             <span className="hint">
               Setup was finished earlier, but something has changed since.

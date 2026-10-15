@@ -2053,3 +2053,106 @@ test("a coach sees no admin controls and the app never asks for the setup season
   expect(screen.queryByText("Season setup")).not.toBeInTheDocument();
   expect(calls.some((call) => call.url.includes("/api/admin"))).toBe(false);
 });
+
+const ACTIVATE = "POST /api/admin/seasons/setup/activate";
+
+test("a finished setup offers to start the season; an unfinished one does not", async () => {
+  const unfinished = await openReview();
+  expect(
+    within(unfinished).queryByRole("group", { name: "Start the season" }),
+  ).not.toBeInTheDocument();
+  cleanup();
+
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 10 }) };
+  replies[REVIEW] = { status: 200, body: reviewData({ completed: true }) };
+  render(<App />);
+  const form = await screen.findByRole("form", { name: "Review and create" });
+
+  const start = await within(form).findByRole("group", {
+    name: "Start the season",
+  });
+  expect(start).toHaveTextContent("Eastern Time");
+  expect(start).toHaveTextContent("only you, the commissioner");
+  expect(within(start).getByLabelText(/Roster draft deadline/)).toBeVisible();
+  expect(
+    within(start).getByRole("button", { name: "Start season" }),
+  ).toBeEnabled();
+});
+
+test("starting the season sends the Eastern wall-clock time and then points at the roster draft", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 10 }) };
+  replies[REVIEW] = { status: 200, body: reviewData({ completed: true }) };
+  replies[ACTIVATE] = {
+    status: 200,
+    body: {
+      id: "s",
+      state: "Live",
+      rosterDraftDeadline: "2026-10-20T22:00:00Z",
+      rosterDraftDeadlineEastern: "2026-10-20T18:00",
+    },
+  };
+  render(<App />);
+  const start = await screen.findByRole("group", { name: "Start the season" });
+
+  fireEvent.change(within(start).getByLabelText(/Roster draft deadline/), {
+    target: { value: "2026-10-20T18:00" },
+  });
+  fireEvent.click(within(start).getByRole("button", { name: "Start season" }));
+
+  expect(await screen.findByText(/The season is live/)).toBeVisible();
+  expect(screen.getByText(/open until Tue, Oct 20, 6:00 PM ET/)).toBeVisible();
+  expect(calls.find((call) => call.url.endsWith("/activate"))).toMatchObject({
+    method: "POST",
+    body: { rosterDraftDeadlineEastern: "2026-10-20T18:00" },
+  });
+  fireEvent.click(screen.getByRole("link", { name: "Open the roster draft" }));
+  expect(window.location.pathname).toBe("/draft");
+});
+
+test("starting without a deadline is refused before anything is sent", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 10 }) };
+  replies[REVIEW] = { status: 200, body: reviewData({ completed: true }) };
+  render(<App />);
+  const start = await screen.findByRole("group", { name: "Start the season" });
+
+  fireEvent.click(within(start).getByRole("button", { name: "Start season" }));
+
+  expect(await within(start).findByRole("alert")).toHaveTextContent(
+    "Choose the roster draft deadline",
+  );
+  expect(calls.some((call) => call.url.endsWith("/activate"))).toBe(false);
+});
+
+test.each([
+  [403, "Only the season's commissioner can start the season."],
+  [400, "The roster draft deadline must be in the future."],
+  [409, "The season has no active commissioner, so it cannot start."],
+])(
+  "a %s refusal is shown beside the control and the season stays a draft",
+  async (status, message) => {
+    stubApi("Admin");
+    replies[SETUP] = { status: 200, body: season({ setupStep: 10 }) };
+    replies[REVIEW] = { status: 200, body: reviewData({ completed: true }) };
+    replies[ACTIVATE] = { status, body: { code: "x", message } };
+    render(<App />);
+    const start = await screen.findByRole("group", {
+      name: "Start the season",
+    });
+
+    fireEvent.change(within(start).getByLabelText(/Roster draft deadline/), {
+      target: { value: "2026-10-20T18:00" },
+    });
+    fireEvent.click(
+      within(start).getByRole("button", { name: "Start season" }),
+    );
+
+    expect(await within(start).findByRole("alert")).toHaveTextContent(message);
+    expect(within(start).getByLabelText(/Roster draft deadline/)).toHaveValue(
+      "2026-10-20T18:00",
+    );
+    expect(screen.queryByText(/The season is live/)).not.toBeInTheDocument();
+  },
+);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { goTo } from "./draftTime";
 
 type DeskGame = {
   teamId: string;
@@ -27,7 +28,12 @@ type DeskDog = {
 };
 
 type Desk = {
-  state: "open" | "no-membership" | "no-week" | "no-roster";
+  state:
+    | "open"
+    | "no-membership"
+    | "no-week"
+    | "no-roster"
+    | "roster-incomplete";
   seasonName: string | null;
   week: {
     id: string;
@@ -157,6 +163,8 @@ export default function PickDesk() {
         "No week is open for picks right now. When the next week opens, your picks will be here.",
       "no-roster":
         "Your roster has not been set up yet, so there is nothing to pick from. The commissioner sets rosters before the season starts.",
+      "roster-incomplete":
+        "Your roster needs exactly nine teams before you can pick. If the draft is still open you can finish it yourself; after the deadline the commissioner has to complete it.",
       open: "",
     }[desk.state];
     return (
@@ -166,6 +174,12 @@ export default function PickDesk() {
         <div className="band">
           <h2>Nothing to pick yet</h2>
           <p>{message}</p>
+          {(desk.state === "no-roster" ||
+            desk.state === "roster-incomplete") && (
+            <button type="button" onClick={() => goTo("/roster")}>
+              Open your roster
+            </button>
+          )}
           <button
             type="button"
             className="ghost"

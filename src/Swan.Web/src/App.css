@@ -1048,3 +1048,33 @@ main.shell-main > * + * {
     padding: 0.85rem 0;
   }
 }
+
+/* Roster draft: coaches choose nine teams by division; the commissioner sees who still needs a roster. */
+.division-block + .division-block {
+  margin-top: 1.25rem;
+}
+
+.editor select,
+.editor textarea {
+  font: inherit;
+  min-height: 2.75rem;
+  border: 1px solid #9fb3c8;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  max-width: 24rem;
+  background: #fff;
+}
+
+.editor textarea {
+  resize: vertical;
+}
+
+li.game.coach-missing,
+li.game.coach-incomplete {
+  border-left: 3px solid var(--brass);
+  padding-left: 0.75rem;
+}
+
+li.game.coach-locked .status strong {
+  color: var(--ink);
+}
