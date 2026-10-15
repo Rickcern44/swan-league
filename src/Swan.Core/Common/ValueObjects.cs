@@ -21,7 +21,7 @@ public sealed record Spread(decimal Value)
 {
     // No NFL spread comes near 30, so a larger number is a typo (such as -35 for -3.5) rather than a line.
     public const decimal MaxMagnitude = 30m;
-    public static Result<Spread> Create(decimal value) => Math.Abs(value) > MaxMagnitude
+    public static Result<Spread> Create(decimal value) => value < -MaxMagnitude || value > MaxMagnitude
         ? Result<Spread>.Failure("spread.invalid", "A spread must be between -30 and 30.")
         : Result<Spread>.Success(new(value));
 }

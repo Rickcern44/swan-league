@@ -38,6 +38,18 @@ public sealed class ValueObjectTests
         Assert.Equal("A spread must be between -30 and 30.", result.Error.Message);
     }
 
+    [Fact]
+    public void TheLargestAndSmallestDecimalsAreRejectedNotAnOverflow()
+    {
+        foreach (var value in new[] { decimal.MinValue, decimal.MaxValue })
+        {
+            var result = Spread.Create(value);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("spread.invalid", result.Error!.Code);
+        }
+    }
+
     [Theory]
     [InlineData(-30)]
     [InlineData(0)]
