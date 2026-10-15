@@ -49,6 +49,7 @@ public static class WeekEndpoints
     {
         { IsSuccess: true } => Results.Ok(result.Value is WeekDashboard week ? WeekResponse.From(week) : result.Value),
         { Error.Code: "week.missing" or "game.missing" or "season.missing" } => Results.NotFound(result.Error),
+        { Error.Code: "spread.invalid" or "game-result.invalid" } => Results.BadRequest(result.Error),
         _ => Results.Conflict(result.Error)
     };
 }

@@ -549,6 +549,40 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.Equal(-4.5m, approved.Value!.Games.Single().ApprovedLine);
     }
 
+    [Theory]
+    [InlineData(30, true)]
+    [InlineData(-30, true)]
+    [InlineData(30.5, false)]
+    [InlineData(-31, false)]
+    [InlineData(1000, false)]
+    public async Task OnlySpreadsFromMinusThirtyToThirtyAreStoredAndRefusalsLeaveNoTraceOrAudit(double spread, bool accepted)
+    {
+        var (weekId, gameId) = await SeedWeek();
+
+        var result = await Run(service => service.AddLineAsync(Admin, weekId, gameId, (decimal)spread, approve: false));
+
+        Assert.Equal(accepted, result.IsSuccess);
+        if (!accepted) Assert.Equal("spread.invalid", result.Error!.Code);
+        Assert.Equal(accepted ? 1 : 0, (await Run(service => service.GetAsync(weekId))).Value!.Games.Single().LineHistory.Count);
+        Assert.Equal(accepted ? 1 : 0, await Run((service, database) => database.AuditEntries.CountAsync()));
+    }
+
+    [Theory]
+    [InlineData(100, 0, true)]
+    [InlineData(0, 100, true)]
+    [InlineData(101, 0, false)]
+    [InlineData(0, 999, false)]
+    public async Task OnlyScoresFromZeroToOneHundredAreConfirmed(int home, int away, bool accepted)
+    {
+        var seeded = await SeedLockedWeek();
+
+        var result = await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, seeded.Games[0], home, away));
+
+        Assert.Equal(accepted, result.IsSuccess);
+        if (!accepted) Assert.Equal("game-result.invalid", result.Error!.Code);
+        Assert.Equal(accepted ? 1 : 0, (await Run(service => service.GetAsync(seeded.Week))).Value!.Games.Count(game => game.HasResult));
+    }
+
     [Fact]
     public async Task ATeamThatIsNotInTheCatalogHasNoNameRatherThanAnInventedOne()
     {

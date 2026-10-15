@@ -116,6 +116,20 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         }
     }
 
+    [Theory]
+    [InlineData("spread.invalid", "lines")]
+    [InlineData("game-result.invalid", "result")]
+    public async Task OutOfRangeSpreadsAndScoresAreABadRequestWithTheReason(string code, string target)
+    {
+        using var client = CreateClient("Admin", new FakeWeekService { Failure = new Error(code, "Out of range.") });
+        var url = target == "lines" ? $"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines" : $"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result";
+
+        var response = await client.PostAsJsonAsync(url, new { spread = 35, approve = false, homeScore = 101, awayScore = 0 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(code, (await response.Content.ReadFromJsonAsync<Error>())!.Code);
+    }
+
     [Fact]
     public async Task AdminActionsPassActorAndRouteToService()
     {

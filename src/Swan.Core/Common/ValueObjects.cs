@@ -19,7 +19,11 @@ public sealed record PointValue(int Value)
 
 public sealed record Spread(decimal Value)
 {
-    public static Result<Spread> Create(decimal value) => Result<Spread>.Success(new(value));
+    // No NFL spread comes near 30, so a larger number is a typo (such as -35 for -3.5) rather than a line.
+    public const decimal MaxMagnitude = 30m;
+    public static Result<Spread> Create(decimal value) => Math.Abs(value) > MaxMagnitude
+        ? Result<Spread>.Failure("spread.invalid", "A spread must be between -30 and 30.")
+        : Result<Spread>.Success(new(value));
 }
 
 public sealed record DogPoints(decimal Value, int Rounded)
@@ -40,8 +44,9 @@ public enum GameWinner { Home, Away, Tie }
 public sealed record GameResult(int HomeScore, int AwayScore)
 {
     public GameWinner Winner => HomeScore == AwayScore ? GameWinner.Tie : HomeScore > AwayScore ? GameWinner.Home : GameWinner.Away;
-    public static Result<GameResult> Create(int homeScore, int awayScore) => homeScore < 0 || awayScore < 0
-        ? Result<GameResult>.Failure("game-result.invalid", "Scores cannot be negative.")
+    public const int MaxScore = 100;
+    public static Result<GameResult> Create(int homeScore, int awayScore) => homeScore < 0 || awayScore < 0 || homeScore > MaxScore || awayScore > MaxScore
+        ? Result<GameResult>.Failure("game-result.invalid", "Scores must be between 0 and 100.")
         : Result<GameResult>.Success(new(homeScore, awayScore));
 }
 

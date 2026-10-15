@@ -564,3 +564,249 @@ test("Escape closes an open editor without sending anything and returns focus to
   );
   expect(calls.some((c) => c.method === "POST")).toBe(false);
 });
+
+test.each(["35", "-30.5", "1e3", "3,5", "--3", "0x10", "Infinity", ""])(
+  "the spread %j is refused beside the editor before anything is sent",
+  async (typed) => {
+    open("Draft", [game(G1)]);
+    await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
+    fireEvent.change(screen.getByLabelText(/Spread for Bills/), {
+      target: { value: typed },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save and approve" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "a number from -30 to 30",
+    );
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  },
+);
+
+test.each([
+  ["30", 30],
+  ["-30", -30],
+  ["0", 0],
+  ["-3.5", -3.5],
+  ["+7", 7],
+])("the spread %s is sent as the number %d", async (typed, sent) => {
+  open("Draft", [game(G1)]);
+  replies[`POST /games/${G1}/lines`] = () => ({
+    status: 200,
+    body: week("Draft", [game(G1, { lineHistory: [sent] })]),
+  });
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
+  fireEvent.change(screen.getByLabelText(/Spread for Bills/), {
+    target: { value: typed },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save line" }));
+
+  await waitFor(() =>
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({
+      spread: sent,
+      approve: false,
+    }),
+  );
+});
+
+test.each([
+  ["101", "0"],
+  ["0", "101"],
+  ["1e2", "3"],
+  ["3.5", "3"],
+  ["-1", "3"],
+  ["", "3"],
+  ["3", " "],
+])(
+  "the scores %j and %j are refused before anything is sent",
+  async (away, home) => {
+    open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+    await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Enter result/ }));
+    fireEvent.change(screen.getByLabelText("Ravens score"), {
+      target: { value: away },
+    });
+    fireEvent.change(screen.getByLabelText("Bills score"), {
+      target: { value: home },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save result" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "whole numbers from 0 to 100",
+    );
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  },
+);
+
+test("scores of 0 and 100 are accepted", async () => {
+  open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+  replies[`POST /games/${G1}/result`] = () => ({
+    status: 200,
+    body: week("Locked", [
+      game(G1, {
+        approvedLine: -3,
+        lineHistory: [-3],
+        hasResult: true,
+        homeScore: 100,
+        awayScore: 0,
+      }),
+    ]),
+  });
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  fireEvent.click(screen.getByRole("button", { name: /Enter result/ }));
+  fireEvent.change(screen.getByLabelText("Ravens score"), {
+    target: { value: "0" },
+  });
+  fireEvent.change(screen.getByLabelText("Bills score"), {
+    target: { value: "100" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save result" }));
+
+  await waitFor(() =>
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({
+      homeScore: 100,
+      awayScore: 0,
+    }),
+  );
+});
+
+test("the server's refusal of an out-of-range spread is shown beside the editor", async () => {
+  open("Draft", [game(G1)]);
+  replies[`POST /games/${G1}/lines`] = {
+    status: 400,
+    body: {
+      code: "spread.invalid",
+      message: "A spread must be between -30 and 30.",
+    },
+  };
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
+  fireEvent.change(screen.getByLabelText(/Spread for Bills/), {
+    target: { value: "-3.5" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save line" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "A spread must be between -30 and 30.",
+  );
+  expect(screen.getByLabelText(/Spread for Bills/)).toHaveValue("-3.5");
+});
+
+test("recompute asks first, can be cancelled, and calls the endpoint only after confirming", async () => {
+  open("Final", [
+    game(G1, {
+      approvedLine: -3,
+      lineHistory: [-3],
+      hasResult: true,
+      homeScore: 21,
+      awayScore: 14,
+    }),
+  ]);
+  replies["POST /recompute"] = () => ({ status: 200, body: server });
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+  const dock = screen.getByRole("region", { name: "Next action" });
+
+  fireEvent.click(
+    within(dock).getByRole("button", { name: "Recompute scores" }),
+  );
+  const confirm = within(dock).getByRole("group", {
+    name: "Confirm recompute",
+  });
+  expect(confirm).toHaveTextContent("Recompute Week 4's scores?");
+  expect(confirm).toHaveTextContent(
+    "replaces them using the current ballots and results",
+  );
+  expect(
+    within(confirm).getByRole("button", { name: "Confirm recompute" }),
+  ).toHaveFocus();
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+
+  fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  expect(within(dock).queryByRole("group")).not.toBeInTheDocument();
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+  await waitFor(() =>
+    expect(
+      within(dock).getByRole("button", { name: "Recompute scores" }),
+    ).toHaveFocus(),
+  );
+
+  fireEvent.click(
+    within(dock).getByRole("button", { name: "Recompute scores" }),
+  );
+  fireEvent.keyDown(within(dock).getByRole("group"), { key: "Escape" });
+  expect(within(dock).queryByRole("group")).not.toBeInTheDocument();
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+
+  fireEvent.click(
+    within(dock).getByRole("button", { name: "Recompute scores" }),
+  );
+  fireEvent.click(
+    within(dock).getByRole("button", { name: "Confirm recompute" }),
+  );
+
+  await waitFor(() =>
+    expect(calls.filter((c) => c.method === "POST").map((c) => c.url)).toEqual([
+      `/api/admin/weeks/${WEEK}/recompute`,
+    ]),
+  );
+  expect(await screen.findByText("Recompute scores: done.")).toBeVisible();
+  expect(within(dock).queryByRole("group")).not.toBeInTheDocument();
+});
+
+test("a refused recompute shows the reason and leaves the confirmation closed", async () => {
+  open("Final", [
+    game(G1, {
+      approvedLine: -3,
+      lineHistory: [-3],
+      hasResult: true,
+      homeScore: 21,
+      awayScore: 14,
+    }),
+  ]);
+  replies["POST /recompute"] = {
+    status: 409,
+    body: {
+      code: "week.ballots",
+      message: "A member has more than one ballot for this week.",
+    },
+  };
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+  const dock = screen.getByRole("region", { name: "Next action" });
+
+  fireEvent.click(
+    within(dock).getByRole("button", { name: "Recompute scores" }),
+  );
+  fireEvent.click(
+    within(dock).getByRole("button", { name: "Confirm recompute" }),
+  );
+
+  expect(await within(dock).findByRole("alert")).toHaveTextContent(
+    "more than one ballot",
+  );
+  expect(within(dock).queryByRole("group")).not.toBeInTheDocument();
+});
+
+test("the other dock actions need no confirmation", async () => {
+  open("Open", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+  replies["POST /lock"] = () => ({
+    status: 200,
+    body: week("Locked", server.games),
+  });
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  fireEvent.click(screen.getByRole("button", { name: "Lock week" }));
+
+  await waitFor(() =>
+    expect(calls.some((c) => c.url.endsWith("/lock"))).toBe(true),
+  );
+  expect(
+    screen.queryByRole("group", { name: /Confirm/ }),
+  ).not.toBeInTheDocument();
+});

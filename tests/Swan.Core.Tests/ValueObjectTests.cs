@@ -23,6 +23,46 @@ public sealed class ValueObjectTests
         Assert.Equal(GameWinner.Tie, GameResult.Create(21, 21).Value!.Winner);
     }
 
+    [Theory]
+    [InlineData(-30.5)]
+    [InlineData(30.5)]
+    [InlineData(35)]
+    [InlineData(-350)]
+    [InlineData(1000)]
+    public void SpreadBeyondThirtyPointsEitherWayIsRejected(double value)
+    {
+        var result = Spread.Create((decimal)value);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("spread.invalid", result.Error!.Code);
+        Assert.Equal("A spread must be between -30 and 30.", result.Error.Message);
+    }
+
+    [Theory]
+    [InlineData(-30)]
+    [InlineData(0)]
+    [InlineData(-3.5)]
+    [InlineData(30)]
+    public void SpreadsFromMinusThirtyToThirtyAreAccepted(double value) => Assert.True(Spread.Create((decimal)value).IsSuccess);
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, -1)]
+    [InlineData(101, 0)]
+    [InlineData(0, 101)]
+    [InlineData(999, 3)]
+    public void ScoresMustBeWholeNumbersFromZeroToOneHundred(int home, int away)
+    {
+        var result = GameResult.Create(home, away);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("game-result.invalid", result.Error!.Code);
+        Assert.Equal("Scores must be between 0 and 100.", result.Error.Message);
+    }
+
+    [Fact]
+    public void ScoresOfZeroAndOneHundredAreAccepted() => Assert.True(GameResult.Create(0, 100).IsSuccess);
+
     [Fact]
     public void EmailRejectsMalformedAddresses() => Assert.False(Email.Create("not-an-email").IsSuccess);
 

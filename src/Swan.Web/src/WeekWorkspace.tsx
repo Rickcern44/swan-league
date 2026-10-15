@@ -46,6 +46,9 @@ const dockCalls: Record<string, string> = {
   recompute: "recompute",
 };
 
+const plainNumber = /^[+-]?(\d+(\.\d*)?|\.\d+)$/;
+const wholeNumber = /^\d+$/;
+
 const shortName = (name: string) =>
   name === "Unknown team" ? name : (name.split(" ").at(-1) ?? name);
 
@@ -85,7 +88,9 @@ export default function WeekWorkspace({
   const [problem, setProblem] = useState<Problem | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const trigger = useRef<string | null>(null);
+  const returnToDock = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -115,6 +120,14 @@ export default function WeekWorkspace({
       trigger.current = null;
     }
   }, [editing]);
+
+  // Cancelling the recompute confirmation puts focus back on the button that opened it.
+  useEffect(() => {
+    if (!confirming && returnToDock.current) {
+      document.getElementById("dock-action")?.focus();
+      returnToDock.current = false;
+    }
+  }, [confirming]);
 
   // Every action asks the server and then shows what the server returned; nothing is predicted here.
   async function act(
@@ -291,26 +304,71 @@ export default function WeekWorkspace({
       </aside>
 
       <div className="dock" role="region" aria-label="Next action">
-        <div className="dock-text">
-          <strong>{call ? next.label : `Next: ${next.label}`}</strong>
-          <span>{next.detail}</span>
-          {dockProblem && (
-            <span role="alert" className="problem">
-              {dockProblem}
-            </span>
-          )}
-        </div>
-        {next.canAct && call && (
+        {!confirming && (
+          <div className="dock-text">
+            <strong>{call ? next.label : `Next: ${next.label}`}</strong>
+            <span>{next.detail}</span>
+            {dockProblem && (
+              <span role="alert" className="problem">
+                {dockProblem}
+              </span>
+            )}
+          </div>
+        )}
+        {next.canAct && call && !confirming && (
           <button
             type="button"
+            id="dock-action"
             className={next.kind === "recompute" ? "ghost" : "primary"}
             disabled={busy}
-            onClick={() =>
-              void act("dock", call, undefined, `${next.label}: done.`)
-            }
+            onClick={() => {
+              setProblem(null);
+              if (next.kind === "recompute") setConfirming(true);
+              else void act("dock", call, undefined, `${next.label}: done.`);
+            }}
           >
             {next.label}
           </button>
+        )}
+        {next.canAct && call && confirming && (
+          <div
+            role="group"
+            aria-label="Confirm recompute"
+            className="confirm"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                returnToDock.current = true;
+                setConfirming(false);
+              }
+            }}
+          >
+            <p>
+              Recompute Week {week.number}&apos;s scores? This replaces them
+              using the current ballots and results.
+            </p>
+            <button
+              type="button"
+              className="primary"
+              disabled={busy}
+              autoFocus
+              onClick={() => {
+                setConfirming(false);
+                void act("dock", call, undefined, `${next.label}: done.`);
+              }}
+            >
+              Confirm recompute
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                returnToDock.current = true;
+                setConfirming(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -461,9 +519,10 @@ function LineEditor({
   const home = shortName(game.homeTeamName);
 
   function save(approve: boolean) {
-    const spread = Number(text);
-    if (text.trim() === "" || Number.isNaN(spread)) {
-      setInvalid("Enter the spread as a number, such as -3.5.");
+    const spread = Number(text.trim());
+    // Plain decimals only (no 1e3, 0x10 or Infinity), and no spread comes near 30. The server checks the same range.
+    if (!plainNumber.test(text.trim()) || Math.abs(spread) > 30) {
+      setInvalid("Enter the spread as a number from -30 to 30, such as -3.5.");
       return;
     }
     setInvalid("");
@@ -544,15 +603,15 @@ function ResultEditor({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const h = Number(home);
-    const a = Number(away);
+    const h = Number(home.trim());
+    const a = Number(away.trim());
     if (
-      home.trim() === "" ||
-      away.trim() === "" ||
-      !Number.isInteger(h) ||
-      !Number.isInteger(a)
+      !wholeNumber.test(home.trim()) ||
+      !wholeNumber.test(away.trim()) ||
+      h > 100 ||
+      a > 100
     ) {
-      setInvalid("Enter both scores as whole numbers.");
+      setInvalid("Enter both scores as whole numbers from 0 to 100.");
       return;
     }
     setInvalid("");

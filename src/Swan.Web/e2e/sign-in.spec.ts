@@ -99,6 +99,12 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
       .getByRole("button", { name: /^Add line/ })
       .first()
       .click();
+    // Out-of-range or odd numbers are refused beside the editor before anything is saved.
+    for (const bad of ["35", "1e3"]) {
+      await page.getByLabel(/^Spread for/).fill(bad);
+      await page.getByRole("button", { name: "Save and approve" }).click();
+      await expect(page.getByRole("alert")).toContainText("from -30 to 30");
+    }
     await page.getByLabel(/^Spread for/).fill("-3.5");
     await page.getByRole("button", { name: "Save and approve" }).click();
     await expect(page.getByText(/-3\.5 · approved/)).toBeVisible();
@@ -128,6 +134,16 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await result
       .getByLabel(/ score$/)
       .first()
+      .fill("101");
+    await result
+      .getByLabel(/ score$/)
+      .nth(1)
+      .fill("21");
+    await result.getByRole("button", { name: "Save result" }).click();
+    await expect(result.getByRole("alert")).toContainText("from 0 to 100");
+    await result
+      .getByLabel(/ score$/)
+      .first()
       .fill("17");
     await result
       .getByLabel(/ score$/)
@@ -141,6 +157,17 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await expect(
       page.getByRole("listitem").filter({ hasText: "Final · current" }),
     ).toBeVisible();
+
+    // Recompute asks first: cancelling changes nothing, confirming calls the endpoint.
+    await dock.getByRole("button", { name: "Recompute scores" }).click();
+    await expect(
+      dock.getByRole("group", { name: "Confirm recompute" }),
+    ).toBeVisible();
+    await dock.getByRole("button", { name: "Cancel" }).click();
+    await expect(dock.getByRole("group")).toHaveCount(0);
+    await dock.getByRole("button", { name: "Recompute scores" }).click();
+    await dock.getByRole("button", { name: "Confirm recompute" }).click();
+    await expect(page.getByText("Recompute scores: done.")).toBeVisible();
 
     await page.getByRole("button", { name: "‹ League desk" }).click();
     await expect(page.getByText("You are caught up")).toBeVisible();
