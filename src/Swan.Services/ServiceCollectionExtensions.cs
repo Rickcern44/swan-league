@@ -27,6 +27,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddScoped<MagicLinkService>();
         builder.Services.AddScoped<SessionService>();
+        builder.Services.AddScoped<ISetupAccessService, SetupAccessService>();
         builder.Services.AddScoped<IAuditService, AuditService>();
         builder.Services.AddScoped<IWeekAdministrationService, WeekAdministrationService>();
         builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
