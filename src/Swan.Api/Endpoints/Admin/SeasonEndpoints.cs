@@ -48,16 +48,20 @@ public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var seasons = endpoints.MapGroup("/api/admin/seasons").RequireAuthorization("Admin");
-        seasons.MapPost("", async (CreateSeasonRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+        // Creating a season is open to a global administrator or an active commissioner, so this one route is outside the Admin-only group: it needs a signed-in user and the service
+        // then decides, from the database, whether that user may create. Every other season route below stays Admin-only.
+        endpoints.MapPost("/api/admin/seasons", async (CreateSeasonRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
             !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                 ? Results.Unauthorized()
                 : await service.CreateBlankAsync(new UserId(actor), request.Year, request.Name ?? "", request.IsSimulation, cancellationToken) switch
                 {
                     { IsSuccess: true } created => Results.Created($"/api/admin/seasons/setup", created.Value),
+                    { Error.Code: "season.creator-forbidden" } forbidden => Results.Json(forbidden.Error, statusCode: StatusCodes.Status403Forbidden),
                     { Error.Code: "season.name" or "season.year" } invalid => Results.BadRequest(invalid.Error),
                     var rejected => Results.Conflict(rejected.Error)
-                });
+                }).RequireAuthorization();
+
+        var seasons = endpoints.MapGroup("/api/admin/seasons").RequireAuthorization("Admin");
         seasons.MapGet("/setup", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
             await service.GetSetupAsync(cancellationToken) switch
             {

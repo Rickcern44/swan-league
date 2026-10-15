@@ -110,7 +110,29 @@ public interface ISeasonSetupService
 public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit, IScheduleProvider scheduleProvider, IMemoryCache previews, IClock clock) : ISeasonSetupService
 {
     // Only one Setup season may exist; Live and Completed seasons are never touched. Stakes and settings are PRD defaults, not caller input.
-    public async Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default)
+    // Creating a season is for a global administrator or an active commissioner of any season. That is decided here from the database, under share locks on the rows it reads, in the
+    // same transaction as the insert, so a user deactivated at the same moment cannot slip through; a refused call writes nothing.
+    public Task<Result<SeasonSummary>> CreateBlankAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken = default) =>
+        database.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            database.ChangeTracker.Clear();
+            await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+            if (!await MayCreateSeasonAsync(actor, cancellationToken)) return Result<SeasonSummary>.Failure("season.creator-forbidden", "Only an administrator or a league commissioner can create a season.");
+            var created = await CreateBlankCoreAsync(actor, year, name, isSimulation, cancellationToken);
+            if (created.IsSuccess) await transaction.CommitAsync(cancellationToken);
+            return created;
+        });
+
+    private async Task<bool> MayCreateSeasonAsync(UserId actor, CancellationToken cancellationToken)
+    {
+        var user = (await database.Users.FromSqlInterpolated($"""select * from identity.users where "Id" = {actor.Value} for share""").AsNoTracking().ToListAsync(cancellationToken)).FirstOrDefault();
+        if (user is null || !user.IsActive) return false;
+        if (user.Role == UserRole.Admin) return true;
+        var commissioner = await database.Memberships.FromSqlInterpolated($"""select * from league.memberships where "UserId" = {actor.Value} and "Role" = {(int)MembershipRole.Commissioner} and "IsActive" for share""").AsNoTracking().ToListAsync(cancellationToken);
+        return commissioner.Count > 0;
+    }
+
+    private async Task<Result<SeasonSummary>> CreateBlankCoreAsync(UserId actor, int year, string name, bool isSimulation, CancellationToken cancellationToken)
     {
         var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), year, name, isSimulation);
         if (!season.IsSuccess) return Result<SeasonSummary>.Failure(season.Error!.Code, season.Error.Message);

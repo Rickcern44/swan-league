@@ -20,7 +20,6 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
     [Theory]
-    [InlineData("POST", "/api/admin/seasons")]
     [InlineData("GET", "/api/admin/seasons/setup")]
     [InlineData("PUT", "/api/admin/seasons/setup")]
     [InlineData("PUT", "/api/admin/seasons/setup/money")]
@@ -785,6 +784,18 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Equal(expected, finish.StatusCode);
         Assert.Equal(expected, read.StatusCode);
         Assert.Contains("say what to fix", await finish.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task ARefusalFromTheServiceBecomesAReadable403ForSeasonCreation()
+    {
+        var service = new FakeSeasonService { Failure = new Error("season.creator-forbidden", "Only an administrator or a league commissioner can create a season.") };
+        using var client = CreateClient("Coach", service);
+
+        var response = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "2026 Season" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(("season.creator-forbidden", "Only an administrator or a league commissioner can create a season."), ((await response.Content.ReadFromJsonAsync<Error>())!.Code, "Only an administrator or a league commissioner can create a season."));
     }
 
     [Fact]

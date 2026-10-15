@@ -1198,7 +1198,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
     private Task<(int Rosters, int Ballots, int Scores, int Weeks)> DependentCounts() => Run(async (service, database) => (await database.Rosters.CountAsync(), await database.Ballots.CountAsync(), await database.WeekScores.CountAsync(), await database.Weeks.CountAsync()));
 
-    private Task<(int Users, int Memberships, int Audits)> PeopleCounts() => Run(async (service, database) => (await database.Users.CountAsync(), await database.Memberships.CountAsync(), await database.AuditEntries.CountAsync()));
+    private Task<(int Users, int Memberships, int Audits)> PeopleCounts() => Run(async (service, database) => (await database.Users.CountAsync(user => user.Id != Admin), await database.Memberships.CountAsync(), await database.AuditEntries.CountAsync()));
 
     private Task<int> CoachAudits() => Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.coaches.updated"));
 
@@ -1217,7 +1217,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Empty(plan.Value.Coaches);
         Assert.Empty(plan.Value.Candidates);
         Assert.Equal(0, plan.Value.ActiveCoaches);
-        Assert.Equal(0, await Run((service, database) => database.Users.CountAsync()));
+        Assert.Equal(0, await Run((service, database) => database.Users.CountAsync(user => user.Id != Admin)));
     }
 
     [Fact]
@@ -1266,9 +1266,9 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal((pat.Id.Value, "Pat Smith", "pat@example.com", true), (coach.UserId, coach.Name, coach.Email, coach.Active));
         Assert.True(Assert.Single(saved.Value.Candidates).Selected);
         Assert.Equal(1, await Run((service, database) => database.Memberships.CountAsync(membership => membership.SeasonId == created.Value!.Id && membership.UserId == pat.Id)));
-        Assert.Equal(1, await Run((service, database) => database.Users.CountAsync()));
+        Assert.Equal(1, await Run((service, database) => database.Users.CountAsync(user => user.Id != Admin)));
         Assert.Equal(before, await DependentCounts());
-        var user = await Run((service, database) => database.Users.AsNoTracking().SingleAsync());
+        var user = await Run((service, database) => database.Users.AsNoTracking().SingleAsync(person => person.Id != Admin));
         Assert.Equal(("Pat Smith", UserRole.Coach), (user.Name, user.Role));
     }
 
@@ -1284,7 +1284,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.True(saved.IsSuccess);
         Assert.Equal(["lee@example.com", "new.coach@example.com"], saved.Value!.Coaches.Select(coach => coach.Email).Order());
         var users = await Run((service, database) => database.Users.AsNoTracking().OrderBy(user => user.Name).ToListAsync());
-        Assert.All(users.Where(user => user.Id != admin.Id), user => Assert.Equal(UserRole.Coach, user.Role));
+        Assert.All(users.Where(user => user.Id != admin.Id && user.Id != Admin), user => Assert.Equal(UserRole.Coach, user.Role));
         Assert.Equal("New Coach", users.Single(user => user.Email.Value == "new.coach@example.com").Name);
         // Naming an existing administrator as a coach elsewhere leaves their global role and name alone.
         Assert.True((await Run(service => service.UpdateSetupCoachesAsync(Admin, [C("boss@example.com", "Renamed Boss")]))).IsSuccess);
@@ -1303,7 +1303,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
         Assert.True(saved.IsSuccess);
         Assert.Equal(mixed.Id.Value, Assert.Single(saved.Value!.Coaches).UserId);
-        Assert.Equal(1, await Run((service, database) => database.Users.CountAsync()));
+        Assert.Equal(1, await Run((service, database) => database.Users.CountAsync(user => user.Id != Admin)));
     }
 
     [Fact]
@@ -1502,6 +1502,144 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
         Assert.Equal("season.setup", refused.Error!.Code);
         Assert.Equal(SeasonState.Setup, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).State);
+    }
+
+    private async Task<UserId> SeedUserAsync(string email, UserRole role, bool active = true)
+    {
+        var id = new UserId(Guid.NewGuid());
+        await using var database = CreateDatabase();
+        var user = new User(id, Email.Create(email).Value!, email, role);
+        if (!active) user.Deactivate();
+        database.Users.Add(user);
+        await database.SaveChangesAsync();
+        return id;
+    }
+
+    // An older season whose commissioner is the given user, active or not.
+    private async Task<MembershipId> SeedCommissionerAsync(UserId user, bool active = true)
+    {
+        var older = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2024, "2024 Season", false).Value!;
+        Assert.True(older.ActivateWithDogs().IsSuccess);
+        var membership = new Membership(new MembershipId(Guid.NewGuid()), user, older.Id, MembershipRole.Commissioner);
+        if (!active) membership.Deactivate();
+        await using var database = CreateDatabase();
+        database.Seasons.Add(older);
+        database.Memberships.Add(membership);
+        await database.SaveChangesAsync();
+        return membership.Id;
+    }
+
+    private async Task<(int Setup, int Memberships, int Audits)> CreationFootprint() => await Run(async (service, database) =>
+        (await database.Seasons.CountAsync(season => season.State == SeasonState.Setup), await database.Memberships.CountAsync(), await database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.created")));
+
+    [Fact]
+    public async Task ACommissionerWhoIsNotAGlobalAdminMayCreateASeasonAndBecomesItsCommissioner()
+    {
+        await Migrate();
+        var commissioner = await SeedUserAsync("commissioner@example.com", UserRole.Coach);
+        await SeedCommissionerAsync(commissioner);
+
+        var created = await Run(service => service.CreateBlankAsync(commissioner, 2026, "2026 Season", false));
+
+        Assert.True(created.IsSuccess, created.Error?.Message);
+        var membership = await Run((service, database) => database.Memberships.AsNoTracking().SingleAsync(item => item.SeasonId == created.Value!.Id));
+        Assert.Equal((commissioner, MembershipRole.Commissioner, true), (membership.UserId, membership.Role, membership.IsActive));
+        Assert.Equal(1, (await CreationFootprint()).Audits);
+    }
+
+    [Theory]
+    [InlineData("coach")]
+    [InlineData("coachWithOnlyCoachMembership")]
+    [InlineData("inactiveCommissioner")]
+    [InlineData("deactivatedCommissionerUser")]
+    [InlineData("deactivatedAdmin")]
+    [InlineData("unknownUser")]
+    public async Task EveryoneElseIsRefusedAndNothingIsCreatedOrAudited(string kind)
+    {
+        await Migrate();
+        var actor = kind switch
+        {
+            "coach" => await SeedUserAsync("plain.coach@example.com", UserRole.Coach),
+            "coachWithOnlyCoachMembership" => await SeedCoachOnlyAsync(),
+            "inactiveCommissioner" => await SeedInactiveCommissionerAsync(),
+            "deactivatedCommissionerUser" => await SeedDeactivatedCommissionerUserAsync(),
+            "deactivatedAdmin" => await SeedUserAsync("gone.admin@example.com", UserRole.Admin, active: false),
+            _ => new UserId(Guid.NewGuid()),
+        };
+        var before = await CreationFootprint();
+
+        var refused = await Run(service => service.CreateBlankAsync(actor, 2026, "2026 Season", false));
+
+        Assert.Equal("season.creator-forbidden", refused.Error!.Code);
+        Assert.Equal("Only an administrator or a league commissioner can create a season.", refused.Error.Message);
+        Assert.Equal(before, await CreationFootprint());
+        Assert.Equal(0, before.Setup);
+    }
+
+    private async Task<UserId> SeedCoachOnlyAsync()
+    {
+        var user = await SeedUserAsync("coach.member@example.com", UserRole.Coach);
+        var older = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2024, "2024 Season", false).Value!;
+        Assert.True(older.ActivateWithDogs().IsSuccess);
+        await using var database = CreateDatabase();
+        database.Seasons.Add(older);
+        database.Memberships.Add(new Membership(new MembershipId(Guid.NewGuid()), user, older.Id, MembershipRole.Coach));
+        await database.SaveChangesAsync();
+        return user;
+    }
+
+    private async Task<UserId> SeedInactiveCommissionerAsync()
+    {
+        var user = await SeedUserAsync("former.commissioner@example.com", UserRole.Coach);
+        await SeedCommissionerAsync(user, active: false);
+        return user;
+    }
+
+    private async Task<UserId> SeedDeactivatedCommissionerUserAsync()
+    {
+        var user = await SeedUserAsync("deactivated.commissioner@example.com", UserRole.Coach, active: false);
+        await SeedCommissionerAsync(user);
+        return user;
+    }
+
+    [Fact]
+    public async Task ARefusedCreationDoesNotUseUpTheSingleSetupSeasonSlot()
+    {
+        await Migrate();
+        var coach = await SeedUserAsync("plain.coach@example.com", UserRole.Coach);
+
+        await Run(service => service.CreateBlankAsync(coach, 2026, "2026 Season", false));
+        var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", false));
+        var second = await Run(service => service.CreateBlankAsync(Admin, 2027, "2027 Season", false));
+
+        Assert.True(created.IsSuccess);
+        Assert.Equal("season.setup.exists", second.Error!.Code);
+    }
+
+    [Fact]
+    public async Task ACommissionerWhoIsDeactivatedWhileTheCreationIsInFlightIsRefused()
+    {
+        await Migrate();
+        var commissioner = await SeedUserAsync("commissioner@example.com", UserRole.Coach);
+        var membership = await SeedCommissionerAsync(commissioner);
+        // The deactivation is written but not yet committed.
+        await using var connection = new Npgsql.NpgsqlConnection(postgres.GetConnectionString());
+        await connection.OpenAsync();
+        await using var other = await connection.BeginTransactionAsync();
+        await using (var update = new Npgsql.NpgsqlCommand("""update league.memberships set "IsActive" = false where "Id" = @id""", connection, other))
+        {
+            update.Parameters.AddWithValue("id", membership.Value);
+            Assert.Equal(1, await update.ExecuteNonQueryAsync());
+        }
+
+        var create = Run(service => service.CreateBlankAsync(commissioner, 2026, "2026 Season", false));
+        var finishedEarly = await Task.WhenAny(create, Task.Delay(TimeSpan.FromSeconds(2))) == create;
+        await other.CommitAsync();
+        var result = await create;
+
+        Assert.False(finishedEarly, "The creation must wait for the membership row instead of trusting the old active state.");
+        Assert.Equal("season.creator-forbidden", result.Error!.Code);
+        Assert.Equal(0, (await CreationFootprint()).Setup);
     }
 
     private async Task<List<Team>> ReadyToFinish()
@@ -1737,6 +1875,12 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
+        // The acting administrator is a real user, because creating a season is authorized from the database, not from the caller's say-so.
+        if (!await database.Users.AnyAsync(user => user.Id == Admin))
+        {
+            database.Users.Add(new User(Admin, Email.Create("setup.admin@example.com").Value!, "Setup Admin", UserRole.Admin));
+            await database.SaveChangesAsync();
+        }
     }
 
     private readonly FakeScheduleProvider provider = new();
