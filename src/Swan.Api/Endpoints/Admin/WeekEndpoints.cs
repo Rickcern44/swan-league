@@ -47,7 +47,7 @@ public static class WeekEndpoints
 
     private static IResult ToResult<T>(Result<T> result) => result switch
     {
-        { IsSuccess: true } => Results.Ok(result.Value),
+        { IsSuccess: true } => Results.Ok(result.Value is WeekDashboard week ? WeekResponse.From(week) : result.Value),
         { Error.Code: "week.missing" or "game.missing" or "season.missing" } => Results.NotFound(result.Error),
         _ => Results.Conflict(result.Error)
     };

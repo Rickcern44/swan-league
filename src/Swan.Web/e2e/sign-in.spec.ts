@@ -57,8 +57,8 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await page.request.get("/api/admin/dashboard")
   ).json()) as {
     season: { name: string } | null;
-    currentWeek: { number: number } | null;
-    attention: { title: string; reason: string }[];
+    currentWeek: { id: string; number: number; state: string } | null;
+    attention: { kind: string; title: string; reason: string }[];
   };
   await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
   if (!dashboard.season)
@@ -76,6 +76,74 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
       ).toBeVisible();
     for (const item of dashboard.attention.slice(0, 3))
       await expect(page.getByText(item.reason).first()).toBeVisible();
+  }
+
+  // The Week Workspace walk consumes the seeded Draft week, so it runs only against a fresh dedicated database (a used one is already past Draft).
+  const fresh =
+    dashboard.currentWeek?.state === "Draft" &&
+    dashboard.attention[0]?.kind === "lines-missing";
+  if (fresh) {
+    const weekUrl = `/api/admin/weeks/${dashboard.currentWeek!.id}`;
+    await page.getByRole("link", { name: /Lines need approval/ }).click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: /^Week \d+$/ }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(
+      new RegExp(`/weeks/${dashboard.currentWeek!.id}$`),
+    );
+    const dock = page.getByRole("region", { name: "Next action" });
+    await expect(dock).toContainText("still needs an approved line");
+
+    // Draft: add a line and approve it in one explicit step, then approve the week's lines.
+    await page
+      .getByRole("button", { name: /^Add line/ })
+      .first()
+      .click();
+    await page.getByLabel(/^Spread for/).fill("-3.5");
+    await page.getByRole("button", { name: "Save and approve" }).click();
+    await expect(page.getByText(/-3\.5 · approved/)).toBeVisible();
+    await dock.getByRole("button", { name: /^Approve \d+ lines?$/ }).click();
+    await expect(
+      dock.getByRole("button", { name: "Publish week" }),
+    ).toBeVisible();
+
+    // LinesApproved -> Open.
+    await dock.getByRole("button", { name: "Publish week" }).click();
+    await expect(dock.getByRole("button", { name: "Lock week" })).toBeVisible();
+
+    // A rejected change keeps the page and shows the server's reason: lock it behind the page's back, then press Lock.
+    expect((await page.request.post(`${weekUrl}/lock`)).ok()).toBe(true);
+    await dock.getByRole("button", { name: "Lock week" }).click();
+    await expect(dock.getByRole("alert")).toContainText("Week must be open");
+    await expect(dock.getByRole("button", { name: "Lock week" })).toBeVisible();
+    await page.reload();
+
+    // Locked: enter every result, then finalize.
+    await expect(dock).toContainText("still needs a result");
+    await page
+      .getByRole("button", { name: /^Enter result/ })
+      .first()
+      .click();
+    const result = page.getByRole("form", { name: /^Result for/ });
+    await result
+      .getByLabel(/ score$/)
+      .first()
+      .fill("17");
+    await result
+      .getByLabel(/ score$/)
+      .nth(1)
+      .fill("21");
+    await result.getByRole("button", { name: "Save result" }).click();
+    await dock.getByRole("button", { name: "Finalize week" }).click();
+    await expect(
+      dock.getByRole("button", { name: "Recompute scores" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("listitem").filter({ hasText: "Final · current" }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "‹ League desk" }).click();
+    await expect(page.getByText("You are caught up")).toBeVisible();
   }
   await page
     .getByRole("navigation", { name: "Primary" })

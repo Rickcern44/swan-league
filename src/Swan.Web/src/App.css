@@ -348,24 +348,39 @@ button:disabled {
   opacity: 0.55;
 }
 
-/* Swan League Desk: navy carries identity and navigation, ice gives air, white cards hold decisions, gold marks attention. */
+/* Swan in motion: ink carries the frame, ice gives air, brass marks the one thing an administrator must do. */
 :root {
-  --navy: #163b63;
-  --ice: #eef6fb;
-  --gold: #ba7a18;
-  --ink: #102a43;
-  --line: #c9d8e6;
+  --ink: #0b1b2e;
+  --ink-2: #16314f;
+  --ice: #f3f7fa;
+  --mist: #e2eaf1;
+  --rule: #d3dde7;
+  --brass: #b07a1f;
+  --brass-text: #7d5410;
+  --muted: #4d6076;
+  --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  color: var(--ink);
+  background: var(--ice);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .skip {
   position: absolute;
   left: 0.5rem;
   top: -4rem;
-  z-index: 10;
-  background: var(--navy);
+  z-index: 20;
+  background: var(--ink);
   color: #fff;
   padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
+  border-radius: 0.4rem;
 }
 
 .skip:focus {
@@ -374,7 +389,8 @@ button:disabled {
 
 .shell {
   min-height: 100svh;
-  padding-bottom: 4.5rem;
+  padding-bottom: 7.5rem;
+  background: var(--ice);
 }
 
 .shell p {
@@ -382,42 +398,52 @@ button:disabled {
   background: none;
   box-shadow: none;
   padding: 0;
+  border-radius: 0;
 }
 
 .shell-top {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  background: var(--navy);
+  background: var(--ink);
   color: #fff;
-  padding: 0.75rem 1rem;
+  padding: 0.7rem 1rem;
 }
 
 .shell-top .mark {
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  display: inline-flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--display);
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
+}
+
+.swan-mark {
+  color: var(--brass);
+  flex: none;
 }
 
 .shell-top .who {
   margin: 0 0 0 auto;
   font-size: 0.85rem;
+  color: #c4d3e3;
 }
 
 .shell-top button {
-  white-space: nowrap;
   background: transparent;
-  border-color: #9fb9d3;
+  border: 1px solid #5d7794;
   color: #fff;
   padding: 0.4rem 0.7rem;
+  white-space: nowrap;
 }
 
 .shell-nav {
   position: fixed;
   inset: auto 0 0 0;
-  z-index: 5;
-  background: #fff;
-  border-top: 2px solid var(--navy);
+  z-index: 8;
+  background: var(--ink);
 }
 
 .shell-nav ul {
@@ -441,22 +467,22 @@ button:disabled {
   padding: 0.25rem;
   text-align: center;
   font-size: 0.85rem;
-  color: var(--navy);
+  color: #dbe6f1;
   text-decoration: none;
 }
 
 .shell-nav a[aria-current="page"] {
-  background: var(--ice);
-  box-shadow: inset 0 -3px 0 var(--gold);
+  color: #fff;
   font-weight: 700;
+  box-shadow: inset 0 3px 0 var(--brass);
 }
 
 .shell-nav .soon {
-  color: #52667a;
+  color: #8fa5bc;
 }
 
 .shell-nav small {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
 }
 
 main.shell-main,
@@ -465,8 +491,8 @@ main.shell-main:has(.setup) {
   place-content: start;
   min-height: 0;
   margin: 0 auto;
-  max-width: 64rem;
-  padding: 1rem;
+  max-width: 68rem;
+  padding: 1.25rem 1rem;
 }
 
 main.shell-main > * + * {
@@ -478,139 +504,389 @@ main.shell-main > * + * {
 }
 
 .shell-main h1 {
-  font-size: clamp(1.6rem, 5vw, 2.25rem);
-  margin: 0 0 1rem;
-  color: var(--navy);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(2rem, 7vw, 3rem);
+  line-height: 1.05;
+  margin: 0;
+  color: var(--ink);
 }
 
 .shell-main h2 {
-  font-size: 1.1rem;
-  margin: 0 0 0.75rem;
-  color: var(--navy);
+  font-size: 1.05rem;
+  margin: 0 0 0.6rem;
+  color: var(--ink);
 }
 
 .shell-main h3 {
   font-size: 0.95rem;
-  margin: 1rem 0 0.5rem;
-  color: #3d5368;
+  margin: 1.25rem 0 0.4rem;
+  color: var(--muted);
 }
 
 .eyebrow {
   margin: 0 0 0.25rem;
-  font-size: 0.8rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #3d5368;
+  font-size: 0.95rem;
+  color: var(--muted);
 }
 
-.panel {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 0.75rem;
-  box-shadow: 0 0.15rem 0.6rem rgb(16 42 67 / 8%);
-  padding: 1rem;
+/* One canvas, divided by hairlines instead of a stack of boxes. */
+.band {
+  border-top: 1px solid var(--rule);
+  padding-top: 1rem;
 }
 
 .dash-grid {
   display: grid;
-  gap: 1rem;
+  gap: 1.5rem;
+  margin-top: 1.25rem;
 }
 
 .attention {
-  display: grid;
-  gap: 0.6rem;
   list-style: none;
   margin: 0 0 0.75rem;
   padding: 0;
 }
 
 .attention li {
-  display: grid;
-  gap: 0.15rem;
-  border-left: 4px solid var(--line);
-  background: var(--ice);
-  border-radius: 0.5rem;
-  padding: 0.65rem 0.75rem;
+  border-top: 1px solid var(--rule);
 }
 
-.attention li.decision {
-  border-left-color: var(--gold);
+.attention a {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.85rem 0.25rem 0.85rem 0.9rem;
+  color: inherit;
+  text-decoration: none;
+  position: relative;
+}
+
+.attention li.decision a::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.85rem;
+  bottom: 0.85rem;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--brass);
+}
+
+.attention a strong {
+  font-size: 1.05rem;
+}
+
+.attention a:hover strong {
+  text-decoration: underline;
 }
 
 .where {
-  font-size: 0.85rem;
-  color: #3d5368;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 
-.week-line {
+.pulse-card .week-line {
   margin: 0 0 0.75rem;
   font-weight: 600;
 }
 
-.facts {
+.facts,
+.counts {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.35rem 1rem;
   margin: 0;
 }
 
-.facts dt {
-  color: #3d5368;
+.facts dt,
+.counts dt {
+  color: var(--muted);
 }
 
-.facts dd {
+.facts dd,
+.counts dd {
   margin: 0;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-.badge {
+.open-week {
   display: inline-block;
-  border-radius: 999px;
-  border: 1px solid var(--navy);
-  padding: 0.05rem 0.55rem;
-  font-size: 0.8rem;
+  margin-top: 1rem;
+  color: var(--ink);
   font-weight: 600;
-  background: #fff;
-  color: var(--navy);
 }
 
-.badge-draft {
-  border-color: var(--gold);
-  color: #7a4d08;
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
 }
 
-.badge-open {
-  background: var(--navy);
-  color: #fff;
+.chip-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: transparent;
 }
 
-.badge-locked {
-  border-style: dashed;
+.chip-draft .chip-dot {
+  border-color: var(--brass);
 }
 
-.badge-final {
-  background: var(--ice);
+.chip-linesapproved .chip-dot {
+  background: var(--brass);
+  border-color: var(--brass);
+}
+
+.chip-open .chip-dot {
+  background: var(--ink);
+}
+
+.chip-locked .chip-dot {
+  border-radius: 1px;
+  background: var(--ink);
+}
+
+.chip-final .chip-dot {
+  background: var(--ink-2);
+  box-shadow:
+    0 0 0 2px var(--ice),
+    0 0 0 3px var(--ink-2);
 }
 
 .shell button {
-  background: var(--navy);
-  border-color: var(--navy);
+  background: var(--ink);
+  border: 1px solid var(--ink);
   color: #fff;
   cursor: pointer;
+  border-radius: 0.5rem;
+  padding: 0.7rem 1rem;
+  min-height: 2.75rem;
 }
 
-.shell button.quiet {
+.shell button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.shell button.quiet,
+.shell button.ghost,
+.shell button.back {
   background: transparent;
-  color: var(--navy);
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+.shell button.back {
+  border: 0;
+  padding-left: 0;
+  min-height: 2.25rem;
+  color: var(--muted);
 }
 
 .shell .shell-top button.quiet {
   color: #fff;
+  border-color: #5d7794;
+}
+
+.shell button.primary {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: #1a1203;
+  font-weight: 700;
 }
 
 .shell :focus-visible {
-  outline: 3px solid var(--gold);
+  outline: 3px solid var(--brass);
   outline-offset: 2px;
+}
+
+/* Week workspace */
+.workspace {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.ws-head {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.25rem 0 1rem;
+}
+
+.notice-line {
+  min-height: 1.4rem;
+  margin: 0;
+  color: var(--brass-text);
+  font-weight: 600;
+}
+
+.problem {
+  color: #8a1c1c;
+  font-weight: 600;
+}
+
+.notice.problem {
+  border-left: 3px solid #8a1c1c;
+  padding: 0.5rem 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.week-games ol,
+.stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.game {
+  border-top: 1px solid var(--rule);
+  padding: 0.9rem 0;
+}
+
+.game-line {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem 0.75rem;
+  align-items: center;
+}
+
+.kick {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.teams {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.teams i {
+  font-style: normal;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.status {
+  grid-column: 1;
+  margin: 0;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.game-actions {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.game.excluded .teams,
+.game.excluded .status {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--rule);
+}
+
+.editor {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+  padding: 0.9rem;
+  background: #fff;
+  border-radius: 0.75rem;
+  box-shadow:
+    0 0 0 1px var(--rule),
+    0 0.5rem 1.5rem rgb(11 27 46 / 8%);
+}
+
+.editor label {
+  display: grid;
+  gap: 0.15rem;
+  font-weight: 600;
+}
+
+.editor label small {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.editor input {
+  font-size: 1.1rem;
+  min-height: 2.75rem;
+  border: 1px solid #9fb3c8;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  max-width: 14rem;
+}
+
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pulse .stages li {
+  padding: 0.3rem 0 0.3rem 0.9rem;
+  border-left: 2px solid var(--rule);
+  color: var(--muted);
+}
+
+.pulse .stages li[aria-current="step"] {
+  border-left: 4px solid var(--brass);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.pulse .counts {
+  margin-top: 1rem;
+}
+
+.here {
+  font-weight: 400;
+}
+
+/* The next action stays in reach on a phone. */
+.dock {
+  position: fixed;
+  inset: auto 0 3.5rem 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #fff;
+  border-top: 1px solid var(--rule);
+  box-shadow: 0 -0.5rem 1.25rem rgb(11 27 46 / 10%);
+  padding: 0.65rem 1rem;
+}
+
+.dock-text {
+  display: grid;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.dock-text span {
+  color: var(--muted);
+}
+
+.dock-text .problem {
+  color: #8a1c1c;
 }
 
 @media (min-width: 56rem) {
@@ -628,9 +904,8 @@ main.shell-main > * + * {
   .shell-nav {
     position: static;
     grid-row: 2;
-    border-top: 0;
-    border-right: 2px solid var(--navy);
-    background: #fff;
+    background: var(--ink);
+    min-height: calc(100svh - 3.5rem);
   }
 
   .shell-nav ul {
@@ -645,16 +920,43 @@ main.shell-main > * + * {
     min-height: 0;
   }
 
+  .shell-nav a[aria-current="page"] {
+    box-shadow: inset 4px 0 0 var(--brass);
+  }
+
   main.shell-main,
   main.shell-main:has(.setup) {
     grid-row: 2;
     width: 100%;
     margin: 0;
-    padding: 1.5rem 2rem;
+    padding: 1.75rem 2.25rem 2rem;
   }
 
   .dash-grid {
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
     align-items: start;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) 15rem;
+    align-items: start;
+    column-gap: 2.5rem;
+  }
+
+  .pulse {
+    position: sticky;
+    top: 1rem;
+    border-left: 1px solid var(--rule);
+    padding-left: 1.25rem;
+  }
+
+  /* On desktop the dock sits in the flow beneath the games instead of floating. */
+  .dock {
+    position: static;
+    grid-column: 1 / -1;
+    box-shadow: none;
+    border-top: 1px solid var(--rule);
+    background: transparent;
+    padding: 1rem 0;
   }
 }

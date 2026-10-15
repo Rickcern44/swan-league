@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { SwanMark } from "./Swan";
 
 type Destination = { label: string; path: string; soon?: boolean };
 
@@ -34,7 +35,10 @@ export default function Shell({
         Skip to main content
       </a>
       <header className="shell-top">
-        <span className="mark">Swan League</span>
+        <span className="mark">
+          <SwanMark />
+          Swan League
+        </span>
         <p className="who">
           Signed in as {name} · {role}
         </p>

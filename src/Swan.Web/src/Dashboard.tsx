@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { StateChip, kindLabels } from "./Swan";
 
 type Attention = {
   kind: string;
@@ -39,20 +40,6 @@ type Loaded =
   | { status: "failed"; error: string }
   | { status: "ready"; data: DashboardData };
 
-// Every state is spelled out, so colour is never the only thing that says where a week is.
-const stateLabels: Record<string, string> = {
-  Draft: "Draft",
-  LinesApproved: "Lines approved",
-  Open: "Open for picks",
-  Locked: "Locked",
-  Final: "Final",
-};
-const kindLabels: Record<string, string> = {
-  Regular: "Regular season",
-  Playoff: "Playoffs",
-  SuperBowl: "Super Bowl",
-};
-
 async function fetchDashboard(): Promise<Loaded> {
   try {
     const response = await fetch("/api/admin/dashboard", {
@@ -69,18 +56,12 @@ async function fetchDashboard(): Promise<Loaded> {
   }
 }
 
-export function StateBadge({ state }: { state: string }) {
-  return (
-    <span className={`badge badge-${state.toLowerCase()}`}>
-      {stateLabels[state] ?? state}
-    </span>
-  );
-}
-
 export default function Dashboard({
   onSeasonSetup,
+  onOpenWeek,
 }: {
   onSeasonSetup: () => void;
+  onOpenWeek: (weekId: string) => void;
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
 
@@ -105,7 +86,7 @@ export default function Dashboard({
     return (
       <section aria-labelledby="dash-title">
         <h1 id="dash-title">Week dashboard</h1>
-        <div className="panel" role="alert">
+        <div className="band" role="alert">
           <h2>Could not load the dashboard</h2>
           <p>{loaded.error}</p>
           <button type="button" onClick={() => void load()}>
@@ -121,7 +102,7 @@ export default function Dashboard({
     return (
       <section aria-labelledby="dash-title">
         <h1 id="dash-title">Week dashboard</h1>
-        <div className="panel">
+        <div className="band">
           <h2>No season is live</h2>
           <p>
             There is no live season, so there is no week to run yet. Finish
@@ -138,6 +119,8 @@ export default function Dashboard({
   const seasonName =
     season.name.trim() ||
     (season.year > 0 ? `${season.year} season` : "This season");
+  // Mid-sentence the stand-in name is lower case.
+  const inSentence = seasonName === "This season" ? "this season" : seasonName;
   const decisions = attention.filter((item) => item.needsDecision);
   const status = attention.filter((item) => !item.needsDecision);
 
@@ -152,23 +135,27 @@ export default function Dashboard({
       </h1>
 
       <div className="dash-grid">
-        <section className="panel queue" aria-labelledby="queue-title">
+        <section className="queue" aria-labelledby="queue-title">
           <h2 id="queue-title">Needs your decision</h2>
           {decisions.length > 0 ? (
             <ol className="attention">
               {decisions.map((item) => (
-                <AttentionRow key={`${item.kind}-${item.weekId}`} item={item} />
+                <AttentionRow
+                  key={`${item.kind}-${item.weekId}`}
+                  item={item}
+                  onOpenWeek={onOpenWeek}
+                />
               ))}
             </ol>
           ) : caughtUp ? (
             <p>
-              You are caught up. Every week of {seasonName} is final, so nothing
+              You are caught up. Every week of {inSentence} is final, so nothing
               needs a decision.
             </p>
           ) : currentWeek ? (
             <p>Nothing needs a decision right now.</p>
           ) : (
-            <p>{seasonName} has no weeks yet, so there is nothing to decide.</p>
+            <p>{inSentence} has no weeks yet, so there is nothing to decide.</p>
           )}
           {status.length > 0 && (
             <>
@@ -178,6 +165,7 @@ export default function Dashboard({
                   <AttentionRow
                     key={`${item.kind}-${item.weekId}`}
                     item={item}
+                    onOpenWeek={onOpenWeek}
                   />
                 ))}
               </ol>
@@ -189,12 +177,12 @@ export default function Dashboard({
         </section>
 
         {currentWeek && (
-          <section className="panel" aria-labelledby="week-title">
+          <section className="pulse-card" aria-labelledby="week-title">
             <h2 id="week-title">This week</h2>
             <p className="week-line">
               Week {currentWeek.number} ·{" "}
               {kindLabels[currentWeek.kind] ?? currentWeek.kind} ·{" "}
-              <StateBadge state={currentWeek.state} />
+              <StateChip state={currentWeek.state} />
             </p>
             <dl className="facts">
               <dt>Games</dt>
@@ -219,6 +207,16 @@ export default function Dashboard({
                 </>
               )}
             </dl>
+            <a
+              className="open-week"
+              href={`/weeks/${currentWeek.id}`}
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenWeek(currentWeek.id);
+              }}
+            >
+              Open Week {currentWeek.number}
+            </a>
           </section>
         )}
       </div>
@@ -226,14 +224,28 @@ export default function Dashboard({
   );
 }
 
-function AttentionRow({ item }: { item: Attention }) {
+function AttentionRow({
+  item,
+  onOpenWeek,
+}: {
+  item: Attention;
+  onOpenWeek: (weekId: string) => void;
+}) {
   return (
     <li className={item.needsDecision ? "decision" : "info"}>
-      <strong>{item.title}</strong>
-      <span>{item.reason}</span>
-      <span className="where">
-        Week {item.weekNumber} · <StateBadge state={item.weekState} />
-      </span>
+      <a
+        href={`/weeks/${item.weekId}`}
+        onClick={(event) => {
+          event.preventDefault();
+          onOpenWeek(item.weekId);
+        }}
+      >
+        <strong>{item.title}</strong>
+        <span>{item.reason}</span>
+        <span className="where">
+          Week {item.weekNumber} · <StateChip state={item.weekState} />
+        </span>
+      </a>
     </li>
   );
 }

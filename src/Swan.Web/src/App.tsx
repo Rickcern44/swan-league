@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import CoachHome from "./CoachHome";
 import Dashboard from "./Dashboard";
 import SeasonSetup from "./SeasonSetup";
+import WeekWorkspace from "./WeekWorkspace";
 import Shell from "./Shell";
 
 type CurrentUser = { id: string; name: string; role: "Admin" | "Coach" };
@@ -67,6 +68,7 @@ export default function App() {
 
   if (user) {
     const inSetup = path === "/setup" || path.startsWith("/setup/");
+    const workspaceWeek = /^\/weeks\/([0-9a-f-]{36})\/?$/i.exec(path)?.[1];
     return (
       <Shell
         name={user.name}
@@ -79,8 +81,17 @@ export default function App() {
           <CoachHome name={user.name} />
         ) : inSetup ? (
           <SeasonSetup />
+        ) : workspaceWeek ? (
+          <WeekWorkspace
+            key={workspaceWeek}
+            weekId={workspaceWeek}
+            onBack={() => navigate("/")}
+          />
         ) : (
-          <Dashboard onSeasonSetup={() => navigate("/setup")} />
+          <Dashboard
+            onSeasonSetup={() => navigate("/setup")}
+            onOpenWeek={(id) => navigate(`/weeks/${id}`)}
+          />
         )}
       </Shell>
     );

@@ -498,6 +498,51 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         Assert.Equal(1, changed);
     }
 
+    [Fact]
+    public async Task TheWeekComesBackWithCanonicalTeamNamesGamesInKickoffOrderAndTheNextAction()
+    {
+        await using (var database = CreateDatabase())
+        {
+            await database.Database.MigrateAsync();
+            var ravens = new Team(new TeamId(Guid.NewGuid()), "Baltimore Ravens", null, DateTimeOffset.UtcNow, "AFC North");
+            var bills = new Team(new TeamId(Guid.NewGuid()), "Buffalo Bills", null, DateTimeOffset.UtcNow, "AFC East");
+            database.Teams.AddRange(ravens, bills);
+            var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 4, new WeekType(WeekKind.Regular, null, true));
+            var late = new Game(new GameId(Guid.NewGuid()), bills.Id, ravens.Id, new Kickoff(DateTimeOffset.UtcNow.AddDays(5)));
+            var early = new Game(new GameId(Guid.NewGuid()), ravens.Id, bills.Id, new Kickoff(DateTimeOffset.UtcNow.AddDays(3)));
+            week.AddGame(late);
+            week.AddGame(early);
+            database.Weeks.Add(week);
+            await database.SaveChangesAsync();
+            seededWeek = week.Id;
+            seededEarly = early.Id;
+        }
+
+        var read = (await Run(service => service.GetAsync(seededWeek))).Value!;
+        var acted = (await Run(service => service.AddLineAsync(Admin, seededWeek, seededEarly, -3.5m, approve: true))).Value!;
+
+        Assert.Equal([("Baltimore Ravens", "Buffalo Bills"), ("Buffalo Bills", "Baltimore Ravens")], read.Games.Select(game => (game.HomeTeamName, game.AwayTeamName)));
+        Assert.Equal(("add-lines", false, "2 of 2 included games still need an approved line."), (read.NextAction!.Kind, read.NextAction.CanAct, read.NextAction.Detail));
+        Assert.Equal("1 of 2 included games still needs an approved line.", acted.NextAction!.Detail);
+        Assert.Equal("Baltimore Ravens", acted.Games[0].HomeTeamName);
+        // The audit entry keeps the plain shape: no presentation data.
+        var audited = await Run((service, database) => database.AuditEntries.SingleAsync());
+        Assert.DoesNotContain("Baltimore", audited.Details);
+    }
+
+    [Fact]
+    public async Task ATeamThatIsNotInTheCatalogHasNoNameRatherThanAnInventedOne()
+    {
+        var (weekId, _) = await SeedWeek();
+
+        var week = (await Run(service => service.GetAsync(weekId))).Value!;
+
+        Assert.Null(week.Games.Single().HomeTeamName);
+    }
+
+    private WeekId seededWeek;
+    private GameId seededEarly;
+
     private async Task<(WeekId Week, GameId Game)> SeedWeek()
     {
         await using var database = CreateDatabase();

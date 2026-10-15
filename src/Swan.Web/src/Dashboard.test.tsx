@@ -158,13 +158,15 @@ test("keyboard order follows the page: skip link, header, navigation, then the c
   const names = focusable
     .filter((element) => element.tabIndex >= 0)
     .map((element) => element.textContent?.replace(/\s+/g, " ").trim());
-  expect(names).toEqual([
+  expect(names).toHaveLength(7);
+  expect(names.slice(0, 4)).toEqual([
     "Skip to main content",
     "Sign out",
     "Home",
     "Season setup",
-    "Refresh",
   ]);
+  expect(names[4]).toContain("Lines need approval");
+  expect(names.slice(5)).toEqual(["Refresh", "Open Week 4"]);
 });
 
 test("destinations that do not exist yet are labelled text, never links", async () => {
@@ -369,5 +371,32 @@ test("a season with neither a name nor a year is called this season", async () =
   render(<App />);
 
   expect(await screen.findByText("This season")).toBeVisible();
+  expect(screen.getByText(/Every week of this season is final/)).toBeVisible();
   expect(screen.queryByText(/^0 season/)).not.toBeInTheDocument();
+});
+
+test("a decision row and the current week both open that exact week's workspace", async () => {
+  dashboard = {
+    status: 200,
+    body: {
+      season,
+      currentWeek: week(),
+      attention: [results, lines],
+      caughtUp: false,
+    },
+  };
+  stubApi("Admin");
+  render(<App />);
+
+  const rows = await within(
+    await screen.findByRole("region", { name: "Needs your decision" }),
+  ).findAllByRole("link");
+  expect(rows.map((row) => row.getAttribute("href"))).toEqual([
+    "/weeks/w3",
+    "/weeks/w4",
+  ]);
+  expect(screen.getByRole("link", { name: "Open Week 4" })).toHaveAttribute(
+    "href",
+    "/weeks/w4",
+  );
 });

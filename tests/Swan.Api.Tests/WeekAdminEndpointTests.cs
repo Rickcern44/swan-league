@@ -92,6 +92,31 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     }
 
     [Fact]
+    public async Task TheWeekIsServedAsReadableJsonWithPlainIdsStringStatesAndTeamNames()
+    {
+        using var client = CreateClient("Admin", new FakeWeekService());
+
+        var read = await client.GetAsync($"/api/admin/weeks/{WeekGuid}");
+        var acted = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null);
+
+        foreach (var response in new[] { read, acted })
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var root = json.RootElement;
+            Assert.Equal(WeekGuid, root.GetProperty("id").GetGuid());
+            Assert.Equal(("Regular", "Draft", 1), (root.GetProperty("kind").GetString(), root.GetProperty("state").GetString(), root.GetProperty("number").GetInt32()));
+            var game = root.GetProperty("games")[0];
+            Assert.Equal(GameGuid, game.GetProperty("id").GetGuid());
+            Assert.Equal(("Buffalo Bills", "Unknown team", -3.5m), (game.GetProperty("homeTeamName").GetString(), game.GetProperty("awayTeamName").GetString(), game.GetProperty("approvedLine").GetDecimal()));
+            Assert.Equal([-3m, -3.5m], game.GetProperty("lineHistory").EnumerateArray().Select(line => line.GetDecimal()));
+            Assert.False(game.GetProperty("hasResult").GetBoolean());
+            Assert.Equal((1, 1, 0), (root.GetProperty("includedGames").GetInt32(), root.GetProperty("linesApproved").GetInt32(), root.GetProperty("resultsConfirmed").GetInt32()));
+            var next = root.GetProperty("nextAction");
+            Assert.Equal(("approve-lines", true), (next.GetProperty("kind").GetString(), next.GetProperty("canAct").GetBoolean()));
+        }
+    }
+
+    [Fact]
     public async Task AdminActionsPassActorAndRouteToService()
     {
         var service = new FakeWeekService();
@@ -200,6 +225,6 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
             return Task.FromResult(Failure is { } error ? Result<WeekDashboard>.Failure(error.Code, error.Message) : Ok(weekId));
         }
 
-        private static Result<WeekDashboard> Ok(WeekId weekId) => Result<WeekDashboard>.Success(new WeekDashboard(weekId, new SeasonId(Guid.NewGuid()), 1, WeekKind.Regular, WeekState.Draft, [], []));
+        private static Result<WeekDashboard> Ok(WeekId weekId) => Result<WeekDashboard>.Success(new WeekDashboard(weekId, new SeasonId(Guid.NewGuid()), 1, WeekKind.Regular, WeekState.Draft, [new GameDashboard(new GameId(GameGuid), new TeamId(TeamGuid), new TeamId(Guid.NewGuid()), new DateTimeOffset(2026, 9, 10, 20, 15, 0, TimeSpan.Zero), false, -3.5m, [-3m, -3.5m], false, HomeTeamName: "Buffalo Bills")], [], new WeekNextAction("approve-lines", "Approve 1 line", "Freezes the lines.", true)));
     }
 }

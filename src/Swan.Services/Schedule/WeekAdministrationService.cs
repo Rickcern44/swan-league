@@ -7,8 +7,8 @@ using Swan.Services.Platform;
 
 namespace Swan.Services.Schedule;
 
-public sealed record GameDashboard(GameId Id, TeamId HomeTeamId, TeamId AwayTeamId, DateTimeOffset Kickoff, bool Excluded, decimal? ApprovedLine, IReadOnlyList<decimal> LineHistory, bool HasResult, int? HomeScore = null, int? AwayScore = null);
-public sealed record WeekDashboard(WeekId Id, SeasonId SeasonId, int Number, WeekKind Kind, WeekState State, IReadOnlyList<GameDashboard> Games, IReadOnlyList<TeamId> DogOptions);
+public sealed record GameDashboard(GameId Id, TeamId HomeTeamId, TeamId AwayTeamId, DateTimeOffset Kickoff, bool Excluded, decimal? ApprovedLine, IReadOnlyList<decimal> LineHistory, bool HasResult, int? HomeScore = null, int? AwayScore = null, string? HomeTeamName = null, string? AwayTeamName = null);
+public sealed record WeekDashboard(WeekId Id, SeasonId SeasonId, int Number, WeekKind Kind, WeekState State, IReadOnlyList<GameDashboard> Games, IReadOnlyList<TeamId> DogOptions, WeekNextAction? NextAction = null);
 
 public sealed record RecomputedWeek(WeekId WeekId, int Number);
 public sealed record FailedWeek(WeekId WeekId, int Number, string Code);
@@ -34,7 +34,7 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
 {
     public async Task<Result<WeekDashboard>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default) =>
         await database.Weeks.AsNoTracking().FirstOrDefaultAsync(week => week.Id == weekId, cancellationToken) is { } week
-            ? Result<WeekDashboard>.Success(ToDashboard(week))
+            ? Result<WeekDashboard>.Success(await PresentAsync(week, cancellationToken))
             : Missing;
 
     public Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, bool approve, CancellationToken cancellationToken = default) =>
@@ -148,7 +148,23 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
         var after = ToDashboard(week);
         // AuditService saves the shared context, so the week change and its audit entry commit together.
         await audit.AppendAsync(actor, action, weekId.Value.ToString(), before, after, cancellationToken: cancellationToken);
-        return Result<WeekDashboard>.Success(after);
+        return Result<WeekDashboard>.Success(await PresentAsync(week, cancellationToken));
+    }
+
+    // What the screen shows: the stored week plus read-only presentation (canonical team names and the next allowed action). The audit trail keeps the plain ToDashboard shape.
+    private async Task<WeekDashboard> PresentAsync(Week week, CancellationToken cancellationToken)
+    {
+        var teamIds = week.Games.SelectMany(game => new[] { game.HomeTeamId, game.AwayTeamId }).Distinct().ToList();
+        var names = await database.Teams.AsNoTracking().Where(team => teamIds.Contains(team.Id)).ToDictionaryAsync(team => team.Id, team => team.Name, cancellationToken);
+        var included = week.Games.Where(game => !game.Excluded).ToList();
+        var next = WeekNextAction.For(new WeekSnapshot(week.Id, week.Number, week.State, week.Type.Kind, week.Games.Count, included.Count, included.Count(game => game.ApprovedLine is not null), included.Count(game => game.Result is not null), false));
+        var plain = ToDashboard(week);
+        return plain with
+        {
+            NextAction = next,
+            Games = plain.Games.OrderBy(game => game.Kickoff).ThenBy(game => game.Id.Value)
+                .Select(game => game with { HomeTeamName = names.GetValueOrDefault(game.HomeTeamId), AwayTeamName = names.GetValueOrDefault(game.AwayTeamId) }).ToList(),
+        };
     }
 
     private static WeekDashboard ToDashboard(Week week) => new(
