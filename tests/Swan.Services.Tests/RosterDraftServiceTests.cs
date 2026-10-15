@@ -351,6 +351,104 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
         Assert.Equal(2, (await Commissioner(service => service.GetAsync(commissioner))).Value!.Coaches.Single(coach => coach.Name == "Coach A").Revision);
     }
 
+    // A week of the started season with two games and a saved ballot for each coach that starts T(0) and T(1) and has T(0) as a dog; the week is taken to the given state.
+    private async Task<(WeekId Week, BallotId BallotA, BallotId BallotB)> SeedWeekWithBallotsAsync(WeekState state)
+    {
+        await using var database = CreateDatabase();
+        var week = new Week(new WeekId(Guid.NewGuid()), seasonId, 1, new WeekType(WeekKind.Regular, null, true));
+        var games = new[] { (T(0), T(20)), (T(1), T(21)) }.Select(pair => new Game(new GameId(Guid.NewGuid()), pair.Item1, pair.Item2, new Kickoff(clock.UtcNow.AddDays(2)))).ToList();
+        foreach (var game in games)
+        {
+            week.AddGame(game);
+            week.AddLine(game.Id, Spread.Create(-3m).Value!);
+            week.ApproveLatestLine(game.Id);
+        }
+
+        Assert.True(week.GenerateDogOptions().IsSuccess);
+        Assert.True(week.ApproveLines().IsSuccess);
+        Assert.True(week.Publish().IsSuccess);
+        if (state is WeekState.Locked or WeekState.Final) Assert.True(week.Lock().IsSuccess);
+        if (state == WeekState.Final)
+        {
+            foreach (var game in games) Assert.True(week.ConfirmResult(game.Id, GameResult.Create(21, 14).Value!).IsSuccess);
+            Assert.True(week.FinalizeResults().IsSuccess);
+        }
+
+        database.Weeks.Add(week);
+        BallotId MakeBallot(MembershipId membership)
+        {
+            var ballot = new Ballot(new BallotId(Guid.NewGuid()), membership, week.Id);
+            var lockTime = clock.UtcNow.AddDays(1);
+            Assert.True(ballot.Save([new TeamPick(T(0), games[0].Id, lockTime), new TeamPick(T(1), games[1].Id, lockTime)], [new DogPick(T(0), games[0].Id, lockTime)], false, Nine(0).Select(id => new TeamId(id)).ToHashSet(), clock.UtcNow.AddDays(-1)).IsSuccess);
+            database.Ballots.Add(ballot);
+            return ballot.Id;
+        }
+
+        var a = MakeBallot(membershipA);
+        var b = MakeBallot(membershipB);
+        await database.SaveChangesAsync();
+        return (week.Id, a, b);
+    }
+
+    private Task<Ballot> LoadBallot(BallotId id) => Coach((service, database) => database.Ballots.AsNoTracking().SingleAsync(ballot => ballot.Id == id));
+
+    [Theory]
+    [InlineData(WeekState.Open)]
+    [InlineData(WeekState.Locked)]
+    public async Task RemovingATeamFromARosterAlsoDropsThatTeamsPickFromTheCoachsUnfinishedBallotAndAuditsIt(WeekState state)
+    {
+        await SeedAsync();
+        await Coach(service => service.SaveAsync(coachA, new SaveRoster(seasonId.Value, 0, Nine(0))));
+        await Coach(service => service.SaveAsync(coachB, new SaveRoster(seasonId.Value, 0, Nine(0))));
+        var (_, ballotA, ballotB) = await SeedWeekWithBallotsAsync(state);
+        var before = await LoadBallot(ballotA);
+
+        var corrected = await Commissioner(service => service.CorrectAsync(commissioner, new CorrectRoster(seasonId.Value, membershipA.Value, 1, T(0).Value, T(20).Value, "Wrong team on the roster")));
+
+        Assert.True(corrected.IsSuccess, corrected.Error?.Message);
+        Assert.Equal(1, corrected.Value!.PicksRemoved);
+        var a = await LoadBallot(ballotA);
+        Assert.Equal([T(1)], a.Picks.Select(pick => pick.TeamId));
+        Assert.Single(a.Dogs);
+        Assert.Equal(before.Revision + 1, a.Revision);
+        Assert.Contains("Wrong team on the roster", a.Changes.Last().Reason);
+        // Another coach's ballot with the same team is not touched.
+        var b = await LoadBallot(ballotB);
+        Assert.Equal(2, b.Picks.Count);
+        var audit = Assert.Single(await Coach((service, database) => database.AuditEntries.Where(entry => entry.Action == "ballot.pick-removed").ToListAsync()));
+        Assert.Equal(commissioner, audit.UserId);
+        Assert.Contains("Wrong team on the roster", audit.Details);
+        Assert.Contains(T(0).Value.ToString(), audit.Details);
+    }
+
+    [Fact]
+    public async Task AFinishedWeeksBallotKeepsItsPicksWhenARosterIsCorrectedLater()
+    {
+        await SeedAsync();
+        await Coach(service => service.SaveAsync(coachA, new SaveRoster(seasonId.Value, 0, Nine(0))));
+        var (_, ballotA, _) = await SeedWeekWithBallotsAsync(WeekState.Final);
+
+        var corrected = await Commissioner(service => service.CorrectAsync(commissioner, new CorrectRoster(seasonId.Value, membershipA.Value, 1, T(0).Value, T(20).Value, "Late swap")));
+
+        Assert.Equal(0, corrected.Value!.PicksRemoved);
+        Assert.Equal(2, (await LoadBallot(ballotA)).Picks.Count);
+        Assert.DoesNotContain("ballot.pick-removed", await Coach((service, database) => database.AuditEntries.Select(entry => entry.Action).ToListAsync()));
+    }
+
+    [Fact]
+    public async Task AddingATeamToAShortRosterTouchesNoBallot()
+    {
+        await SeedAsync();
+        await Coach(service => service.SaveAsync(coachA, new SaveRoster(seasonId.Value, 0, Nine(0))));
+        var (_, ballotA, _) = await SeedWeekWithBallotsAsync(WeekState.Open);
+        var before = await LoadBallot(ballotA);
+
+        var corrected = await Commissioner(service => service.CorrectAsync(commissioner, new CorrectRoster(seasonId.Value, membershipB.Value, 0, null, T(2).Value, "Never drafted")));
+
+        Assert.Equal(0, corrected.Value!.PicksRemoved);
+        Assert.Equal(before.Revision, (await LoadBallot(ballotA)).Revision);
+    }
+
     private Task<T> Coach<T>(Func<CoachRosterService, Task<T>> action) => Coach((service, _) => action(service));
 
     private async Task<T> Coach<T>(Func<CoachRosterService, SwanDbContext, Task<T>> action)

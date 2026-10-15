@@ -150,6 +150,7 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         if (SetupStep != SetupStep.Completed) return Result<bool>.Failure("season.setup", "Finish Setup before starting the season.");
         if (!hasActiveCommissioner) return Result<bool>.Failure("season.commissioner", "The season needs an active commissioner before it can start.");
         if (deadline <= now) return Result<bool>.Failure("season.draft-deadline", "The roster draft deadline must be in the future.");
+        if (deadline > now.AddDays(366)) return Result<bool>.Failure("season.draft-deadline", "The roster draft deadline must be within a year.");
         var activated = Activate();
         if (!activated.IsSuccess) return activated;
         RosterDraftDeadline = deadline;

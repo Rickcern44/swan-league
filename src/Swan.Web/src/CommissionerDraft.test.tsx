@@ -424,3 +424,37 @@ test("a team cannot be offered as its own replacement", async () => {
     "Team 12",
   ]);
 });
+
+test("when a correction also drops a ballot pick of the removed team the commissioner is told", async () => {
+  open();
+  replies["POST /api/commissioner/roster-draft/corrections"] = () => ({
+    status: 200,
+    body: { ...current, picksRemoved: 1 },
+  });
+  await ready();
+  await screen.findByRole("region", { name: "Coaches" });
+  fireEvent.click(
+    within(rows()[2]).getByRole("button", {
+      name: "Correct roster for Coach C",
+    }),
+  );
+  const form = screen.getByRole("form", { name: "Correct Coach C's roster" });
+  fireEvent.change(within(form).getByLabelText(/^Replace/), {
+    target: { value: id(1) },
+  });
+  fireEvent.change(within(form).getByLabelText("With"), {
+    target: { value: id(10) },
+  });
+  fireEvent.change(within(form).getByLabelText(/^Reason/), {
+    target: { value: "Wrong team" },
+  });
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save correction" }),
+  );
+
+  expect(
+    await screen.findByText(
+      "Corrected Coach C's roster. Their pick of the removed team was also taken off their ballot.",
+    ),
+  ).toBeVisible();
+});

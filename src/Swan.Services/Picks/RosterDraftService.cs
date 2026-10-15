@@ -3,6 +3,7 @@ using Swan.Core;
 using Swan.Core.Common;
 using Swan.Core.League;
 using Swan.Core.Picks;
+using Swan.Core.Schedule;
 using Swan.Data;
 using Swan.Services.Platform;
 
@@ -134,7 +135,7 @@ internal static class SeasonCatalog
 
 public sealed record CommissionerCoach(Guid MembershipId, string Name, string Email, string Status, int TeamCount, IReadOnlyList<Guid> TeamIds, IReadOnlyList<string> Teams, bool IsLocked, DateTimeOffset? LockedAt, int Revision);
 public sealed record CatalogEntry(Guid TeamId, string Name, string Division);
-public sealed record CommissionerDraft(Guid SeasonId, string SeasonName, DateTimeOffset? Deadline, string? DeadlineEastern, bool DraftOpen, DateTimeOffset ServerTime, IReadOnlyList<CatalogEntry> Teams, IReadOnlyList<CommissionerCoach> Coaches);
+public sealed record CommissionerDraft(Guid SeasonId, string SeasonName, DateTimeOffset? Deadline, string? DeadlineEastern, bool DraftOpen, DateTimeOffset ServerTime, IReadOnlyList<CatalogEntry> Teams, IReadOnlyList<CommissionerCoach> Coaches, int PicksRemoved = 0);
 public sealed record CorrectRoster(Guid SeasonId, Guid MembershipId, int ExpectedRevision, Guid? RemoveTeamId, Guid AddTeamId, string Reason);
 
 public interface ICommissionerRosterService
@@ -181,6 +182,20 @@ public sealed class CommissionerRosterService(SwanDbContext database, IClock clo
             }
 
             if (existing is null) database.Rosters.Add(roster);
+            // A team taken off the roster can no longer be one of this coach's starts, so its picks come off the ballots of weeks that are not finished (a finished week's scores stand).
+            var dropped = new List<(Ballot Ballot, string Before, int Removed)>();
+            if (request.RemoveTeamId is { } removedTeamId)
+            {
+                var unfinishedWeeks = await database.Weeks.AsNoTracking().Where(week => week.SeasonId == season.Id && (week.State == WeekState.Open || week.State == WeekState.Locked)).Select(week => week.Id).ToListAsync(cancellationToken);
+                var ballots = await database.Ballots.Where(ballot => ballot.MembershipId == membership.Id && unfinishedWeeks.Contains(ballot.WeekId)).ToListAsync(cancellationToken);
+                foreach (var ballot in ballots)
+                {
+                    var picksBefore = string.Join(",", ballot.Picks.Select(pick => pick.TeamId.Value).Order());
+                    var removed = ballot.RemovePicksFor(new TeamId(removedTeamId), clock.UtcNow, $"Commissioner correction: {request.Reason!.Trim()}");
+                    if (removed > 0) dropped.Add((ballot, picksBefore, removed));
+                }
+            }
+
             try
             {
                 await database.SaveChangesAsync(cancellationToken);
@@ -188,6 +203,11 @@ public sealed class CommissionerRosterService(SwanDbContext database, IClock clo
                     new { Coach = membership.Id.Value, Roster = before, roster.IsLocked },
                     new { Coach = membership.Id.Value, Roster = CoachRosterService.Summarize(roster), roster.IsLocked },
                     request.Reason!.Trim(), cancellationToken);
+                foreach (var (ballot, picksBefore, _) in dropped)
+                    await audit.AppendAsync(actor, "ballot.pick-removed", ballot.Id.Value.ToString(),
+                        new { Coach = membership.Id.Value, Week = ballot.WeekId.Value, Picks = picksBefore },
+                        new { Coach = membership.Id.Value, Week = ballot.WeekId.Value, Picks = string.Join(",", ballot.Picks.Select(pick => pick.TeamId.Value).Order()) },
+                        request.Reason!.Trim(), cancellationToken);
             }
             catch (DbUpdateException) when (existing is null)
             {
@@ -197,7 +217,7 @@ public sealed class CommissionerRosterService(SwanDbContext database, IClock clo
 
             var draft = await BuildAsync(season, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return Result<CommissionerDraft>.Success(draft);
+            return Result<CommissionerDraft>.Success(draft with { PicksRemoved = dropped.Sum(item => item.Removed) });
         });
     }
 

@@ -2,7 +2,6 @@ import { execSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { signIn } from "./signin";
 
-const mailpitUrl = process.env.E2E_MAILPIT_URL;
 // There is no delete endpoint, so a run that had to create the Setup season (or fill in its teams) removes its traces with a command, e.g.
 // E2E_RESET_SETUP_SEASON_CMD: psql -c 'delete from schedule.season_teams where "SeasonId" in (select "Id" from league.seasons where "State" = 0); delete from league.seasons where "State" = 0'
 // E2E_RESET_SETUP_TEAMS_CMD:  psql -c 'delete from schedule.season_teams where "SeasonId" in (select "Id" from league.seasons where "State" = 0)'

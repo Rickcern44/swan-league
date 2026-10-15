@@ -8,6 +8,8 @@ public static class EasternTime
     // A wall-clock time that the clocks skip (spring forward) or repeat (fall back) has no single meaning, so it is refused rather than guessed.
     public static Result<DateTimeOffset> ToInstant(DateTime local)
     {
+        // Far outside any league season (and, at the extremes, outside what a UTC instant can hold): refuse it rather than fail.
+        if (local.Year is < 1900 or > 2200) return Result<DateTimeOffset>.Failure("season.draft-deadline", "Choose a roster draft deadline in a sensible year.");
         var unspecified = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
         if (Zone.IsInvalidTime(unspecified)) return Result<DateTimeOffset>.Failure("season.draft-deadline", "That Eastern time does not exist because the clocks skip it. Choose another time.");
         if (Zone.IsAmbiguousTime(unspecified)) return Result<DateTimeOffset>.Failure("season.draft-deadline", "That Eastern time happens twice because the clocks repeat it. Choose another time.");

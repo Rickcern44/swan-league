@@ -22,6 +22,7 @@ type Draft = {
   serverTime: string;
   teams: { teamId: string; name: string; division: string }[];
   coaches: Coach[];
+  picksRemoved?: number;
 };
 
 type Loaded =
@@ -226,7 +227,13 @@ export default function CommissionerDraft() {
                   onDone={(next) => {
                     setLoaded({ status: "ready", draft: next });
                     setEditing(null);
-                    setNotice(`Corrected ${coach.name}'s roster.`);
+                    setNotice(
+                      `Corrected ${coach.name}'s roster.${
+                        next.picksRemoved
+                          ? ` ${next.picksRemoved === 1 ? "Their pick of the removed team was" : `${next.picksRemoved} of their picks of the removed team were`} also taken off their ballot.`
+                          : ""
+                      }`,
+                    );
                   }}
                   onStale={() => {
                     setEditing(null);

@@ -42,4 +42,17 @@ public sealed class EasternTimeTests
 
         Assert.Equal("2026-10-20T18:00", EasternTime.ToLocalText(instant));
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(1899)]
+    [InlineData(2201)]
+    [InlineData(9999)]
+    public void AYearOutsideAnyRealSeasonIsRefusedInsteadOfCrashing(int year)
+    {
+        var result = EasternTime.ToInstant(new DateTime(year, 12, 31, 23, 59, 0, DateTimeKind.Unspecified));
+
+        Assert.Equal("season.draft-deadline", result.Error!.Code);
+        Assert.Contains("year", result.Error.Message);
+    }
 }

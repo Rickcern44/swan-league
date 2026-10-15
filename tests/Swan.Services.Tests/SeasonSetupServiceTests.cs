@@ -1460,6 +1460,11 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var past = await Run(service => service.ActivateSeasonAsync(Admin, TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).DateTime.AddMinutes(-5)));
         var skipped = await Run(service => service.ActivateSeasonAsync(Admin, new DateTime(2027, 3, 14, 2, 30, 0)));
 
+        var farFuture = await Run(service => service.ActivateSeasonAsync(Admin, new DateTime(9999, 12, 31, 23, 59, 0)));
+        var tooFar = await Run(service => service.ActivateSeasonAsync(Admin, TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).DateTime.AddDays(400)));
+
+        Assert.Equal("season.draft-deadline", farFuture.Error!.Code);
+        Assert.Equal("season.draft-deadline", tooFar.Error!.Code);
         Assert.Equal("season.draft-deadline", past.Error!.Code);
         Assert.Equal("season.draft-deadline", skipped.Error!.Code);
         Assert.Equal(SeasonState.Setup, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).State);

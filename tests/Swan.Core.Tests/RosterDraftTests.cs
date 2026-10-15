@@ -52,6 +52,16 @@ public sealed class RosterDraftTests
     }
 
     [Fact]
+    public void ADeadlineMoreThanAYearAwayIsRefused()
+    {
+        var season = FinishedSetupSeason();
+
+        Assert.Equal("season.draft-deadline", season.StartRosterDraft(Now.AddDays(367), Now, true).Error!.Code);
+        Assert.Equal(SeasonState.Setup, season.State);
+        Assert.True(season.StartRosterDraft(Now.AddDays(365), Now, true).IsSuccess);
+    }
+
+    [Fact]
     public void ASeasonWithoutAnActiveCommissionerCannotStart()
     {
         var season = FinishedSetupSeason();

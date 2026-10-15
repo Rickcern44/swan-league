@@ -135,6 +135,18 @@ public sealed class Ballot(BallotId id, MembershipId membershipId, WeekId weekId
         else Raise(new PickSubmitted(Id));
         return Result<bool>.Success(true);
     }
+    // When the commissioner takes a team off a coach's roster, that team can no longer be one of the coach's starts: its picks are dropped, locked or not, and the change is recorded.
+    // Returns how many picks were removed. Dogs are not roster-limited, so they stay.
+    public int RemovePicksFor(TeamId team, DateTimeOffset now, string reason)
+    {
+        var removed = picks.RemoveAll(pick => pick.TeamId == team);
+        if (removed == 0) return 0;
+        Revision++;
+        changes.Add(new(now, reason));
+        Raise(new PickChanged(Id));
+        return removed;
+    }
+
     public Result<bool> AddDog(DogPick dog, bool doubleDog, DateTimeOffset now) { var limit = doubleDog ? 2 : 1; if (!LockPolicy.CanChange(dog.LockTime, now) || dogs.Count == limit || dogs.Any(item => item.TeamId == dog.TeamId || item.GameId == dog.GameId)) return Result<bool>.Failure("dog.invalid", "Dog pick is invalid."); dogs.Add(dog); return Result<bool>.Success(true); }
 }
 public sealed record PickSubmitted(BallotId BallotId) : IDomainEvent;

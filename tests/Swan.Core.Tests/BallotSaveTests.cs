@@ -146,4 +146,40 @@ public sealed class BallotSaveTests
         Assert.Equal("dog.locked", ballot.Save([], [Dog("t11")], false, Roster, later).Error!.Code);
         Assert.True(ballot.Save([], [dog], false, Roster, later).IsSuccess);
     }
+
+    [Fact]
+    public void RemovingATeamsPicksDropsOnlyThatTeamsStartedPicksAndRecordsWhy()
+    {
+        var keep = Pick("t2");
+        ballot.Save([Pick("t1"), keep], [Dog("t1")], doubleDog: false, Roster, Now);
+
+        var removed = ballot.RemovePicksFor(teams["t1"], Now.AddMinutes(1), "Commissioner removed the team from the roster");
+
+        Assert.Equal(1, removed);
+        Assert.Equal([keep], ballot.Picks);
+        Assert.Single(ballot.Dogs);
+        Assert.Equal(2, ballot.Revision);
+        Assert.Equal("Commissioner removed the team from the roster", ballot.Changes.Last().Reason);
+        Assert.Contains(ballot.DomainEvents, item => item is PickChanged);
+    }
+
+    [Fact]
+    public void RemovingATeamTheBallotDoesNotPickChangesNothing()
+    {
+        ballot.Save([Pick("t1")], [], false, Roster, Now);
+        var revision = ballot.Revision;
+
+        Assert.Equal(0, ballot.RemovePicksFor(teams["t5"], Now, "x"));
+        Assert.Equal(revision, ballot.Revision);
+        Assert.Empty(ballot.Changes);
+    }
+
+    [Fact]
+    public void ALockedPickIsRemovedTooBecauseTheTeamWasNeverTheCoachs()
+    {
+        ballot.Save([Pick("t1", lockHours: 1)], [], false, Roster, Now);
+
+        Assert.Equal(1, ballot.RemovePicksFor(teams["t1"], Now.AddHours(2), "Wrong team on the roster"));
+        Assert.Empty(ballot.Picks);
+    }
 }
