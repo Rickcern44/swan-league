@@ -46,6 +46,9 @@ public sealed class CoachPickService(SwanDbContext database, IClock clock, IAudi
             if (first.Membership is null || first.Week is null || first.Roster is null) return Result<PickDesk>.Failure("pick.unavailable", "There is no open week with a roster to pick for.");
             // The row lock makes two saves by the same coach take turns, so the revision check below is reliable.
             await database.Memberships.FromSqlInterpolated($"""select * from league.memberships where "Id" = {first.Membership.Id.Value} for update""").ToListAsync(cancellationToken);
+            // A share lock on the week row makes an admin locking the week (an UPDATE of that row) and this save take turns: if the lock commits first the re-read below sees it,
+            // and if this save is already in progress the admin's lock waits until it commits. Several coaches may hold the share lock at once.
+            await database.Weeks.FromSqlInterpolated($"""select * from schedule.weeks where "Id" = {first.Week.Id.Value} for share""").ToListAsync(cancellationToken);
             database.ChangeTracker.Clear();
             var context = await ResolveAsync(coach, cancellationToken);
             if (context.Week is null || context.Membership is null || context.Roster is null) return Result<PickDesk>.Failure("pick.unavailable", "There is no open week with a roster to pick for.");

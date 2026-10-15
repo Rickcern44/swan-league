@@ -309,6 +309,31 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ASaveThatRacesTheAdminLockingTheWeekWaitsForItAndIsRefused()
+    {
+        await SeedAsync();
+        // The admin's lock is in flight: written but not yet committed.
+        await using var connection = new Npgsql.NpgsqlConnection(postgres.GetConnectionString());
+        await connection.OpenAsync();
+        await using var adminTransaction = await connection.BeginTransactionAsync();
+        await using (var update = new Npgsql.NpgsqlCommand("""update schedule.weeks set "State" = @locked where "Id" = @id""", connection, adminTransaction))
+        {
+            update.Parameters.AddWithValue("locked", (int)WeekState.Locked);
+            update.Parameters.AddWithValue("id", weekId.Value);
+            Assert.Equal(1, await update.ExecuteNonQueryAsync());
+        }
+
+        var save = Run(service => service.SaveAsync(coachA, new SavePicks(weekId.Value, 0, [T(1).Value], [])));
+        var finishedEarly = await Task.WhenAny(save, Task.Delay(TimeSpan.FromSeconds(2))) == save;
+        await adminTransaction.CommitAsync();
+        var result = await save;
+
+        Assert.False(finishedEarly, "The save must wait for the week row instead of reading the old Open state.");
+        Assert.Equal("pick.unavailable", result.Error!.Code);
+        Assert.Equal(0, await Run((service, database) => database.Ballots.CountAsync()));
+    }
+
+    [Fact]
     public async Task TwoSavesFromTheSameScreenCannotBothWin()
     {
         await SeedAsync();
