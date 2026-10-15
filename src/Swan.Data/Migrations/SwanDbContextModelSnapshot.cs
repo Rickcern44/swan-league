@@ -264,6 +264,9 @@ namespace Swan.Data.Migrations
                         .HasColumnType("text")
                         .HasDefaultValueSql("'[]'");
 
+                    b.Property<DateTimeOffset?>("RosterDraftDeadline")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Settings")
                         .IsRequired()
                         .HasColumnType("text");
@@ -319,8 +322,17 @@ namespace Swan.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("MembershipId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("SeasonId")
                         .HasColumnType("uuid");
@@ -333,6 +345,10 @@ namespace Swan.Data.Migrations
                         .HasDefaultValueSql("'{}'");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("MembershipId", "SeasonId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_rosters_membership_season");
 
                     b.ToTable("rosters", "picks");
                 });

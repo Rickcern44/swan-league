@@ -41,6 +41,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("PUT", "/api/admin/seasons/setup/coaches")]
     [InlineData("GET", "/api/admin/seasons/setup/review")]
     [InlineData("POST", "/api/admin/seasons/setup/review/finish")]
+    [InlineData("POST", "/api/admin/seasons/setup/activate")]
     public async Task CoachIsForbiddenFromSeasonEndpoints(string method, string url)
     {
         var service = new FakeSeasonService();
@@ -786,6 +787,70 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Contains("say what to fix", await finish.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task ActivatingSendsTheEasternWallClockTimeAndAnswersWithTheStoredInstant()
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" });
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(["activate:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:2026-10-20T18:00:00:Unspecified"], service.Calls);
+        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(("Live", "2026-10-20T18:00"), (json.RootElement.GetProperty("state").GetString(), json.RootElement.GetProperty("rosterDraftDeadlineEastern").GetString()));
+        Assert.Equal(new DateTimeOffset(2026, 10, 20, 22, 0, 0, TimeSpan.Zero), json.RootElement.GetProperty("rosterDraftDeadline").GetDateTimeOffset());
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"rosterDraftDeadlineEastern\":null}")]
+    [InlineData("{\"rosterDraftDeadlineEastern\":\"\"}")]
+    [InlineData("{\"rosterDraftDeadlineEastern\":\"tomorrow\"}")]
+    [InlineData("{\"rosterDraftDeadlineEastern\":\"2026-10-20T18:00:00Z\"}")]
+    [InlineData("{\"rosterDraftDeadlineEastern\":\"2026-10-20T18:00:00-04:00\"}")]
+    [InlineData("{\"rosterDraftDeadlineEastern\":\"2026-10-20\"}")]
+    public async Task AMissingOrNonEasternDeadlineIsABadRequestAndNothingIsActivated(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PostAsync("/api/admin/seasons/setup/activate", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("season.draft-deadline", (await response.Content.ReadFromJsonAsync<Error>())!.Code);
+        Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("commissioner.required", HttpStatusCode.Forbidden)]
+    [InlineData("season.draft-deadline", HttpStatusCode.BadRequest)]
+    [InlineData("season.missing", HttpStatusCode.NotFound)]
+    [InlineData("season.commissioner", HttpStatusCode.Conflict)]
+    [InlineData("season.setup", HttpStatusCode.Conflict)]
+    [InlineData("setup.incomplete", HttpStatusCode.Conflict)]
+    public async Task EachActivationRefusalHasAStableCodeAndStatus(string code, HttpStatusCode status)
+    {
+        using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "Say what to fix.") });
+
+        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" });
+
+        Assert.Equal(status, response.StatusCode);
+        Assert.Equal((code, "Say what to fix."), ((await response.Content.ReadFromJsonAsync<Error>())!.Code, "Say what to fix."));
+    }
+
+    [Fact]
+    public async Task AnonymousCannotActivate()
+    {
+        var service = new FakeSeasonService();
+        using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" });
+
+        Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
+        Assert.Empty(service.Calls);
+    }
+
     private HttpClient CreateClient(string role, FakeSeasonService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
     {
         services.AddAuthentication(options =>
@@ -944,6 +1009,13 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         {
             Calls.Add($"review:finish:{actor.Value}");
             return Task.FromResult(Failure is { } error ? Result<SetupReview>.Failure(error.Code, error.Message) : Result<SetupReview>.Success(ReviewView()));
+        }
+
+        public Task<Result<SeasonSummary>> ActivateSeasonAsync(UserId actor, DateTime rosterDraftDeadlineEastern, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"activate:{actor.Value}:{rosterDraftDeadlineEastern:yyyy-MM-ddTHH:mm:ss}:{rosterDraftDeadlineEastern.Kind}");
+            var summary = new SeasonSummary(new SeasonId(Guid.Parse("33333333-3333-3333-3333-333333333333")), 2026, "2026 Season", false, SeasonState.Live, new SeasonSettings(new Money(100m, "USD"), 3), [], SetupStep.Completed, new DateTimeOffset(2026, 10, 20, 22, 0, 0, TimeSpan.Zero));
+            return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Result<SeasonSummary>.Success(summary));
         }
 
         private static SetupReview ReviewView() => new(false, false,

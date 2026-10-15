@@ -26,6 +26,8 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
     public string Name { get; private set; } = "";
     public bool IsSimulation { get; private set; }
     public SetupStep SetupStep { get; private set; } = SetupStep.Basics;
+    // The instant the roster draft closes (set when the season is started). A season with none, such as one started before this existed, has no open draft.
+    public DateTimeOffset? RosterDraftDeadline { get; private set; }
     // The confirmed double-dog week numbers (R7); empty until an administrator saves a selection. Settings.DoubleDogWeeks is kept equal to its count once one exists.
     public IReadOnlyList<int> DoubleDogWeekNumbers { get; private set; } = [];
     // The fine for a missed team pick (USD) and how each pool pays out. A new season starts with a $5.00 fine and no plans; null / empty means a season that was never configured, which is not given invented choices.
@@ -141,6 +143,22 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         ? Result<bool>.Failure("season.invalid", "Season settings cannot activate.")
         : ActivateInternal();
     private Result<bool> ActivateInternal() { State = SeasonState.Live; Raise(new SeasonActivated(Id)); return Result<bool>.Success(true); }
+    // Starting a season is the commissioner's decision: it needs a finished Setup, an active commissioner and a deadline still in the future, and it opens the roster draft until then.
+    public Result<bool> StartRosterDraft(DateTimeOffset deadline, DateTimeOffset now, bool hasActiveCommissioner)
+    {
+        if (State != SeasonState.Setup) return Result<bool>.Failure("season.invalid", "Only a season in Setup can be started.");
+        if (SetupStep != SetupStep.Completed) return Result<bool>.Failure("season.setup", "Finish Setup before starting the season.");
+        if (!hasActiveCommissioner) return Result<bool>.Failure("season.commissioner", "The season needs an active commissioner before it can start.");
+        if (deadline <= now) return Result<bool>.Failure("season.draft-deadline", "The roster draft deadline must be in the future.");
+        var activated = Activate();
+        if (!activated.IsSuccess) return activated;
+        RosterDraftDeadline = deadline;
+        return Result<bool>.Success(true);
+    }
+
+    // Server time decides: the draft is open only in a live season, strictly before its deadline.
+    public bool RosterDraftOpen(DateTimeOffset now) => State == SeasonState.Live && RosterDraftDeadline is { } deadline && now < deadline;
+
     public Result<bool> Complete() => State != SeasonState.Live ? Result<bool>.Failure("season.invalid", "Season is not live.") : CompleteInternal();
     private Result<bool> CompleteInternal() { State = SeasonState.Completed; return Result<bool>.Success(true); }
     public Result<bool> UpdateSettings(SeasonSettings value) => State != SeasonState.Setup ? Result<bool>.Failure("season.locked", "Settings are structural.") : Update(value);

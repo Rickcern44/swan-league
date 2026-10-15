@@ -31,6 +31,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddScoped<IWeekAdministrationService, WeekAdministrationService>();
         builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
         builder.Services.AddScoped<Swan.Services.Picks.ICoachPickService, Swan.Services.Picks.CoachPickService>();
+        builder.Services.AddScoped<Swan.Services.Picks.ICoachRosterService, Swan.Services.Picks.CoachRosterService>();
+        builder.Services.AddScoped<Swan.Services.Picks.ICommissionerRosterService, Swan.Services.Picks.CommissionerRosterService>();
         builder.Services.AddMemoryCache();
         builder.Services.AddScoped<ISeasonSetupService, SeasonSetupService>();
         // The key is read only from configuration (a .NET user secret in development); the typed client sends it in a header and never logs it.

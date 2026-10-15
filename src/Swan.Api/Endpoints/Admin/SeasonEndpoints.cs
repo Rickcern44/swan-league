@@ -22,6 +22,11 @@ public sealed record UpdateSeasonTeamsRequest(List<TeamFinishRequest?>? Teams);
 
 public sealed record ImportScheduleRequest(string? Fingerprint);
 
+// The deadline is an Eastern wall-clock time such as 2026-10-20T18:00, never an instant: the server resolves it and stores the instant.
+public sealed record ActivateSeasonRequest(string? RosterDraftDeadlineEastern);
+
+public sealed record ActivatedSeasonResponse(Guid Id, string State, DateTimeOffset? RosterDraftDeadline, string? RosterDraftDeadlineEastern);
+
 public sealed record UpdateDoubleDogWeeksRequest(List<int>? Weeks);
 
 public sealed record PayoutPlaceRequest(int Position, decimal Percent);
@@ -180,8 +185,33 @@ public static class SeasonEndpoints
             !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                 ? Results.Unauthorized()
                 : ReviewResult(await service.FinishSetupAsync(new UserId(actor), cancellationToken)));
+        // Starting the season is the commissioner's decision: the service checks the caller's own Commissioner membership of the Setup season, not just the Admin role.
+        seasons.MapPost("/setup/activate", async (ActivateSeasonRequest? request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+        {
+            if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)) return Results.Unauthorized();
+            if (!TryParseEastern(request?.RosterDraftDeadlineEastern, out var deadline))
+                return Results.BadRequest(new Error("season.draft-deadline", "Send the roster draft deadline as an Eastern time like 2026-10-20T18:00."));
+            return ActivationResult(await service.ActivateSeasonAsync(new UserId(actor), deadline, cancellationToken));
+        });
         return endpoints;
     }
+
+    // Only a plain date and time: an offset or Z would be a different meaning than the Eastern wall clock the commissioner chose.
+    private static bool TryParseEastern(string? text, out DateTime value)
+    {
+        value = default;
+        return !string.IsNullOrWhiteSpace(text)
+            && DateTime.TryParseExact(text.Trim(), ["yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd'T'HH:mm:ss"], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out value);
+    }
+
+    private static IResult ActivationResult(Result<SeasonSummary> result) => result switch
+    {
+        { IsSuccess: true } ok => Results.Ok(new ActivatedSeasonResponse(ok.Value!.Id.Value, ok.Value.State.ToString(), ok.Value.RosterDraftDeadline, ok.Value.RosterDraftDeadline is { } deadline ? EasternTime.ToLocalText(deadline) : null)),
+        { Error.Code: "commissioner.required" } forbidden => Results.Json(forbidden.Error, statusCode: StatusCodes.Status403Forbidden),
+        { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
+        { Error.Code: "season.draft-deadline" } invalid => Results.BadRequest(invalid.Error),
+        var rejected => Results.Conflict(rejected.Error)
+    };
 
     // Provider problems are the server's to report: 503 when it is not configured, 502 when the provider fails, 422 when its data cannot be imported.
     private static IResult ScheduleResult(Result<SchedulePlan> result) => result switch

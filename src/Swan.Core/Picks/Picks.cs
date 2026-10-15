@@ -21,6 +21,52 @@ public sealed class Roster(RosterId id, SeasonId seasonId, MembershipId membersh
     public SeasonId SeasonId { get; } = seasonId;
     public MembershipId MembershipId { get; } = membershipId;
     public IReadOnlyCollection<TeamId> Teams => teams;
+    // Counts the changes that were saved. A client sends the revision it last read, so a save from an out-of-date screen is noticed instead of overwriting a newer one.
+    public int Revision { get; private set; }
+    // A coach's explicit lock: from then on only the commissioner can change the roster.
+    public bool IsLocked { get; private set; }
+    public DateTimeOffset? LockedAt { get; private set; }
+    // Only a roster with exactly nine teams may make weekly picks (R1); nothing fills a short one.
+    public bool IsComplete => teams.Count == 9;
+
+    // A coach saves their whole roster at once: exactly nine different teams of the season, and only while the draft is open and the roster is not locked.
+    public Result<bool> SaveDraft(IReadOnlyCollection<TeamId> chosen, IReadOnlySet<TeamId> seasonTeams, bool draftOpen)
+    {
+        if (IsLocked || !draftOpen) return Result<bool>.Failure("roster.locked", "The roster can no longer be changed by the coach.");
+        if (chosen.Count != 9) return Result<bool>.Failure("roster.count", "Choose exactly nine teams.");
+        if (chosen.Distinct().Count() != chosen.Count) return Result<bool>.Failure("roster.duplicate", "Each team can be chosen only once.");
+        if (chosen.Any(team => !seasonTeams.Contains(team))) return Result<bool>.Failure("roster.team", "Choose only teams that are in this season.");
+        if (teams.SetEquals(chosen)) return Result<bool>.Success(true);
+        teams.Clear();
+        teams.UnionWith(chosen);
+        Revision++;
+        return Result<bool>.Success(true);
+    }
+
+    public Result<bool> Lock(bool draftOpen, DateTimeOffset now)
+    {
+        if (IsLocked || !draftOpen) return Result<bool>.Failure("roster.locked", "The roster can no longer be changed by the coach.");
+        if (teams.Count != 9) return Result<bool>.Failure("roster.count", "A roster needs exactly nine teams before it can be locked.");
+        IsLocked = true;
+        LockedAt = now;
+        Revision++;
+        return Result<bool>.Success(true);
+    }
+
+    // The commissioner's correction, allowed at any time (before or after the deadline, locked or not): swap one team for another, or add a team to a roster that is short.
+    public Result<bool> CorrectByCommissioner(TeamId? remove, TeamId add, IReadOnlySet<TeamId> seasonTeams, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) return Result<bool>.Failure("roster.reason", "A correction needs a reason.");
+        if (!seasonTeams.Contains(add)) return Result<bool>.Failure("roster.team", "Choose a team that is in this season.");
+        if (remove is { } existing && !teams.Contains(existing)) return Result<bool>.Failure("roster.correction.invalid", "The team to replace is not on this roster.");
+        if (remove is null && teams.Count >= 9) return Result<bool>.Failure("roster.count", "The roster is full; choose a team to replace.");
+        if (teams.Contains(add)) return Result<bool>.Failure("roster.duplicate", "That team is already on this roster.");
+        if (remove is { } gone) teams.Remove(gone);
+        teams.Add(add);
+        Revision++;
+        return Result<bool>.Success(true);
+    }
+
     public Result<bool> AddTeam(TeamId teamId, bool windowOpen) => !windowOpen || teams.Count == 9 ? Result<bool>.Failure("roster.locked", "Roster cannot change.") : (teams.Add(teamId) ? Result<bool>.Success(true) : Result<bool>.Failure("roster.duplicate", "Team is already selected."));
     public Result<bool> Close() => teams.Count == 9 ? Result<bool>.Success(true) : Result<bool>.Failure("roster.count", "Roster requires exactly nine teams.");
     public Result<bool> Correct(TeamId remove, TeamId add, bool windowOpen, string reason) => !windowOpen

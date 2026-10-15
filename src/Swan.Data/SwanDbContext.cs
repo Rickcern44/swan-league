@@ -210,6 +210,8 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(roster => roster.Id).HasConversion(id => id.Value, value => new RosterId(value));
             entity.Property(roster => roster.SeasonId).HasConversion(id => id.Value, value => new SeasonId(value));
             entity.Property(roster => roster.MembershipId).HasConversion(id => id.Value, value => new MembershipId(value));
+            // A coach has one roster per season; it is created when they first open the draft, so a concurrent second insert must fail here.
+            entity.HasIndex(roster => new { roster.MembershipId, roster.SeasonId }).IsUnique().HasDatabaseName("ux_rosters_membership_season");
             entity.Ignore(roster => roster.DomainEvents);
             entity.Ignore(roster => roster.Teams);
             // The roster's teams live in one uuid[] column; the set is mapped through its private field.

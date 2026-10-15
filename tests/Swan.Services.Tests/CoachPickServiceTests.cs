@@ -31,7 +31,7 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
     private TeamId T(int index) => teams[index].Id;
 
     // Coach A's roster is teams 0-8, coach B's is 3-11. Week games: T0 (home, -3) v T9, T1 (home, +2.5) v T10, T11 (away, -7 at home T2) i.e. T2 v T11, T3 v T4 (pick'em); T5 has a bye.
-    private async Task SeedAsync(int weekNumber = 4, bool openWeek = true, bool coachARoster = true, bool coachAMembership = true)
+    private async Task SeedAsync(int weekNumber = 4, bool openWeek = true, bool coachARoster = true, bool coachAMembership = true, int coachATeams = 9)
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
@@ -45,7 +45,7 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
         var membershipA = new Membership(new MembershipId(Guid.NewGuid()), coachA, season.Id, coachAMembership ? MembershipRole.Coach : MembershipRole.Administrator);
         var membershipB = new Membership(new MembershipId(Guid.NewGuid()), coachB, season.Id, MembershipRole.Coach);
         database.Memberships.AddRange(membershipA, membershipB);
-        if (coachARoster) database.Rosters.Add(Roster(season.Id, membershipA.Id, Enumerable.Range(0, 9)));
+        if (coachARoster) database.Rosters.Add(Roster(season.Id, membershipA.Id, Enumerable.Range(0, coachATeams)));
         database.Rosters.Add(Roster(season.Id, membershipB.Id, Enumerable.Range(3, 9)));
 
         var week = new Week(new WeekId(Guid.NewGuid()), season.Id, weekNumber, new WeekType(WeekKind.Regular, null, true));
@@ -112,6 +112,21 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
 
         Assert.Equal(("no-roster", 0, 0), (noRoster.State, noRoster.Games.Count, noRoster.Dogs.Count));
         Assert.Equal("pick.unavailable", save.Error!.Code);
+        Assert.Equal(0, await Run((service, database) => database.Ballots.CountAsync()));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(8)]
+    public async Task ARosterWithFewerThanNineTeamsCannotMakeWeeklyPicksAndSaysSo(int teamCount)
+    {
+        await SeedAsync(coachATeams: teamCount);
+
+        var desk = (await Run(service => service.GetAsync(coachA))).Value!;
+        var save = await Run(service => service.SaveAsync(coachA, new SavePicks(weekId.Value, 0, [T(0).Value], [])));
+
+        Assert.Equal(("roster-incomplete", 0, 0), (desk.State, desk.Games.Count, desk.Dogs.Count));
+        Assert.Equal("roster.incomplete", save.Error!.Code);
         Assert.Equal(0, await Run((service, database) => database.Ballots.CountAsync()));
     }
 

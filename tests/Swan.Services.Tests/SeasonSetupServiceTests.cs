@@ -1246,7 +1246,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(["lee@example.com", "pat@example.com"], plan.Value.Candidates.Select(candidate => candidate.Email));
         Assert.All(plan.Value.Candidates, candidate => Assert.False(candidate.Selected));
         Assert.Empty(plan.Value.Coaches);
-        Assert.Equal(0, await Run((service, database) => database.Memberships.CountAsync(membership => membership.SeasonId != newer && membership.SeasonId != older)));
+        Assert.Equal(0, await Run((service, database) => database.Memberships.CountAsync(membership => membership.Role == MembershipRole.Coach && membership.SeasonId != newer && membership.SeasonId != older)));
     }
 
     [Fact]
@@ -1322,7 +1322,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.Equal(1, second.Value.ActiveCoaches);
         Assert.Equal(2, third.Value!.ActiveCoaches);
         Assert.Equal(membershipOfB, third.Value.Coaches.Single(coach => coach.Email == "b@example.com").MembershipId);
-        Assert.Equal(2, await Run((service, database) => database.Memberships.CountAsync(membership => membership.SeasonId == created.Value!.Id)));
+        Assert.Equal(2, await Run((service, database) => database.Memberships.CountAsync(membership => membership.Role == MembershipRole.Coach && membership.SeasonId == created.Value!.Id)));
         Assert.Equal(3, await CoachAudits());
     }
 
@@ -1416,6 +1416,89 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     }
 
     // A Setup season with every required choice saved (teams, a full imported schedule, double-dog weeks 2/12/17, fine and payout plans).
+    private static readonly UserId OtherAdmin = new(Guid.Parse("11111111-2222-3333-4444-555555555555"));
+    private static DateTime InTwoDaysEastern() => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow.AddDays(2), TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).DateTime.Date.AddHours(18);
+
+    [Fact]
+    public async Task TheCreatorOfASeasonBecomesItsActiveCommissioner()
+    {
+        await Migrate();
+        await SeedTeams();
+
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+
+        var membership = await Run((service, database) => database.Memberships.AsNoTracking().SingleAsync());
+        Assert.Equal((Admin, MembershipRole.Commissioner, true), (membership.UserId, membership.Role, membership.IsActive));
+    }
+
+    [Fact]
+    public async Task ACommissionerStartsAFinishedSeasonWithAFutureEasternDeadlineAndItIsAudited()
+    {
+        await ReadyToFinish();
+        await Run(service => service.FinishSetupAsync(Admin));
+        var deadline = InTwoDaysEastern();
+
+        var started = await Run(service => service.ActivateSeasonAsync(Admin, deadline));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+        Assert.Equal(SeasonState.Live, started.Value!.State);
+        Assert.Equal(EasternTime.ToInstant(deadline).Value, started.Value.RosterDraftDeadline);
+        var season = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());
+        Assert.Equal((SeasonState.Live, EasternTime.ToInstant(deadline).Value), (season.State, season.RosterDraftDeadline!.Value));
+        var audit = Assert.Single(await Run((service, database) => database.AuditEntries.Where(entry => entry.Action == "season.activated").ToListAsync()));
+        Assert.Equal(Admin, audit.UserId);
+        Assert.Contains(EasternTime.ToLocalText(EasternTime.ToInstant(deadline).Value), audit.Details);
+        Assert.Equal("season.missing", (await Run(service => service.ActivateSeasonAsync(Admin, deadline.AddDays(1)))).Error!.Code);
+    }
+
+    [Fact]
+    public async Task ADeadlineThatHasPassedOrNeverExistsIsRefusedAndTheSeasonStaysInSetup()
+    {
+        await ReadyToFinish();
+        await Run(service => service.FinishSetupAsync(Admin));
+
+        var past = await Run(service => service.ActivateSeasonAsync(Admin, TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).DateTime.AddMinutes(-5)));
+        var skipped = await Run(service => service.ActivateSeasonAsync(Admin, new DateTime(2027, 3, 14, 2, 30, 0)));
+
+        Assert.Equal("season.draft-deadline", past.Error!.Code);
+        Assert.Equal("season.draft-deadline", skipped.Error!.Code);
+        Assert.Equal(SeasonState.Setup, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).State);
+        Assert.Equal(0, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.activated")));
+    }
+
+    [Fact]
+    public async Task OnlyAnActiveCommissionerOfThatSeasonMayStartIt()
+    {
+        await ReadyToFinish();
+        await Run(service => service.FinishSetupAsync(Admin));
+
+        var stranger = await Run(service => service.ActivateSeasonAsync(OtherAdmin, InTwoDaysEastern()));
+        await Run(async (service, database) =>
+        {
+            (await database.Memberships.SingleAsync(item => item.UserId == Admin)).Deactivate();
+            await database.SaveChangesAsync();
+            return true;
+        });
+        var none = await Run(service => service.ActivateSeasonAsync(Admin, InTwoDaysEastern()));
+
+        Assert.Equal("commissioner.required", stranger.Error!.Code);
+        Assert.Equal("season.commissioner", none.Error!.Code);
+        Assert.Equal(SeasonState.Setup, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).State);
+    }
+
+    [Fact]
+    public async Task ASeasonWhoseSetupIsNotFinishedCannotStart()
+    {
+        await Migrate();
+        await SeedTeams();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", false));
+
+        var refused = await Run(service => service.ActivateSeasonAsync(Admin, InTwoDaysEastern()));
+
+        Assert.Equal("season.setup", refused.Error!.Code);
+        Assert.Equal(SeasonState.Setup, (await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync())).State);
+    }
+
     private async Task<List<Team>> ReadyToFinish()
     {
         var teams = await SetupWithImportedSchedule();

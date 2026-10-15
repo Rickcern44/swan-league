@@ -34,6 +34,8 @@ app.MapAuditEndpoints();
 app.MapWeekEndpoints();
 app.MapDashboardEndpoints();
 app.MapCoachPickEndpoints();
+app.MapRosterDraftEndpoints();
+app.MapCommissionerRosterEndpoints();
 app.MapSeasonEndpoints();
 
 app.Run();

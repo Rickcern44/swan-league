@@ -14,7 +14,7 @@ public sealed record DeskWeek(Guid Id, int Number, DateTimeOffset Deadline, bool
 public sealed record DeskGame(Guid TeamId, string Team, Guid GameId, string Opponent, bool IsHome, DateTimeOffset Kickoff, DateTimeOffset LockTime, bool Locked, int PointValue, bool Selected);
 public sealed record DeskDog(Guid TeamId, string Team, Guid GameId, string Opponent, bool IsHome, DateTimeOffset Kickoff, DateTimeOffset LockTime, bool Locked, decimal Spread, bool Selected);
 
-// State is "open", "no-membership" (no active coach membership in a live season), "no-week" (no open regular week) or "no-roster" (the coach has no roster teams yet).
+// State is "open", "no-membership" (no active coach membership in a live season), "no-week" (no open regular week), "no-roster" (the coach has no roster teams) or "roster-incomplete" (fewer than nine).
 public sealed record PickDesk(string State, string? SeasonName, DeskWeek? Week, int Revision, DateTimeOffset ServerTime, IReadOnlyList<DeskGame> Games, IReadOnlyList<string> NotPlaying, IReadOnlyList<DeskDog> Dogs);
 
 public sealed record SavePicks(Guid WeekId, int ExpectedRevision, IReadOnlyList<Guid> TeamIds, IReadOnlyList<Guid> DogTeamIds);
@@ -52,6 +52,8 @@ public sealed class CoachPickService(SwanDbContext database, IClock clock, IAudi
             database.ChangeTracker.Clear();
             var context = await ResolveAsync(coach, cancellationToken);
             if (context.Week is null || context.Membership is null || context.Roster is null) return Result<PickDesk>.Failure("pick.unavailable", "There is no open week with a roster to pick for.");
+            // Only a complete roster of exactly nine teams may make picks; nothing fills a short one.
+            if (!context.Roster.IsComplete) return Result<PickDesk>.Failure("roster.incomplete", "Your roster needs exactly nine teams before you can pick. Ask the commissioner to complete it.");
             if (context.Week.Id.Value != request.WeekId) return Result<PickDesk>.Failure("week.stale", "That week is no longer the open week. Reload to see the current one.");
             var ballot = context.Ballot ?? new Ballot(new BallotId(Guid.NewGuid()), context.Membership.Id, context.Week.Id);
             if (ballot.Revision != request.ExpectedRevision) return Result<PickDesk>.Failure("ballot.stale", "Your picks changed since this page loaded. Reload to see the saved ballot.");
@@ -174,6 +176,7 @@ public sealed class CoachPickService(SwanDbContext database, IClock clock, IAudi
         var week = new DeskWeek(context.Week.Id.Value, context.Week.Number, LockPolicy.WeekDeadline(context.Season!.Settings, rows.WeekStart), context.Week.IsDoubleDog(context.Season), 3, context.Week.IsDoubleDog(context.Season) ? 2 : 1);
         var revision = context.Ballot?.Revision ?? 0;
         if (context.Roster is null || context.Roster.Teams.Count == 0) return new("no-roster", context.Season.Name, week, revision, now, [], [], []);
+        if (!context.Roster.IsComplete) return new("roster-incomplete", context.Season.Name, week, revision, now, [], [], []);
         return new("open", context.Season.Name, week, revision, now, rows.Teams, rows.NotPlaying, rows.Dogs);
     }
 

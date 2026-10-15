@@ -16,10 +16,12 @@ public static class DevelopmentSeeder
 
         var teams = await LoadTeams(cancellationToken);
         var seasonId = new SeasonId(Guid.Parse("3908b3ef-4b67-4cf8-890f-4d72a295c8aa"));
-        var buyIn = Money.Create(100m, "USD").Value!;
-        var season = new Season(seasonId, new SeasonSettings(buyIn, 3), [new PoolDefinition("Main", buyIn)]);
+        // A live 2026 season whose roster draft is already underway: the admin is its commissioner and each seeded coach has already chosen and locked nine teams.
+        var season = Season.CreateBlank(seasonId, 2026, "2026 Swan League", isSimulation: true).Value!;
         season.SaveDoubleDogWeeks([2, 12, 17]);
-        season.Activate();
+        season.CompleteSetup();
+        var now = DateTimeOffset.UtcNow;
+        season.StartRosterDraft(now.AddDays(3), now, hasActiveCommissioner: true);
 
         var seededTeams = teams.Select((team, index) => new Team(new TeamId(DeterministicGuid(index)), team.Name, null, DateTimeOffset.UtcNow, team.Division)).ToList();
         database.Teams.AddRange(seededTeams);
@@ -30,13 +32,14 @@ public static class DevelopmentSeeder
         database.Users.Add(new User(adminId, Email.Create("admin@swan.local").Value!, "Swan Admin", UserRole.Admin));
         var coaches = Enumerable.Range(1, 6).Select(index => new User(new UserId(DeterministicGuid(index + 200)), Email.Create($"coach{index}@swan.local").Value!, $"Coach {index}")).ToList();
         database.Users.AddRange(coaches);
-        database.Memberships.Add(new Membership(new MembershipId(DeterministicGuid(300)), adminId, seasonId, MembershipRole.Administrator));
+        database.Memberships.Add(new Membership(new MembershipId(DeterministicGuid(300)), adminId, seasonId, MembershipRole.Commissioner));
         database.Memberships.AddRange(coaches.Select((coach, index) => new Membership(new MembershipId(DeterministicGuid(index + 301)), coach.Id, seasonId, MembershipRole.Coach)));
         // Nine teams each (R1), spread so rosters overlap a little; a real league drafts these, which is not built yet.
         database.Rosters.AddRange(coaches.Select((coach, index) =>
         {
             var roster = new Roster(new RosterId(DeterministicGuid(index + 400)), seasonId, new MembershipId(DeterministicGuid(index + 301)));
-            foreach (var offset in Enumerable.Range(0, 9)) roster.AddTeam(seededTeams[(index * 5 + offset) % seededTeams.Count].Id, windowOpen: true);
+            roster.SaveDraft(Enumerable.Range(0, 9).Select(offset => seededTeams[(index * 5 + offset) % seededTeams.Count].Id).ToList(), seededTeams.Select(team => team.Id).ToHashSet(), draftOpen: true);
+            roster.Lock(draftOpen: true, now);
             return roster;
         }));
 
