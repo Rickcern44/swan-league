@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import CommissionerDraft from "./CommissionerDraft";
+import { RefreshAccess } from "./AccessContext";
 import PickDesk from "./PickDesk";
 import RosterDraft from "./RosterDraft";
 import Dashboard from "./Dashboard";
@@ -28,6 +29,16 @@ export default function App() {
     const onPop = () => setPath(window.location.pathname);
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Re-reads what this person may do after an action that changes it (creating or starting a season).
+  const refreshAccess = useCallback(async () => {
+    try {
+      const response = await fetch("/api/me", { credentials: "include" });
+      if (response.ok) setUser(await response.json());
+    } catch {
+      // keep what is shown; the next page load reads it again
+    }
   }, []);
 
   function navigate(to: string) {
@@ -83,38 +94,42 @@ export default function App() {
     const canDraft = isAdmin || user.commissionsLiveSeason === true;
     const workspaceWeek = /^\/weeks\/([0-9a-f-]{36})\/?$/i.exec(path)?.[1];
     return (
-      <Shell
-        name={user.name}
-        role={user.role}
-        canSetup={canSetup}
-        canDraft={canDraft}
-        path={path}
-        onNavigate={navigate}
-        onSignOut={() => void signOut()}
-      >
-        {path === "/draft" && canDraft ? (
-          <CommissionerDraft />
-        ) : inSetup && canSetup ? (
-          <SeasonSetup createOnly={!isAdmin && user.setupAccess === "create"} />
-        ) : !isAdmin ? (
-          path === "/roster" ? (
-            <RosterDraft />
+      <RefreshAccess.Provider value={refreshAccess}>
+        <Shell
+          name={user.name}
+          role={user.role}
+          canSetup={canSetup}
+          canDraft={canDraft}
+          path={path}
+          onNavigate={navigate}
+          onSignOut={() => void signOut()}
+        >
+          {path === "/draft" && canDraft ? (
+            <CommissionerDraft />
+          ) : inSetup && canSetup ? (
+            <SeasonSetup
+              createOnly={!isAdmin && user.setupAccess === "create"}
+            />
+          ) : !isAdmin ? (
+            path === "/roster" ? (
+              <RosterDraft />
+            ) : (
+              <PickDesk />
+            )
+          ) : workspaceWeek ? (
+            <WeekWorkspace
+              key={workspaceWeek}
+              weekId={workspaceWeek}
+              onBack={() => navigate("/")}
+            />
           ) : (
-            <PickDesk />
-          )
-        ) : workspaceWeek ? (
-          <WeekWorkspace
-            key={workspaceWeek}
-            weekId={workspaceWeek}
-            onBack={() => navigate("/")}
-          />
-        ) : (
-          <Dashboard
-            onSeasonSetup={() => navigate("/setup")}
-            onOpenWeek={(id) => navigate(`/weeks/${id}`)}
-          />
-        )}
-      </Shell>
+            <Dashboard
+              onSeasonSetup={() => navigate("/setup")}
+              onOpenWeek={(id) => navigate(`/weeks/${id}`)}
+            />
+          )}
+        </Shell>
+      </RefreshAccess.Provider>
     );
   }
 

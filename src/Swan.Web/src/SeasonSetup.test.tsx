@@ -2108,7 +2108,7 @@ test("starting the season sends the Eastern wall-clock time and then points at t
     body: { rosterDraftDeadlineEastern: "2026-10-20T18:00" },
   });
   fireEvent.click(screen.getByRole("link", { name: "Open the roster draft" }));
-  expect(window.location.pathname).toBe("/draft");
+  await vi.waitFor(() => expect(window.location.pathname).toBe("/draft"));
 });
 
 test("starting without a deadline is refused before anything is sent", async () => {
@@ -2156,3 +2156,85 @@ test.each([
     expect(screen.queryByText(/The season is live/)).not.toBeInTheDocument();
   },
 );
+
+test("starting a season updates what a commissioner who is only a coach can reach, with no reload", async () => {
+  stubApi("Coach");
+  const inner = globalThis.fetch;
+  let started = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/me")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "u",
+            name: "Pat",
+            role: "Coach",
+            setupAccess: started ? "none" : "manage",
+            commissionsLiveSeason: started,
+          }),
+        };
+      if (url.endsWith("/setup/activate")) started = true;
+      if (url === "/api/commissioner/roster-draft")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            seasonId: "s",
+            seasonName: "2027 Swan League",
+            deadline: null,
+            draftOpen: false,
+            serverTime: "2026-10-15T12:00:00Z",
+            teams: [],
+            coaches: [],
+          }),
+        };
+      return inner(url, init);
+    }),
+  );
+  replies[SETUP] = { status: 200, body: season({ setupStep: 10 }) };
+  replies[REVIEW] = { status: 200, body: reviewData({ completed: true }) };
+  replies[ACTIVATE] = {
+    status: 200,
+    body: {
+      id: "s",
+      state: "Live",
+      rosterDraftDeadline: "2026-10-20T22:00:00Z",
+      rosterDraftDeadlineEastern: "2026-10-20T18:00",
+    },
+  };
+  render(<App />);
+  const start = await screen.findByRole("group", { name: "Start the season" });
+  expect(
+    within(screen.getByRole("navigation", { name: "Primary" })).queryByRole(
+      "link",
+      { name: "Roster draft" },
+    ),
+  ).not.toBeInTheDocument();
+
+  fireEvent.change(within(start).getByLabelText(/Roster draft deadline/), {
+    target: { value: "2026-10-20T18:00" },
+  });
+  fireEvent.click(within(start).getByRole("button", { name: "Start season" }));
+  fireEvent.click(
+    await screen.findByRole("link", { name: "Open the roster draft" }),
+  );
+
+  expect(
+    await screen.findByText(/No draft deadline was set for this season/),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("heading", { level: 1, name: "Roster draft" }),
+  ).toBeVisible();
+  const nav = within(screen.getByRole("navigation", { name: "Primary" }));
+  expect(nav.getByRole("link", { name: "Roster draft" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  // The Setup season is finished and started, so the Season setup link goes away.
+  expect(
+    nav.queryByRole("link", { name: "Season setup" }),
+  ).not.toBeInTheDocument();
+});

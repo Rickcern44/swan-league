@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useContext, useEffect, useRef, useState } from "react";
+import { RefreshAccess } from "./AccessContext";
 import { formatDeadline, goTo } from "./draftTime";
 
 type Money = { amount: number; currency: string };
@@ -183,6 +184,7 @@ function StartCard({ onSeason }: { onSeason: (season: Season) => void }) {
   const [name, setName] = useState("");
   const [isSimulation, setIsSimulation] = useState(false);
   const [notice, setNotice] = useState<Notice>();
+  const refreshAccess = useContext(RefreshAccess);
 
   return (
     <Card
@@ -194,11 +196,13 @@ function StartCard({ onSeason }: { onSeason: (season: Season) => void }) {
           year: Number(year),
           name,
           isSimulation,
-        }).then((result) =>
-          "value" in result
-            ? onSeason(result.value)
-            : setNotice({ kind: "error", text: result.error }),
-        )
+        }).then(async (result) => {
+          if (!("value" in result))
+            return setNotice({ kind: "error", text: result.error });
+          // The creator is now this season's commissioner: read what that lets them reach before showing it.
+          await refreshAccess();
+          onSeason(result.value);
+        })
       }
     >
       <Field label="Season year">
@@ -1734,6 +1738,7 @@ const clock = (value: string | null) => {
 // Everything here is read from saved data. Finishing setup only records that the wizard is complete.
 // The commissioner's next step after Setup is finished: set the roster draft deadline (Eastern Time) and start the season. The server checks the caller really is its commissioner.
 function StartSeason() {
+  const refreshAccess = useContext(RefreshAccess);
   const [deadline, setDeadline] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
@@ -1764,7 +1769,8 @@ function StartSeason() {
           href="/draft"
           onClick={(event) => {
             event.preventDefault();
-            goTo("/draft");
+            // Starting ends this person's Setup access and opens the roster draft, so read what they can reach now, then go there.
+            void refreshAccess().then(() => goTo("/draft"));
           }}
         >
           Open the roster draft
