@@ -49,15 +49,53 @@ public sealed class MagicLinkService(SwanDbContext database, IEmailSender emailS
         return Result<RedeemedUser>.Success(new RedeemedUser(user.Id, user.Name));
     }
 
-    private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    private static string Hash(string value) => TokenHash.Of(value);
 }
 
-public sealed class SessionService(SwanDbContext database)
+// One-way hash used for every stored credential: a magic-link token and a session credential are never kept, only this.
+internal static class TokenHash
 {
-    public async Task<CurrentUser?> GetAsync(UserId userId, CancellationToken cancellationToken = default)
+    public static string Of(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+}
+
+public sealed record IssuedSession(string Credential, DateTimeOffset ExpiresAt);
+
+// A session is a random 256-bit credential held in the browser's cookie. The database keeps only its hash, so reading it does not let anyone sign in,
+// and a session can be revoked or expire on the server regardless of what the browser still holds.
+public sealed class SessionService(SwanDbContext database, IClock clock)
+{
+    public static readonly TimeSpan Lifetime = TimeSpan.FromDays(30);
+
+    public async Task<IssuedSession> CreateAsync(UserId userId, CancellationToken cancellationToken = default)
     {
-        var user = await database.Users.SingleOrDefaultAsync(candidate => candidate.Id == userId, cancellationToken);
-        if (user is null || !user.IsActive) return null;
-        return new CurrentUser(user.Id, user.Name, user.Role.ToString());
+        var credential = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var now = clock.UtcNow;
+        var session = new UserSession(new SessionId(Guid.NewGuid()), userId, TokenHash.Of(credential), now, now.Add(Lifetime));
+        database.Sessions.Add(session);
+        await database.SaveChangesAsync(cancellationToken);
+        return new IssuedSession(credential, session.ExpiresAt);
     }
+
+    // Only a credential this service issued (64 uppercase hex characters) can match; anything else, including a user id, is refused without a lookup.
+    public async Task<CurrentUser?> AuthenticateAsync(string? credential, CancellationToken cancellationToken = default)
+    {
+        if (!LooksLikeCredential(credential)) return null;
+        var hash = TokenHash.Of(credential!);
+        var session = await database.Sessions.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TokenHash == hash, cancellationToken);
+        if (session is null || !session.IsActive(clock.UtcNow)) return null;
+        var user = await database.Users.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == session.UserId, cancellationToken);
+        return user is null || !user.IsActive ? null : new CurrentUser(user.Id, user.Name, user.Role.ToString());
+    }
+
+    public async Task RevokeAsync(string? credential, CancellationToken cancellationToken = default)
+    {
+        if (!LooksLikeCredential(credential)) return;
+        var hash = TokenHash.Of(credential!);
+        var session = await database.Sessions.SingleOrDefaultAsync(candidate => candidate.TokenHash == hash, cancellationToken);
+        if (session is null) return;
+        session.Revoke(clock.UtcNow);
+        await database.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool LooksLikeCredential(string? value) => value is { Length: 64 } && value.All(character => character is >= '0' and <= '9' or >= 'A' and <= 'F');
 }

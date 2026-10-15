@@ -255,20 +255,37 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SessionReturnsActiveUserAndMembershipRole()
+    public async Task ASessionAuthenticatesTheUserItWasIssuedToUntilItExpiresIsRevokedOrTheUserIsDeactivated()
     {
         await using var database = await CreateMigratedDatabase();
+        var start = new DateTimeOffset(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
         var user = new User(new UserId(Guid.NewGuid()), Email.Create("session@example.com").Value!, "Session Coach");
         database.Users.Add(user);
-        database.Memberships.Add(new Membership(new MembershipId(Guid.NewGuid()), user.Id, new SeasonId(Guid.NewGuid()), MembershipRole.Coach));
         await database.SaveChangesAsync();
+        var sessions = new SessionService(database, new FakeClock(start));
+        var issued = await sessions.CreateAsync(user.Id);
 
-        var current = await new SessionService(database).GetAsync(user.Id);
+        var current = await sessions.AuthenticateAsync(issued.Credential);
 
-        Assert.NotNull(current);
-        Assert.Equal("Session Coach", current.Name);
-        Assert.Equal("Coach", current.Role);
-        Assert.Null(await new SessionService(database).GetAsync(new UserId(Guid.NewGuid())));
+        Assert.Equal(("Session Coach", "Coach", user.Id), (current!.Name, current.Role, current.UserId));
+        Assert.Equal(start.Add(SessionService.Lifetime), issued.ExpiresAt);
+        Assert.Matches("^[0-9A-F]{64}$", issued.Credential);
+        Assert.NotEqual(issued.Credential, (await database.Sessions.SingleAsync()).TokenHash);
+        // A user id, a made-up credential, a lower-case copy and nothing at all are all refused.
+        Assert.Null(await sessions.AuthenticateAsync(user.Id.Value.ToString()));
+        Assert.Null(await sessions.AuthenticateAsync(Convert.ToHexString(Guid.NewGuid().ToByteArray()) + Convert.ToHexString(Guid.NewGuid().ToByteArray())));
+        Assert.Null(await sessions.AuthenticateAsync(issued.Credential.ToLowerInvariant()));
+        Assert.Null(await sessions.AuthenticateAsync(null));
+        Assert.Null(await new SessionService(database, new FakeClock(issued.ExpiresAt)).AuthenticateAsync(issued.Credential));
+        Assert.NotNull(await new SessionService(database, new FakeClock(issued.ExpiresAt.AddTicks(-1))).AuthenticateAsync(issued.Credential));
+
+        await sessions.RevokeAsync(issued.Credential);
+        Assert.Null(await sessions.AuthenticateAsync(issued.Credential));
+        var second = await sessions.CreateAsync(user.Id);
+        Assert.NotEqual(issued.Credential, second.Credential);
+        user.Deactivate();
+        await database.SaveChangesAsync();
+        Assert.Null(await sessions.AuthenticateAsync(second.Credential));
     }
 
     [Fact]

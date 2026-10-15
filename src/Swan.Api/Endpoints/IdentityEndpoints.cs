@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Swan.Api.Authentication;
 using Swan.Core;
 using Swan.Core.Common;
 using Swan.Core.Identity;
@@ -36,36 +38,37 @@ public static class IdentityEndpoints
         string token,
         HttpContext context,
         MagicLinkService magicLinks,
-        IClock clock,
+        SessionService sessions,
         IHostEnvironment environment,
         CancellationToken cancellationToken)
     {
         var redeemed = await magicLinks.RedeemAsync(token, cancellationToken);
         if (!redeemed.IsSuccess) return Results.Unauthorized();
 
-        context.Response.Cookies.Append("swan_session", redeemed.Value!.UserId.Value.ToString(), new CookieOptions
+        // The cookie carries a fresh random credential, never the user id; only its hash is stored.
+        var session = await sessions.CreateAsync(redeemed.Value!.UserId, cancellationToken);
+        context.Response.Cookies.Append(SwanSessionAuthenticationHandler.CookieName, session.Credential, new CookieOptions
         {
             HttpOnly = true,
             Secure = !environment.IsDevelopment(),
             SameSite = SameSiteMode.Lax,
-            Expires = clock.UtcNow.AddDays(30)
+            Expires = session.ExpiresAt
         });
         return Results.Ok();
     }
 
-    private static IResult SignOut(HttpContext context)
+    // Signing out ends the presented session on the server, so a copy of the cookie stops working too. It is safe to call with no session.
+    private static async Task<IResult> SignOut(HttpContext context, SessionService sessions, IHostEnvironment environment, CancellationToken cancellationToken)
     {
-        context.Response.Cookies.Delete("swan_session", new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Lax });
+        await sessions.RevokeAsync(context.Request.Cookies[SwanSessionAuthenticationHandler.CookieName], cancellationToken);
+        context.Response.Cookies.Delete(SwanSessionAuthenticationHandler.CookieName, new CookieOptions { HttpOnly = true, Secure = !environment.IsDevelopment(), SameSite = SameSiteMode.Lax });
         return Results.NoContent();
     }
 
-    private static async Task<IResult> GetCurrentUser(HttpContext context, IServiceProvider services, CancellationToken cancellationToken)
-    {
-        if (!Guid.TryParse(context.Request.Cookies["swan_session"], out var value)) return Results.Unauthorized();
-        var sessions = services.GetRequiredService<SessionService>();
-        var user = await sessions.GetAsync(new UserId(value), cancellationToken);
-        return user is null ? Results.Unauthorized() : Results.Ok(new { id = user.UserId.Value, user.Name, user.Role });
-    }
+    private static IResult GetCurrentUser(ClaimsPrincipal principal) =>
+        Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+            ? Results.Ok(new { id, Name = principal.FindFirstValue(ClaimTypes.Name), Role = principal.FindFirstValue(ClaimTypes.Role) })
+            : Results.Unauthorized();
 
     private sealed record RequestSignInLinkRequest(string Email);
 }

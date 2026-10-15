@@ -15,12 +15,16 @@ public sealed class SwanSessionAuthenticationHandler(
     UrlEncoder encoder)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
+    public const string CookieName = "swan_session";
+
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        if (!Guid.TryParse(Request.Cookies["swan_session"], out var id)) return AuthenticateResult.NoResult();
+        // The cookie holds an opaque credential, never a user id; it is accepted only if it matches an active, unexpired, unrevoked session of an active user.
+        var credential = Request.Cookies[CookieName];
+        if (string.IsNullOrEmpty(credential)) return AuthenticateResult.NoResult();
 
         var sessions = Context.RequestServices.GetRequiredService<SessionService>();
-        var user = await sessions.GetAsync(new UserId(id), Context.RequestAborted);
+        var user = await sessions.AuthenticateAsync(credential, Context.RequestAborted);
         if (user is null) return AuthenticateResult.Fail("The session is invalid.");
 
         var identity = new ClaimsIdentity(new Claim[]

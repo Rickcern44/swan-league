@@ -17,6 +17,7 @@ namespace Swan.Data;
 public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
+    public DbSet<UserSession> Sessions => Set<UserSession>();
     public DbSet<Season> Seasons => Set<Season>();
     public DbSet<Membership> Memberships => Set<Membership>();
     public DbSet<Team> Teams => Set<Team>();
@@ -37,6 +38,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureIdentity(modelBuilder);
+        ConfigureSessions(modelBuilder);
         ConfigureLeague(modelBuilder);
         ConfigureSchedule(modelBuilder);
         ConfigurePicks(modelBuilder);
@@ -71,6 +73,24 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 token.Property(value => value.Used);
                 token.HasIndex(value => value.Value).IsUnique();
             });
+        });
+    }
+
+    private static void ConfigureSessions(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserSession>(entity =>
+        {
+            entity.ToTable("sessions", "identity");
+            entity.HasKey(session => session.Id);
+            entity.Property(session => session.Id).HasConversion(id => id.Value, value => new SessionId(value));
+            entity.Property(session => session.UserId).HasConversion(id => id.Value, value => new UserId(value));
+            // SHA-256 as 64 hex characters; the credential itself is never stored.
+            entity.Property(session => session.TokenHash).HasMaxLength(64);
+            entity.Property(session => session.CreatedAt);
+            entity.Property(session => session.ExpiresAt);
+            entity.Property(session => session.RevokedAt);
+            entity.HasIndex(session => session.TokenHash).IsUnique().HasDatabaseName("ux_sessions_token_hash");
+            entity.HasIndex(session => session.UserId);
         });
     }
 

@@ -1,6 +1,7 @@
 namespace Swan.Core.Common;
 
 public readonly record struct UserId(Guid Value);
+public readonly record struct SessionId(Guid Value);
 public readonly record struct SeasonId(Guid Value);
 public readonly record struct MembershipId(Guid Value);
 public readonly record struct AuditEntryId(Guid Value);

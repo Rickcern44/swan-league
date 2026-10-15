@@ -169,6 +169,39 @@ namespace Swan.Data.Migrations
                     b.ToTable("users", "identity");
                 });
 
+            modelBuilder.Entity("Swan.Core.Identity.UserSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_sessions_token_hash");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("sessions", "identity");
+                });
+
             modelBuilder.Entity("Swan.Core.League.Membership", b =>
                 {
                     b.Property<Guid>("Id")
