@@ -377,3 +377,25 @@ test("every control names its team and the page has one h1", async () => {
   expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Choose Team 1" })).toBeVisible();
 });
+
+test("cancelling the lock confirmation, with the button or Escape, returns focus to the Lock roster button", async () => {
+  open(desk({ revision: 1, complete: true }, [1, 2, 3, 4, 5, 6, 7, 8, 9]));
+  await ready();
+
+  for (const cancel of ["button", "escape"]) {
+    fireEvent.click(
+      within(dock()).getByRole("button", { name: "Lock roster" }),
+    );
+    const group = within(dock()).getByRole("group", { name: "Confirm lock" });
+    if (cancel === "button")
+      fireEvent.click(within(group).getByRole("button", { name: "Cancel" }));
+    else fireEvent.keyDown(group, { key: "Escape" });
+
+    expect(within(dock()).queryByRole("group")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(dock()).getByRole("button", { name: "Lock roster" }),
+      ).toHaveFocus(),
+    );
+  }
+});

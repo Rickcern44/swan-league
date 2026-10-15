@@ -344,9 +344,7 @@ function Correction({
       >
         <option value="">Choose a team to add</option>
         {draft.teams
-          .filter(
-            (team) => !onRoster.has(team.teamId) || team.teamId === remove,
-          )
+          .filter((team) => !onRoster.has(team.teamId))
           .map((team) => (
             <option key={team.teamId} value={team.teamId}>
               {team.name}

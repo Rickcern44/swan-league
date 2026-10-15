@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
+import { signIn } from "./signin";
 
 const mailpitUrl = process.env.E2E_MAILPIT_URL;
 // There is no delete endpoint, so a run that had to create the Setup season (or fill in its teams) removes its traces with a command, e.g.
@@ -16,34 +17,6 @@ const resetSetupPayouts = process.env.E2E_RESET_SETUP_PAYOUTS_CMD;
 // (chr(101) || chr(50) || chr(101) || chr(37)) is e2e%, which avoids nested shell quotes.
 const resetSetupCoaches = process.env.E2E_RESET_SETUP_COACHES_CMD;
 const e2eCoachEmail = "e2e-new-coach@example.com";
-
-async function signIn(page: import("@playwright/test").Page, email: string) {
-  if (!mailpitUrl)
-    throw new Error("E2E_MAILPIT_URL must point to Mailpit's HTTP endpoint.");
-  await page.request.delete(`${mailpitUrl}/api/v1/messages`);
-  await page.goto("/");
-  await page.getByLabel("Email").fill(email);
-  await page.getByRole("button", { name: "Send sign-in link" }).click();
-  await expect(page.getByText("Check your email")).toBeVisible();
-
-  let link = "";
-  await expect
-    .poll(async () => {
-      const response = await page.request.get(`${mailpitUrl}/api/v1/messages`);
-      const messages = await response.text();
-      const matching = messages.match(
-        new RegExp(
-          `https?://[^\\s"]+/signin-callback\\?token=[A-F0-9]+(?=[\\s"<])`,
-          "i",
-        ),
-      );
-      link = matching?.[0] ?? "";
-      return link;
-    })
-    .toMatch(/signin-callback\?token=/);
-
-  await page.goto(link);
-}
 
 // Sign-in links are limited to one per address per minute, so each address signs in once.
 test("seeded admin sets up the season and coach sees no admin controls", async ({

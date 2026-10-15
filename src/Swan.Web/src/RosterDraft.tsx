@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDeadline, timeLeft } from "./draftTime";
 
 type DraftTeam = {
@@ -49,6 +49,7 @@ export default function RosterDraft() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const returnToLock = useRef(false);
 
   const adopt = useCallback((desk: Desk) => {
     setLoaded({ status: "ready", desk });
@@ -79,6 +80,14 @@ export default function RosterDraft() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Cancelling the lock confirmation puts focus back on the button that opened it.
+  useEffect(() => {
+    if (!confirming && returnToLock.current) {
+      document.getElementById("lock-roster")?.focus();
+      returnToLock.current = false;
+    }
+  }, [confirming]);
 
   if (loaded.status === "loading")
     return (
@@ -346,9 +355,12 @@ export default function RosterDraft() {
             role="group"
             aria-label="Confirm lock"
             className="confirm"
-            onKeyDown={(event) =>
-              event.key === "Escape" && setConfirming(false)
-            }
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                returnToLock.current = true;
+                setConfirming(false);
+              }
+            }}
           >
             <p>
               Lock your roster? You will not be able to change these nine teams
@@ -366,7 +378,10 @@ export default function RosterDraft() {
             <button
               type="button"
               className="ghost"
-              onClick={() => setConfirming(false)}
+              onClick={() => {
+                returnToLock.current = true;
+                setConfirming(false);
+              }}
             >
               Cancel
             </button>
@@ -403,6 +418,7 @@ export default function RosterDraft() {
             {savedComplete && (
               <button
                 type="button"
+                id="lock-roster"
                 className="ghost"
                 disabled={busy}
                 onClick={() => setConfirming(true)}

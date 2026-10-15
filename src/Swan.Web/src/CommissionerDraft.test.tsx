@@ -398,3 +398,29 @@ test("the admin navigation links to the roster draft and marks it current", asyn
     "aria-current",
   );
 });
+
+test("a team cannot be offered as its own replacement", async () => {
+  open();
+  await ready();
+  await screen.findByRole("region", { name: "Coaches" });
+  fireEvent.click(
+    within(rows()[2]).getByRole("button", {
+      name: "Correct roster for Coach C",
+    }),
+  );
+  const form = screen.getByRole("form", { name: "Correct Coach C's roster" });
+
+  fireEvent.change(within(form).getByLabelText(/^Replace/), {
+    target: { value: id(1) },
+  });
+
+  const offered = within(within(form).getByLabelText("With"))
+    .getAllByRole("option")
+    .map((option) => option.textContent);
+  expect(offered).toEqual([
+    "Choose a team to add",
+    "Team 10",
+    "Team 11",
+    "Team 12",
+  ]);
+});
