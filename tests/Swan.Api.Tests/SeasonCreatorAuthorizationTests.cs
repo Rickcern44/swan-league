@@ -116,27 +116,6 @@ public sealed class SeasonCreatorAuthorizationTests(SessionApiFixture fixture) :
     }
 
     [Fact]
-    public async Task AnActiveCommissionerWhoIsOnlyACoachGloballyMayCreateASeasonButNothingElseInSetup()
-    {
-        await ClearSetup();
-        var commissioner = await UserAsync("commissioner.coach@example.com", UserRole.Coach, commissioner: true);
-        var session = await SessionFor(commissioner);
-        var client = Client(fixture.Development);
-
-        var created = await client.SendAsync(Post(Url, session));
-
-        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
-        Assert.Equal(1, (await Footprint()).Setup);
-        // Every other season route stays Admin-only, so this commissioner cannot edit, read or activate it.
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Get($"{Url}/setup", session))).StatusCode);
-        var put = new HttpRequestMessage(HttpMethod.Put, $"{Url}/setup") { Content = JsonContent.Create(new { year = 2031, name = "Renamed" }) };
-        put.Headers.Add("Cookie", $"swan_session={session}");
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(put)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Post($"{Url}/setup/activate", session, new { rosterDraftDeadlineEastern = "2031-10-20T18:00" }))).StatusCode);
-        await ClearSetup();
-    }
-
-    [Fact]
     public async Task OnlyOneSetupSeasonStillExistsWhoeverCreatesIt()
     {
         await ClearSetup();
@@ -150,6 +129,126 @@ public sealed class SeasonCreatorAuthorizationTests(SessionApiFixture fixture) :
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
         Assert.Equal("season.setup.exists", (await again.Content.ReadFromJsonAsync<Error>())!.Code);
         Assert.Equal(1, (await Footprint()).Setup);
+        await ClearSetup();
+    }
+
+    private static HttpRequestMessage Send(HttpMethod method, string url, string cookie, object? body = null)
+    {
+        var request = new HttpRequestMessage(method, url);
+        if (body is not null) request.Content = JsonContent.Create(body);
+        request.Headers.Add("Cookie", $"swan_session={cookie}");
+        return request;
+    }
+
+    // The 18-week schedule the real provider import would give a Setup season (it needs a key and the network), written straight to the database.
+    private Task GiveTheSetupSeasonAScheduleAsync() => fixture.WithDatabase(fixture.Development, async (database, _) =>
+    {
+        await database.Database.ExecuteSqlRawAsync("""
+            insert into schedule.weeks ("Id", "SeasonId", "Number", "Type", "State")
+            select gen_random_uuid(), s."Id", n, '0||True', 0 from league.seasons s, generate_series(1, 18) n where s."State" = 0;
+            insert into schedule.games ("Id", "HomeTeamId", "AwayTeamId", "Kickoff", "Excluded", "WeekId", "LineHistory", "ProviderGameId")
+            select gen_random_uuid(), (select "Id" from schedule.teams order by "Name" limit 1), (select "Id" from schedule.teams order by "Name" offset 1 limit 1),
+                   make_timestamptz(s."Year", 9, 9, 17, 0, 0, 'UTC') + (w."Number" - 1) * interval '7 days', false, w."Id", ARRAY[]::numeric[], 'creator-test-' || s."Year" || '-' || w."Number"
+            from schedule.weeks w join league.seasons s on s."Id" = w."SeasonId" where s."State" = 0
+            """);
+        return 0;
+    });
+
+    [Fact]
+    public async Task ACommissionerWhoIsOnlyACoachGloballyCanCreateReadEditFinishAndStartTheirOwnSeason()
+    {
+        await ClearSetup();
+        var session = await SessionFor(await UserAsync("owning.commissioner@example.com", UserRole.Coach, commissioner: true));
+        var client = Client(fixture.Development);
+        async Task<HttpResponseMessage> Do(HttpMethod method, string url, object? body = null) => await client.SendAsync(Send(method, url, session, body));
+
+        Assert.Equal(HttpStatusCode.Created, (await Do(HttpMethod.Post, Url, new { year = 2031, name = "2031 Swan League" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Do(HttpMethod.Get, $"{Url}/setup")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Do(HttpMethod.Put, $"{Url}/setup", new { year = 2031, name = "2031 Swan League (renamed)" })).StatusCode);
+        var catalog = (await (await Do(HttpMethod.Get, $"{Url}/setup/teams")).Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("teams").EnumerateArray().ToList();
+        var seen = new Dictionary<string, int>();
+        var finishes = catalog.Select(team =>
+        {
+            var division = team.GetProperty("division").GetString()!;
+            seen[division] = seen.GetValueOrDefault(division) + 1;
+            return new { teamId = team.GetProperty("teamId").GetGuid(), finishPosition = seen[division] };
+        }).ToList();
+        Assert.Equal(HttpStatusCode.OK, (await Do(HttpMethod.Put, $"{Url}/setup/teams", new { teams = finishes })).StatusCode);
+        await GiveTheSetupSeasonAScheduleAsync();
+        Assert.Equal(HttpStatusCode.OK, (await Do(HttpMethod.Put, $"{Url}/setup/double-dog-weeks", new { weeks = new[] { 2, 12, 17 } })).StatusCode);
+        var payouts = new[] { "Main", "Dog", "Regular Season", "Playoff" }.Select(pool => new { pool, places = new[] { new { position = 1, percent = 100 } } }).ToList();
+        Assert.Equal(HttpStatusCode.OK, (await Do(HttpMethod.Put, $"{Url}/setup/fines-and-payouts", new { missedPickFine = 5, payouts })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Do(HttpMethod.Get, $"{Url}/setup/review")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await Do(HttpMethod.Post, $"{Url}/setup/review/finish")).StatusCode);
+        var start = await Do(HttpMethod.Post, $"{Url}/setup/activate", new { rosterDraftDeadlineEastern = DateTime.UtcNow.AddDays(3).ToString("yyyy-MM-dd'T'18:00") });
+
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+        var season = await fixture.WithDatabase(fixture.Development, (database, _) => database.Seasons.AsNoTracking().SingleAsync(item => item.Name == "2031 Swan League (renamed)"));
+        Assert.Equal(SeasonState.Live, season.State);
+        Assert.NotNull(season.RosterDraftDeadline);
+        // Once started there is no Setup season left for anyone but an administrator to ask about.
+        Assert.Equal(HttpStatusCode.Forbidden, (await Do(HttpMethod.Get, $"{Url}/setup")).StatusCode);
+    }
+
+    [Fact]
+    public async Task AnUnrelatedCommissionerACoachAndAnAnonymousCallerCannotTouchSomeoneElsesSetupSeason()
+    {
+        await ClearSetup();
+        var owner = await SessionFor(await UserAsync("season.owner@example.com", UserRole.Admin));
+        var client = Client(fixture.Development);
+        Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(Post(Url, owner))).StatusCode);
+        var unrelated = await SessionFor(await UserAsync("other.commissioner@example.com", UserRole.Coach, commissioner: true));
+        var coach = await SessionFor(SeededCoach);
+        var before = await Footprint();
+        var changes = await fixture.WithDatabase(fixture.Development, (database, _) => database.Seasons.AsNoTracking().Where(season => season.State == SeasonState.Setup).Select(season => season.Name).SingleAsync());
+
+        foreach (var cookie in new[] { unrelated, coach })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Send(HttpMethod.Get, $"{Url}/setup", cookie))).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Send(HttpMethod.Put, $"{Url}/setup", cookie, new { year = 2031, name = "Hijacked" }))).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Send(HttpMethod.Post, $"{Url}/setup/review/finish", cookie))).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Send(HttpMethod.Post, $"{Url}/setup/activate", cookie, new { rosterDraftDeadlineEastern = "2031-10-20T18:00" }))).StatusCode);
+        }
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(new HttpRequestMessage(HttpMethod.Get, $"{Url}/setup"))).StatusCode);
+        Assert.Equal(before, await Footprint());
+        Assert.Equal(changes, await fixture.WithDatabase(fixture.Development, (database, _) => database.Seasons.AsNoTracking().Where(season => season.State == SeasonState.Setup).Select(season => season.Name).SingleAsync()));
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Send(HttpMethod.Get, $"{Url}/setup", owner))).StatusCode);
+        await ClearSetup();
+    }
+
+    [Fact]
+    public async Task ACommissionerWhoLosesTheMembershipLosesTheSetupSeasonImmediately()
+    {
+        await ClearSetup();
+        var commissioner = await UserAsync("short.lived.commissioner@example.com", UserRole.Coach, commissioner: true);
+        var session = await SessionFor(commissioner);
+        var client = Client(fixture.Development);
+        Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(Post(Url, session))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Send(HttpMethod.Get, $"{Url}/setup", session))).StatusCode);
+
+        await fixture.WithDatabase(fixture.Development, async (database, _) => await database.Database.ExecuteSqlAsync($"""update league.memberships set "IsActive" = false where "UserId" = {commissioner.Value}"""));
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Send(HttpMethod.Get, $"{Url}/setup", session))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Send(HttpMethod.Post, $"{Url}/setup/review/finish", session))).StatusCode);
+        await ClearSetup();
+    }
+
+    [Fact]
+    public async Task TheExpansionStopsAtTheSetupRoutesAndAnAdministratorKeepsEverything()
+    {
+        await ClearSetup();
+        var commissioner = await SessionFor(await UserAsync("narrow.commissioner@example.com", UserRole.Coach, commissioner: true));
+        var admin = await SessionFor(await UserAsync("still.admin@example.com", UserRole.Admin));
+        var client = Client(fixture.Development);
+        Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(Post(Url, commissioner))).StatusCode);
+
+        foreach (var url in new[] { "/api/admin/dashboard", "/api/admin/audit", "/api/admin/ping" })
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Send(HttpMethod.Get, url, commissioner))).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Send(HttpMethod.Get, $"{Url}/setup", admin))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Send(HttpMethod.Get, "/api/admin/dashboard", admin))).StatusCode);
         await ClearSetup();
     }
 }

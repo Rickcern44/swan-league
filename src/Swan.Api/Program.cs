@@ -12,8 +12,10 @@ builder.AddServiceDefaults();
 builder.AddSwanServices();
 builder.Services.AddAuthentication("SwanSession")
     .AddScheme<AuthenticationSchemeOptions, SwanSessionAuthenticationHandler>("SwanSession", _ => { });
+builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, SetupManagerHandler>();
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Admin", policy => policy.RequireAuthenticatedUser().RequireRole(nameof(UserRole.Admin)))
+    .AddPolicy("SetupManager", policy => policy.RequireAuthenticatedUser().AddRequirements(new SetupManagerRequirement()))
     .AddPolicy("CoachOnly", policy => policy.RequireAuthenticatedUser().RequireRole(nameof(UserRole.Coach)))
     .AddPolicy("Coach", policy => policy.RequireAuthenticatedUser().RequireRole(nameof(UserRole.Admin), nameof(UserRole.Coach)));
 

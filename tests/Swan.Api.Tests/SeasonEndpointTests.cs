@@ -871,7 +871,20 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
             options.DefaultForbidScheme = "Test";
         }).AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("Test", options => options.ClaimsIssuer = role);
         services.AddSingleton<ISeasonSetupService>(service);
+        // These tests have no database, so the Setup routes' real rule (an administrator, or the Setup season's commissioner, from the database) is replaced by "administrators only";
+        // the real rule is covered with a real database in SeasonCreatorAuthorizationTests.
+        foreach (var handler in services.Where(item => item.ImplementationType == typeof(Swan.Api.Authentication.SetupManagerHandler)).ToList()) services.Remove(handler);
+        services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, AdministratorsOnlyForSetup>();
     })).CreateClient();
+
+    private sealed class AdministratorsOnlyForSetup : Microsoft.AspNetCore.Authorization.AuthorizationHandler<Swan.Api.Authentication.SetupManagerRequirement>
+    {
+        protected override Task HandleRequirementAsync(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext context, Swan.Api.Authentication.SetupManagerRequirement requirement)
+        {
+            if (context.User.IsInRole("Admin")) context.Succeed(requirement);
+            return Task.CompletedTask;
+        }
+    }
 
     private sealed class TestAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)

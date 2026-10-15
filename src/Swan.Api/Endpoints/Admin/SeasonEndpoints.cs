@@ -48,8 +48,7 @@ public static class SeasonEndpoints
 {
     public static IEndpointRouteBuilder MapSeasonEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        // Creating a season is open to a global administrator or an active commissioner, so this one route is outside the Admin-only group: it needs a signed-in user and the service
-        // then decides, from the database, whether that user may create. Every other season route below stays Admin-only.
+        // Creating a season is open to a global administrator or an active commissioner: this route needs a signed-in user and the service then decides, from the database, whether that user may create.
         endpoints.MapPost("/api/admin/seasons", async (CreateSeasonRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
             !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                 ? Results.Unauthorized()
@@ -61,7 +60,8 @@ public static class SeasonEndpoints
                     var rejected => Results.Conflict(rejected.Error)
                 }).RequireAuthorization();
 
-        var seasons = endpoints.MapGroup("/api/admin/seasons").RequireAuthorization("Admin");
+        // The Setup routes: a global administrator, or the commissioner of the season that is in Setup (checked against the database on each request).
+        var seasons = endpoints.MapGroup("/api/admin/seasons").RequireAuthorization("SetupManager");
         seasons.MapGet("/setup", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
             await service.GetSetupAsync(cancellationToken) switch
             {
