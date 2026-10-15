@@ -7,6 +7,24 @@ namespace Swan.Core.Tests;
 public sealed class ScheduleTests
 {
     [Fact]
+    public void LinesCannotBeApprovedWhileANewerLineIsStillAwaitingApproval()
+    {
+        var week = CreateWeek(out var gameId);
+        week.AddLine(gameId, Spread.Create(-3.5m).Value!);
+        week.ApproveLatestLine(gameId);
+        week.AddLine(gameId, Spread.Create(-4.5m).Value!);
+
+        var refused = week.ApproveLines();
+
+        Assert.False(refused.IsSuccess);
+        Assert.Equal("week.lines", refused.Error!.Code);
+        Assert.Equal(WeekState.Draft, week.State);
+        week.ApproveLatestLine(gameId);
+        Assert.True(week.ApproveLines().IsSuccess);
+        Assert.Equal(-4.5m, week.Games.Single().ApprovedLine!.Value);
+    }
+
+    [Fact]
     public void WeekFollowsLifecycleAndRaisesEvents()
     {
         var week = CreateWeek(out var gameId);

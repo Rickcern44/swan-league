@@ -3,7 +3,7 @@ using Swan.Core.Common;
 namespace Swan.Core.Schedule;
 
 // What the dashboard needs to know about one week, already counted from its games (excluded games are never counted as needing anything).
-public sealed record WeekSnapshot(WeekId Id, int Number, WeekState State, WeekKind Kind, int Games, int IncludedGames, int LinesApproved, int ResultsConfirmed, bool IsDoubleDogWeek);
+public sealed record WeekSnapshot(WeekId Id, int Number, WeekState State, WeekKind Kind, int Games, int IncludedGames, int LinesApproved, int ResultsConfirmed, bool IsDoubleDogWeek, int LinesAwaitingApproval = 0);
 
 // One thing for the administrator: a stable kind, readable reason, and where it is. NeedsDecision is false for pure status (picks are live).
 public sealed record AttentionItem(string Kind, string Title, string Reason, WeekId WeekId, int WeekNumber, WeekState WeekState, int? Count, int? Of, bool NeedsDecision);
@@ -41,6 +41,9 @@ public sealed record AdminAttention(WeekSnapshot? CurrentWeek, IReadOnlyList<Att
     private static AttentionItem DraftItem(WeekSnapshot week)
     {
         var missing = week.IncludedGames - week.LinesApproved;
+        // A newer line than the approved one is a decision too: approving the week would otherwise freeze the old spread.
+        if (missing == 0 && week.LinesAwaitingApproval > 0)
+            return new("lines-awaiting", "A newer line needs approval", $"{week.LinesAwaitingApproval} of {week.IncludedGames} included {Games(week.IncludedGames)} {(week.LinesAwaitingApproval == 1 ? "has" : "have")} a newer line awaiting approval", week.Id, week.Number, week.State, week.LinesAwaitingApproval, week.IncludedGames, true);
         if (week.IncludedGames == 0) return new("week-empty", "Week has no games", $"Week {week.Number} has no included games to put lines on.", week.Id, week.Number, week.State, 0, 0, true);
         return missing > 0
             ? new("lines-missing", "Lines need approval", $"{missing} of {week.IncludedGames} included {Games(week.IncludedGames)} {(missing == 1 ? "needs" : "need")} a line", week.Id, week.Number, week.State, missing, week.IncludedGames, true)

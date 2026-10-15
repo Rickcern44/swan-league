@@ -101,6 +101,8 @@ public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickof
     public Spread? ApprovedLine { get; private set; }
     public GameResult? Result { get; private set; }
     public IReadOnlyCollection<Spread> LineHistory => lineHistory.AsReadOnly();
+    // A line was added after the one that is approved (or none is approved yet), so approving the week now would freeze an out-of-date spread.
+    public bool HasUnapprovedLine => lineHistory.Count > 0 && lineHistory[^1] != ApprovedLine;
     internal Result<bool> AddLine(Spread line, bool frozen) { if (frozen) return Result<bool>.Failure("game.frozen", "Approved lines are frozen."); lineHistory.Add(line); return Result<bool>.Success(true); }
     internal Result<bool> ApproveLine(bool frozen) { if (frozen || lineHistory.Count == 0) return Result<bool>.Failure("game.line", "A line is required and must not be frozen."); ApprovedLine = lineHistory[^1]; return Result<bool>.Success(true); }
     internal Result<bool> ConfirmResult(GameResult result) { Result = result; return Result<bool>.Success(true); }
@@ -137,7 +139,7 @@ public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type
         return Result<bool>.Success(true);
     }
     public Result<bool> AddLine(GameId gameId, Spread line) => games.FirstOrDefault(game => game.Id == gameId)?.AddLine(line, State is not WeekState.Draft) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
-    public Result<bool> ApproveLines() => State != WeekState.Draft || games.Any(game => !game.Excluded && game.ApprovedLine is null) ? Result<bool>.Failure("week.lines", "Every included game needs an approved line.") : Transition(WeekState.LinesApproved);
+    public Result<bool> ApproveLines() => State != WeekState.Draft || games.Any(game => !game.Excluded && (game.ApprovedLine is null || game.HasUnapprovedLine)) ? Result<bool>.Failure("week.lines", "Every included game needs its latest line approved.") : Transition(WeekState.LinesApproved);
     public Result<bool> ApproveLatestLine(GameId gameId) => games.FirstOrDefault(game => game.Id == gameId)?.ApproveLine(State is not WeekState.Draft) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
     public Result<bool> Publish() => State != WeekState.LinesApproved ? Result<bool>.Failure("week.state", "Lines must be approved.") : PublishInternal();
     public Result<bool> Lock() => State != WeekState.Open ? Result<bool>.Failure("week.state", "Week must be open.") : LockInternal();

@@ -12,6 +12,7 @@ public sealed record WeekNextAction(string Kind, string Label, string Detail, bo
         {
             WeekState.Draft when week.IncludedGames == 0 => new("week-empty", "No games to line", "This week has no included games.", false),
             WeekState.Draft when missingLines > 0 => new("add-lines", "Add lines", $"{missingLines} of {week.IncludedGames} included {Games(week.IncludedGames)} still {(missingLines == 1 ? "needs" : "need")} an approved line.", false),
+            WeekState.Draft when week.LinesAwaitingApproval > 0 => new("approve-latest", "Approve the newer lines", $"{week.LinesAwaitingApproval} {(week.LinesAwaitingApproval == 1 ? "game has" : "games have")} a newer line awaiting approval.", false),
             WeekState.Draft => new("approve-lines", $"Approve {week.IncludedGames} {(week.IncludedGames == 1 ? "line" : "lines")}", "Freezes the lines so the week can be published.", true),
             WeekState.LinesApproved => new("publish", "Publish week", "Opens the week for coach picks.", true),
             WeekState.Open => new("lock", "Lock week", "Closes picks so results can be entered.", true),

@@ -531,6 +531,25 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ANewerUnapprovedLineBlocksApprovingTheWeekAndTheNextActionSaysWhy()
+    {
+        var (weekId, gameId) = await SeedWeek();
+        await Run(service => service.AddLineAsync(Admin, weekId, gameId, -3.5m, approve: true));
+        await Run(service => service.AddLineAsync(Admin, weekId, gameId, -4.5m, approve: false));
+
+        var week = (await Run(service => service.GetAsync(weekId))).Value!;
+        var refused = await Run(service => service.ApproveLinesAsync(Admin, weekId));
+        await Run(service => service.ApproveLatestLineAsync(Admin, weekId, gameId));
+        var ready = (await Run(service => service.GetAsync(weekId))).Value!;
+        var approved = await Run(service => service.ApproveLinesAsync(Admin, weekId));
+
+        Assert.Equal(("approve-latest", false), (week.NextAction!.Kind, week.NextAction.CanAct));
+        Assert.Equal("week.lines", refused.Error!.Code);
+        Assert.Equal(("approve-lines", true), (ready.NextAction!.Kind, ready.NextAction.CanAct));
+        Assert.Equal(-4.5m, approved.Value!.Games.Single().ApprovedLine);
+    }
+
+    [Fact]
     public async Task ATeamThatIsNotInTheCatalogHasNoNameRatherThanAnInventedOne()
     {
         var (weekId, _) = await SeedWeek();

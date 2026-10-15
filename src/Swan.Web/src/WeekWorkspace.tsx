@@ -475,6 +475,7 @@ function LineEditor({
       className="editor"
       aria-label={`Line for ${matchup}`}
       noValidate
+      onKeyDown={(event) => event.key === "Escape" && onCancel()}
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
         save(false);
@@ -563,6 +564,7 @@ function ResultEditor({
       className="editor"
       aria-label={`Result for ${matchup}`}
       noValidate
+      onKeyDown={(event) => event.key === "Escape" && onCancel()}
       onSubmit={submit}
     >
       <label htmlFor={`away-${game.id}`}>

@@ -6,8 +6,8 @@ namespace Swan.Core.Tests;
 
 public sealed class WeekNextActionTests
 {
-    private static WeekSnapshot Week(WeekState state, int included = 16, int lines = 0, int results = 0, int excluded = 0) =>
-        new(new WeekId(Guid.NewGuid()), 4, state, WeekKind.Regular, included + excluded, included, lines, results, false);
+    private static WeekSnapshot Week(WeekState state, int included = 16, int lines = 0, int results = 0, int excluded = 0, int awaiting = 0) =>
+        new(new WeekId(Guid.NewGuid()), 4, state, WeekKind.Regular, included + excluded, included, lines, results, false, awaiting);
 
     [Fact]
     public void ADraftWeekWithMissingLinesNamesWhatIsLeftAndOffersNothingToPress()
@@ -16,6 +16,16 @@ public sealed class WeekNextActionTests
 
         Assert.Equal(("add-lines", false), (action.Kind, action.CanAct));
         Assert.Equal("3 of 16 included games still need an approved line.", action.Detail);
+    }
+
+    [Fact]
+    public void ANewerLineAwaitingApprovalBlocksTheBulkApprovalEvenWhenEveryGameHasAnApprovedLine()
+    {
+        var action = WeekNextAction.For(Week(WeekState.Draft, included: 16, lines: 16, awaiting: 2));
+
+        Assert.Equal(("approve-latest", false), (action.Kind, action.CanAct));
+        Assert.Equal("2 games have a newer line awaiting approval.", action.Detail);
+        Assert.Equal("1 game has a newer line awaiting approval.", WeekNextAction.For(Week(WeekState.Draft, lines: 16, awaiting: 1)).Detail);
     }
 
     [Fact]

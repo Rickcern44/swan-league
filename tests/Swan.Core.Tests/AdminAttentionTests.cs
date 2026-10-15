@@ -6,8 +6,8 @@ namespace Swan.Core.Tests;
 
 public sealed class AdminAttentionTests
 {
-    private static WeekSnapshot Week(int number, WeekState state, int included = 16, int lines = 0, int results = 0, int excluded = 0, bool doubleDog = false, WeekKind kind = WeekKind.Regular) =>
-        new(new WeekId(Guid.NewGuid()), number, state, kind, included + excluded, included, lines, results, doubleDog);
+    private static WeekSnapshot Week(int number, WeekState state, int included = 16, int lines = 0, int results = 0, int excluded = 0, bool doubleDog = false, WeekKind kind = WeekKind.Regular, int awaiting = 0) =>
+        new(new WeekId(Guid.NewGuid()), number, state, kind, included + excluded, included, lines, results, doubleDog, awaiting);
 
     private static string[] Kinds(AdminAttention attention) => attention.Items.Select(item => item.Kind).ToArray();
 
@@ -39,6 +39,15 @@ public sealed class AdminAttentionTests
         Assert.Equal("The included game has an approved line; approve the week's lines.", Assert.Single(AdminAttention.Derive([Week(1, WeekState.Draft, included: 1, lines: 1)]).Items).Reason);
         Assert.Equal("1 of 1 included game is missing a result", Assert.Single(AdminAttention.Derive([Week(1, WeekState.Locked, included: 1, lines: 1)]).Items).Reason);
         Assert.Equal("1 of 3 included games needs a line", Assert.Single(AdminAttention.Derive([Week(1, WeekState.Draft, included: 3, lines: 2)]).Items).Reason);
+    }
+
+    [Fact]
+    public void ANewerUnapprovedLineIsADecisionEvenWhenEveryGameHasAnApprovedLine()
+    {
+        var item = Assert.Single(AdminAttention.Derive([Week(4, WeekState.Draft, included: 16, lines: 16, awaiting: 1)]).Items);
+
+        Assert.Equal(("lines-awaiting", true, 1, 16), (item.Kind, item.NeedsDecision, item.Count, item.Of));
+        Assert.Equal("1 of 16 included games has a newer line awaiting approval", item.Reason);
     }
 
     [Fact]

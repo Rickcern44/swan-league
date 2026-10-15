@@ -36,6 +36,6 @@ public sealed class AdminDashboardService(SwanDbContext database) : IAdminDashbo
     private static WeekSnapshot ToSnapshot(Week week, Season season)
     {
         var included = week.Games.Where(game => !game.Excluded).ToList();
-        return new WeekSnapshot(week.Id, week.Number, week.State, week.Type.Kind, week.Games.Count, included.Count, included.Count(game => game.ApprovedLine is not null), included.Count(game => game.Result is not null), season.DoubleDogWeekNumbers.Contains(week.Number));
+        return new WeekSnapshot(week.Id, week.Number, week.State, week.Type.Kind, week.Games.Count, included.Count, included.Count(game => game.ApprovedLine is not null), included.Count(game => game.Result is not null), season.DoubleDogWeekNumbers.Contains(week.Number), included.Count(game => game.ApprovedLine is not null && game.HasUnapprovedLine));
     }
 }

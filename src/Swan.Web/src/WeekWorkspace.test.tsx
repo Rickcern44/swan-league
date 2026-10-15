@@ -548,3 +548,19 @@ test("a coach on a week address sees only the placeholder and no admin call is m
   ).toBeVisible();
   expect(calls.some((c) => c.url.includes("/api/admin"))).toBe(false);
 });
+
+test("Escape closes an open editor without sending anything and returns focus to its button", async () => {
+  open("Draft", [game(G1)]);
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
+  fireEvent.keyDown(screen.getByLabelText(/Spread for Bills/), {
+    key: "Escape",
+  });
+
+  expect(screen.queryByRole("form")).not.toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /Add line/ })).toHaveFocus(),
+  );
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+});

@@ -157,7 +157,7 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
         var teamIds = week.Games.SelectMany(game => new[] { game.HomeTeamId, game.AwayTeamId }).Distinct().ToList();
         var names = await database.Teams.AsNoTracking().Where(team => teamIds.Contains(team.Id)).ToDictionaryAsync(team => team.Id, team => team.Name, cancellationToken);
         var included = week.Games.Where(game => !game.Excluded).ToList();
-        var next = WeekNextAction.For(new WeekSnapshot(week.Id, week.Number, week.State, week.Type.Kind, week.Games.Count, included.Count, included.Count(game => game.ApprovedLine is not null), included.Count(game => game.Result is not null), false));
+        var next = WeekNextAction.For(new WeekSnapshot(week.Id, week.Number, week.State, week.Type.Kind, week.Games.Count, included.Count, included.Count(game => game.ApprovedLine is not null), included.Count(game => game.Result is not null), false, included.Count(game => game.ApprovedLine is not null && game.HasUnapprovedLine)));
         var plain = ToDashboard(week);
         return plain with
         {
