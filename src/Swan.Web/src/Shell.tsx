@@ -4,23 +4,26 @@ import { SwanMark } from "./Swan";
 type Destination = { label: string; path: string; soon?: boolean };
 
 // Destinations that do not exist yet are shown as plain labelled text, not links, so nothing leads nowhere.
-function destinations(role: "Admin" | "Coach"): Destination[] {
+function destinations(
+  role: "Admin" | "Coach",
+  canDraft: boolean,
+  canSetup: boolean,
+): Destination[] {
   return [
     { label: "Home", path: "/" },
     { label: "Week", path: "", soon: true },
     { label: "Standings", path: "", soon: true },
-    ...(role === "Admin"
-      ? [
-          { label: "Roster draft", path: "/draft" },
-          { label: "Season setup", path: "/setup" },
-        ]
-      : [{ label: "Roster", path: "/roster" }]),
+    ...(role === "Admin" ? [] : [{ label: "Roster", path: "/roster" }]),
+    ...(canDraft ? [{ label: "Roster draft", path: "/draft" }] : []),
+    ...(canSetup ? [{ label: "Season setup", path: "/setup" }] : []),
   ];
 }
 
 export default function Shell({
   name,
   role,
+  canSetup,
+  canDraft,
   path,
   onNavigate,
   onSignOut,
@@ -28,6 +31,8 @@ export default function Shell({
 }: {
   name: string;
   role: "Admin" | "Coach";
+  canSetup: boolean;
+  canDraft: boolean;
   path: string;
   onNavigate: (to: string) => void;
   onSignOut: () => void;
@@ -53,7 +58,7 @@ export default function Shell({
       </header>
       <nav className="shell-nav" aria-label="Primary">
         <ul>
-          {destinations(role).map((item) => {
+          {destinations(role, canDraft, canSetup).map((item) => {
             const current =
               item.path === "/setup"
                 ? inSetup

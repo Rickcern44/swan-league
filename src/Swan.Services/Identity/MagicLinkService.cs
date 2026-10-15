@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Swan.Core;
 using Swan.Core.Common;
 using Swan.Core.Identity;
+using Swan.Core.League;
 using Swan.Core.Integrations;
 using Swan.Data;
 
@@ -60,6 +61,8 @@ internal static class TokenHash
 
 public sealed record IssuedSession(string Credential, DateTimeOffset ExpiresAt);
 
+public sealed record SetupAccess(string Setup, bool CommissionsLiveSeason);
+
 // A session is a random 256-bit credential held in the browser's cookie. The database keeps only its hash, so reading it does not let anyone sign in,
 // and a session can be revoked or expire on the server regardless of what the browser still holds.
 public sealed class SessionService(SwanDbContext database, IClock clock)
@@ -85,6 +88,18 @@ public sealed class SessionService(SwanDbContext database, IClock clock)
         if (session is null || !session.IsActive(clock.UtcNow)) return null;
         var user = await database.Users.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == session.UserId, cancellationToken);
         return user is null || !user.IsActive ? null : new CurrentUser(user.Id, user.Name, user.Role.ToString());
+    }
+
+    // What the app should offer this person, read from the database now: "manage" (a global administrator, or the commissioner of the season in Setup), "create" (an active commissioner
+    // while no season is in Setup, who may start one) or "none"; and whether they are an active commissioner of the newest live season (so the roster view is theirs).
+    public async Task<SetupAccess> AccessAsync(UserId user, bool isAdministrator, CancellationToken cancellationToken = default)
+    {
+        var commissions = await database.Memberships.AsNoTracking().Where(item => item.UserId == user && item.Role == MembershipRole.Commissioner && item.IsActive).Select(item => item.SeasonId).ToListAsync(cancellationToken);
+        var seasons = await database.Seasons.AsNoTracking().Where(season => season.State == SeasonState.Setup || season.State == SeasonState.Live).ToListAsync(cancellationToken);
+        var setup = seasons.FirstOrDefault(season => season.State == SeasonState.Setup);
+        var newestLive = seasons.Where(season => season.State == SeasonState.Live).OrderByDescending(season => season.Year).ThenBy(season => season.Name, StringComparer.Ordinal).ThenBy(season => season.Id.Value).FirstOrDefault();
+        var setupAccess = isAdministrator || (setup is not null && commissions.Contains(setup.Id)) ? "manage" : setup is null && commissions.Count > 0 ? "create" : "none";
+        return new SetupAccess(setupAccess, newestLive is not null && commissions.Contains(newestLive.Id));
     }
 
     public async Task RevokeAsync(string? credential, CancellationToken cancellationToken = default)

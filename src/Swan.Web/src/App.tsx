@@ -7,7 +7,14 @@ import SeasonSetup from "./SeasonSetup";
 import WeekWorkspace from "./WeekWorkspace";
 import Shell from "./Shell";
 
-type CurrentUser = { id: string; name: string; role: "Admin" | "Coach" };
+// setupAccess and commissionsLiveSeason come from the server, which reads them from the database on each request: they say what this person may do as a season's commissioner.
+type CurrentUser = {
+  id: string;
+  name: string;
+  role: "Admin" | "Coach";
+  setupAccess?: "manage" | "create" | "none";
+  commissionsLiveSeason?: boolean;
+};
 
 export default function App() {
   const [email, setEmail] = useState("");
@@ -70,25 +77,31 @@ export default function App() {
 
   if (user) {
     const inSetup = path === "/setup" || path.startsWith("/setup/");
+    const isAdmin = user.role === "Admin";
+    // An administrator keeps both areas; a commissioner gets Setup for the season that is theirs and the roster view for the live season they commission.
+    const canSetup = isAdmin || (user.setupAccess ?? "none") !== "none";
+    const canDraft = isAdmin || user.commissionsLiveSeason === true;
     const workspaceWeek = /^\/weeks\/([0-9a-f-]{36})\/?$/i.exec(path)?.[1];
     return (
       <Shell
         name={user.name}
         role={user.role}
+        canSetup={canSetup}
+        canDraft={canDraft}
         path={path}
         onNavigate={navigate}
         onSignOut={() => void signOut()}
       >
-        {user.role !== "Admin" ? (
+        {path === "/draft" && canDraft ? (
+          <CommissionerDraft />
+        ) : inSetup && canSetup ? (
+          <SeasonSetup createOnly={!isAdmin && user.setupAccess === "create"} />
+        ) : !isAdmin ? (
           path === "/roster" ? (
             <RosterDraft />
           ) : (
             <PickDesk />
           )
-        ) : path === "/draft" ? (
-          <CommissionerDraft />
-        ) : inSetup ? (
-          <SeasonSetup />
         ) : workspaceWeek ? (
           <WeekWorkspace
             key={workspaceWeek}

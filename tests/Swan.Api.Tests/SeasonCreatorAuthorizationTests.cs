@@ -55,6 +55,20 @@ public sealed class SeasonCreatorAuthorizationTests(SessionApiFixture fixture) :
     private async Task<(int Setup, int Memberships, int Audits)> Footprint() => await fixture.WithDatabase(fixture.Development, async (database, _) =>
         (await database.Seasons.CountAsync(season => season.State == SeasonState.Setup), await database.Memberships.CountAsync(), await database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.created")));
 
+    // Removes any season newer than the seeded 2026 one (a test that started a season leaves it Live), so tests do not depend on each other's order.
+    private Task RemoveSeasonsNewerThanTheSeededOne() => fixture.WithDatabase(fixture.Development, async (database, _) =>
+    {
+        await database.Database.ExecuteSqlRawAsync("""
+            delete from schedule.games where "WeekId" in (select w."Id" from schedule.weeks w join league.seasons s on s."Id" = w."SeasonId" where s."Year" > 2026);
+            delete from schedule.weeks where "SeasonId" in (select "Id" from league.seasons where "Year" > 2026);
+            delete from schedule.season_teams where "SeasonId" in (select "Id" from league.seasons where "Year" > 2026);
+            delete from picks.rosters where "SeasonId" in (select "Id" from league.seasons where "Year" > 2026);
+            delete from league.memberships where "SeasonId" in (select "Id" from league.seasons where "Year" > 2026);
+            delete from league.seasons where "Year" > 2026
+            """);
+        return 0;
+    });
+
     private Task ClearSetup() => fixture.WithDatabase(fixture.Development, async (database, _) =>
     {
         await database.Database.ExecuteSqlRawAsync("delete from league.memberships where \"SeasonId\" in (select \"Id\" from league.seasons where \"State\" = 0); delete from league.seasons where \"State\" = 0");
@@ -189,6 +203,7 @@ public sealed class SeasonCreatorAuthorizationTests(SessionApiFixture fixture) :
         Assert.NotNull(season.RosterDraftDeadline);
         // Once started there is no Setup season left for anyone but an administrator to ask about.
         Assert.Equal(HttpStatusCode.Forbidden, (await Do(HttpMethod.Get, $"{Url}/setup")).StatusCode);
+        await RemoveSeasonsNewerThanTheSeededOne();
     }
 
     [Fact]
@@ -250,5 +265,52 @@ public sealed class SeasonCreatorAuthorizationTests(SessionApiFixture fixture) :
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Send(HttpMethod.Get, $"{Url}/setup", admin))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Send(HttpMethod.Get, "/api/admin/dashboard", admin))).StatusCode);
         await ClearSetup();
+    }
+
+    private async Task<System.Text.Json.JsonElement> MeAsync(string session) =>
+        await (await Client(fixture.Development).SendAsync(Get("/api/me", session))).Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+
+    [Fact]
+    public async Task MeTellsTheAppWhatThisPersonMayDoWithSetupAndRostersFromTheDatabase()
+    {
+        await ClearSetup();
+        var admin = await SessionFor(await UserAsync("me.admin@example.com", UserRole.Admin));
+        var coach = await SessionFor(SeededCoach);
+        var commissionerUser = await UserAsync("me.commissioner@example.com", UserRole.Coach, commissioner: true);
+        var commissioner = await SessionFor(commissionerUser);
+        var client = Client(fixture.Development);
+
+        // No Setup season: an administrator manages, a commissioner may create, a coach has nothing.
+        Assert.Equal("manage", (await MeAsync(admin)).GetProperty("setupAccess").GetString());
+        Assert.Equal("create", (await MeAsync(commissioner)).GetProperty("setupAccess").GetString());
+        Assert.Equal("none", (await MeAsync(coach)).GetProperty("setupAccess").GetString());
+
+        // The commissioner creates one and now manages it; another commissioner can neither create nor manage.
+        Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(Post(Url, commissioner))).StatusCode);
+        var other = await SessionFor(await UserAsync("me.other.commissioner@example.com", UserRole.Coach, commissioner: true));
+        Assert.Equal("manage", (await MeAsync(commissioner)).GetProperty("setupAccess").GetString());
+        Assert.Equal("none", (await MeAsync(other)).GetProperty("setupAccess").GetString());
+        Assert.Equal("none", (await MeAsync(coach)).GetProperty("setupAccess").GetString());
+        Assert.Equal("manage", (await MeAsync(admin)).GetProperty("setupAccess").GetString());
+
+        // Losing the membership takes it away at once.
+        await fixture.WithDatabase(fixture.Development, async (database, _) => await database.Database.ExecuteSqlAsync($"""update league.memberships set "IsActive" = false where "UserId" = {commissionerUser.Value}"""));
+        Assert.Equal("none", (await MeAsync(commissioner)).GetProperty("setupAccess").GetString());
+        await ClearSetup();
+    }
+
+    [Fact]
+    public async Task MeSaysWhoCommissionsTheLiveSeasonSoTheirRosterViewIsReachable()
+    {
+        await RemoveSeasonsNewerThanTheSeededOne();
+        var seededAdmin = await SessionFor(new UserId(Guid.Parse("b548d5d9-272d-4f4d-b2b4-f179ad8b289d")));
+        var coach = await SessionFor(SeededCoach);
+        var commissionerCoach = await SessionFor(await UserAsync("live.commissioner@example.com", UserRole.Coach, commissioner: true));
+        var plainAdmin = await SessionFor(await UserAsync("live.plain.admin@example.com", UserRole.Admin));
+
+        Assert.True((await MeAsync(seededAdmin)).GetProperty("commissionsLiveSeason").GetBoolean());
+        Assert.True((await MeAsync(commissionerCoach)).GetProperty("commissionsLiveSeason").GetBoolean());
+        Assert.False((await MeAsync(coach)).GetProperty("commissionsLiveSeason").GetBoolean());
+        Assert.False((await MeAsync(plainAdmin)).GetProperty("commissionsLiveSeason").GetBoolean());
     }
 }

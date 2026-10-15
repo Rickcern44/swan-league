@@ -74,10 +74,18 @@ async function send<T = Season>(
 const toCents = (value: string) => Math.round(Number(value) * 100);
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-export default function SeasonSetup() {
-  const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
+// createOnly is a commissioner with no season in Setup: they may start one but cannot read a Setup season yet, so the page opens on the start form without asking for one.
+export default function SeasonSetup({
+  createOnly = false,
+}: {
+  createOnly?: boolean;
+}) {
+  const [loaded, setLoaded] = useState<Loaded>(
+    createOnly ? { status: "none" } : { status: "loading" },
+  );
 
   useEffect(() => {
+    if (createOnly) return;
     void send("GET", "/api/admin/seasons/setup").then((result) =>
       setLoaded(
         "value" in result
@@ -87,7 +95,7 @@ export default function SeasonSetup() {
             : { status: "failed", error: result.error },
       ),
     );
-  }, []);
+  }, [createOnly]);
 
   const apply = (season: Season) => setLoaded({ status: "ready", season });
 
