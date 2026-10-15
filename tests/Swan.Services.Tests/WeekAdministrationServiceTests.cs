@@ -208,6 +208,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         var seeded = await SeedLockedWeek();
         await using (var database = CreateDatabase())
         {
+            await AllowDuplicateBallotsAsync(database);
             database.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), seeded.Membership, seeded.Week));
             await database.SaveChangesAsync();
         }
@@ -333,6 +334,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         var good = await SeedLockedWeek(withDog: true, season: season, number: 2, final: true);
         await using (var database = CreateDatabase())
         {
+            await AllowDuplicateBallotsAsync(database);
             database.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), bad.Membership, bad.Week));
             await database.SaveChangesAsync();
         }
@@ -592,6 +594,9 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
 
         Assert.Null(week.Games.Single().HomeTeamName);
     }
+
+    // The database now allows one ballot per coach and week. Scoring still refuses duplicates in case old data has them, so these tests lift the index to recreate that data.
+    private static Task AllowDuplicateBallotsAsync(SwanDbContext database) => database.Database.ExecuteSqlRawAsync("DROP INDEX IF EXISTS picks.ux_ballots_membership_week");
 
     private WeekId seededWeek;
     private GameId seededEarly;

@@ -54,6 +54,25 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task DevelopmentSeedGivesEachCoachNineTeamsAndAnOpenDoubleDogWeekToPickFor()
+    {
+        await using var database = await CreateMigratedDatabase();
+
+        await DevelopmentSeeder.SeedAsync(database);
+        database.ChangeTracker.Clear();
+
+        var rosters = await database.Rosters.AsNoTracking().ToListAsync();
+        var open = await database.Weeks.AsNoTracking().SingleAsync(week => week.State == WeekState.Open);
+        Assert.Equal(6, rosters.Count);
+        Assert.All(rosters, roster => Assert.Equal(9, roster.Teams.Count));
+        Assert.Equal((2, 16), (open.Number, open.Games.Count));
+        Assert.All(open.Games, game => Assert.NotNull(game.ApprovedLine));
+        Assert.NotEmpty(open.DogOptions);
+        Assert.All(open.Games, game => Assert.True(game.Kickoff.Value > DateTimeOffset.UtcNow));
+        Assert.Equal(WeekState.Draft, (await database.Weeks.AsNoTracking().SingleAsync(week => week.Number == 1)).State);
+    }
+
+    [Fact]
     public async Task MigrationCreatesSchemasAndRoundTripsAnAggregate()
     {
         var options = new DbContextOptionsBuilder<SwanDbContext>()

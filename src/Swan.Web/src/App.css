@@ -973,3 +973,78 @@ main.shell-main > * + * {
   margin: 0;
   font-size: 0.9rem;
 }
+
+/* Coach pick desk: game-day calm. A chosen row fills with ink, a locked one looks settled. */
+.lede {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+}
+
+.count {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.game.pick.on {
+  background: var(--ink);
+  color: #fff;
+  border-radius: 0.6rem;
+  padding: 0.9rem 0.9rem;
+  margin: 0.25rem 0;
+  border-top-color: transparent;
+}
+
+.game.pick.on .kick,
+.game.pick.on .teams i,
+.game.pick.on .status {
+  color: #c4d3e3;
+}
+
+.game.pick.on .teams {
+  color: #fff;
+}
+
+.game.pick.on button.primary {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: #1a1203;
+}
+
+.game.pick.locked:not(.on) {
+  opacity: 0.8;
+}
+
+.game.pick.locked .status {
+  font-weight: 600;
+}
+
+.dogs {
+  margin-top: 1.5rem;
+  border-left: 3px solid var(--brass);
+  padding-left: 0.9rem;
+}
+
+.desk .game-actions button {
+  min-width: 6.5rem;
+}
+
+.desk .pulse .counts {
+  margin-top: 0.5rem;
+}
+
+@media (min-width: 56rem) {
+  /* The pick list is long, so the save dock stays in view instead of waiting at the bottom of the page. */
+  .desk .dock {
+    position: sticky;
+    bottom: 0;
+    background: var(--ice);
+    border-top: 1px solid var(--rule);
+    padding: 0.85rem 0;
+  }
+}

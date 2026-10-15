@@ -266,10 +266,17 @@ namespace Swan.Data.Migrations
                     b.Property<Guid>("MembershipId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("WeekId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("MembershipId", "WeekId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_ballots_membership_week");
 
                     b.ToTable("ballots", "picks");
                 });
@@ -284,6 +291,13 @@ namespace Swan.Data.Migrations
 
                     b.Property<Guid>("SeasonId")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid[]>("teams")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("Teams")
+                        .HasDefaultValueSql("'{}'");
 
                     b.HasKey("Id");
 
@@ -635,7 +649,9 @@ namespace Swan.Data.Migrations
                                 .HasColumnType("timestamp with time zone");
 
                             b1.Property<int>("PointValue")
-                                .HasColumnType("integer");
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasDefaultValue(1);
 
                             b1.Property<Guid>("TeamId")
                                 .HasColumnType("uuid");

@@ -535,17 +535,14 @@ test("a failed load or an unreachable server can be retried", async () => {
   ).toBeVisible();
 });
 
-test("a coach on a week address sees only the placeholder and no admin call is made", async () => {
+test("a coach on a week address gets their own desk and no admin call is made", async () => {
   stubApi("Coach");
   window.history.replaceState({}, "", `/weeks/${WEEK}`);
   render(<App />);
 
-  expect(
-    await screen.findByRole("heading", {
-      level: 1,
-      name: "Welcome, Swan Admin",
-    }),
-  ).toBeVisible();
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not load your picks.",
+  );
   expect(calls.some((c) => c.url.includes("/api/admin"))).toBe(false);
 });
 

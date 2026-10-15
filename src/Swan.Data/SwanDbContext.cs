@@ -192,6 +192,12 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(roster => roster.MembershipId).HasConversion(id => id.Value, value => new MembershipId(value));
             entity.Ignore(roster => roster.DomainEvents);
             entity.Ignore(roster => roster.Teams);
+            // The roster's teams live in one uuid[] column; the set is mapped through its private field.
+            entity.Property<HashSet<TeamId>>("teams").HasField("teams").HasColumnName("Teams").HasDefaultValueSql("'{}'")
+                .HasConversion(
+                    teams => teams.Select(team => team.Value).ToArray(),
+                    values => values.Select(value => new TeamId(value)).ToHashSet(),
+                    new ValueComparer<HashSet<TeamId>>((left, right) => left!.SetEquals(right!), teams => teams.Aggregate(0, (hash, team) => hash ^ team.GetHashCode()), teams => teams.ToHashSet()));
         });
         modelBuilder.Entity<Ballot>(entity =>
         {
@@ -200,6 +206,9 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(ballot => ballot.Id).HasConversion(id => id.Value, value => new BallotId(value));
             entity.Property(ballot => ballot.MembershipId).HasConversion(id => id.Value, value => new MembershipId(value));
             entity.Property(ballot => ballot.WeekId).HasConversion(id => id.Value, value => new WeekId(value));
+            entity.Property(ballot => ballot.Revision);
+            // One ballot per coach and week; a concurrent second insert fails here instead of leaving two.
+            entity.HasIndex(ballot => new { ballot.MembershipId, ballot.WeekId }).IsUnique().HasDatabaseName("ux_ballots_membership_week");
             entity.Ignore(ballot => ballot.DomainEvents);
             entity.OwnsMany<TeamPick>(nameof(TeamPick), nameof(Ballot.Picks), pick =>
             {
@@ -211,6 +220,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 pick.Property(value => value.GameId).HasConversion(id => id.Value, value => new GameId(value));
                 pick.Property(value => value.LockTime);
                 pick.Property(value => value.IsBye);
+                pick.Property(value => value.PointValue).HasDefaultValue(1);
             });
             entity.OwnsMany<DogPick>(nameof(DogPick), nameof(Ballot.Dogs), dog =>
             {

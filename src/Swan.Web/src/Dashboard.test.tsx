@@ -312,20 +312,20 @@ test("an unreachable server is reported the same way", async () => {
   );
 });
 
-test("a coach gets a calm placeholder and the app never calls an admin endpoint", async () => {
+test("a coach gets their own pick desk and the app never calls an admin endpoint", async () => {
   stubApi("Coach");
   render(<App />);
 
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not load your picks.",
+  );
   expect(
-    await screen.findByRole("heading", {
-      level: 1,
-      name: "Welcome, Swan Admin",
-    }),
+    screen.getByRole("heading", { level: 1, name: "Your picks" }),
   ).toBeVisible();
-  expect(screen.getByText(/nothing for you to do here for now/i)).toBeVisible();
   expect(
     screen.queryByRole("link", { name: "Season setup" }),
   ).not.toBeInTheDocument();
+  expect(calls).toContain("/api/coach/picks/current");
   expect(calls.some((url) => url.includes("/api/admin"))).toBe(false);
 });
 

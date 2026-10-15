@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import CoachHome from "./CoachHome";
+import PickDesk from "./PickDesk";
 import Dashboard from "./Dashboard";
 import SeasonSetup from "./SeasonSetup";
 import WeekWorkspace from "./WeekWorkspace";
@@ -78,7 +78,7 @@ export default function App() {
         onSignOut={() => void signOut()}
       >
         {user.role !== "Admin" ? (
-          <CoachHome name={user.name} />
+          <PickDesk />
         ) : inSetup ? (
           <SeasonSetup />
         ) : workspaceWeek ? (

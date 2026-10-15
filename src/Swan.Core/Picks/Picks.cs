@@ -41,6 +41,8 @@ public sealed class Ballot(BallotId id, MembershipId membershipId, WeekId weekId
     private readonly List<DogPick> dogs = [];
     private readonly List<PickChange> changes = [];
     public bool IsComplete => picks.Count == 3;
+    // Counts the saves that changed something. A client sends the revision it last read, so a save made from an out-of-date screen is noticed rather than silently overwriting a newer one.
+    public int Revision { get; private set; }
     public BallotId Id { get; } = id;
     public MembershipId MembershipId { get; } = membershipId;
     public WeekId WeekId { get; } = weekId;
@@ -52,6 +54,41 @@ public sealed class Ballot(BallotId id, MembershipId membershipId, WeekId weekId
     IReadOnlyCollection<ScoringDogPick> IScoringBallot.ScoringDogs => dogs.Select(dog => new ScoringDogPick(dog.TeamId, dog.GameId)).ToList();
     public Result<bool> AddPick(TeamPick pick, DateTimeOffset now) { if (pick.IsBye || !LockPolicy.CanChange(pick.LockTime, now) || picks.Count == 3 || picks.Any(item => item.TeamId == pick.TeamId) || rosterTeams is not null && !rosterTeams.Contains(pick.TeamId)) return Result<bool>.Failure("pick.invalid", "Pick is invalid or locked."); picks.Add(pick); Raise(new PickSubmitted(Id)); return Result<bool>.Success(true); }
     public Result<bool> ChangePick(TeamId from, TeamPick replacement, DateTimeOffset now, string reason) { var pick = picks.FirstOrDefault(item => item.TeamId == from); if (pick is null || !LockPolicy.CanChange(pick.LockTime, now) || !LockPolicy.CanChange(replacement.LockTime, now) || string.IsNullOrWhiteSpace(reason)) return Result<bool>.Failure("pick.locked", "Pick cannot change."); picks.Remove(pick); picks.Add(replacement); changes.Add(new(now, reason)); Raise(new PickChanged(Id)); return Result<bool>.Success(true); }
+    // Saves the coach's whole editable ballot at once and either applies all of it or none of it. A selection whose lock time has passed can be kept as it is but never removed,
+    // replaced or added; everything else may be rearranged. Team picks are limited to roster teams (R1, R2) and dogs follow R7, R8 and R16.
+    public Result<bool> Save(IReadOnlyCollection<TeamPick> newPicks, IReadOnlyCollection<DogPick> newDogs, bool doubleDog, IReadOnlySet<TeamId> roster, DateTimeOffset now)
+    {
+        var dogLimit = doubleDog ? 2 : 1;
+        if (newPicks.Count > 3 || newPicks.Select(pick => pick.TeamId).Distinct().Count() != newPicks.Count || newPicks.Any(pick => pick.IsBye || !roster.Contains(pick.TeamId)))
+            return Result<bool>.Failure("pick.invalid", "Pick three or fewer different teams from your roster.");
+        if (newDogs.Count > dogLimit || newDogs.Select(dog => dog.TeamId).Distinct().Count() != newDogs.Count || newDogs.Select(dog => dog.GameId).Distinct().Count() != newDogs.Count)
+            return Result<bool>.Failure("dog.invalid", doubleDog ? "Pick up to two dogs from two different teams and games." : "Pick at most one dog.");
+
+        // Keep the stored selection when the same team and game is sent again, so its lock time and point value are the ones it was saved with.
+        var finalPicks = newPicks.Select(pick => picks.FirstOrDefault(existing => existing.TeamId == pick.TeamId && existing.GameId == pick.GameId) ?? pick).ToList();
+        var finalDogs = newDogs.Select(dog => dogs.FirstOrDefault(existing => existing.TeamId == dog.TeamId && existing.GameId == dog.GameId) ?? dog).ToList();
+        if (picks.Any(existing => !LockPolicy.CanChange(existing.LockTime, now) && !finalPicks.Contains(existing)) || finalPicks.Any(pick => !picks.Contains(pick) && !LockPolicy.CanChange(pick.LockTime, now)))
+            return Result<bool>.Failure("pick.locked", "A pick whose game has locked cannot be added, changed or removed.");
+        if (dogs.Any(existing => !LockPolicy.CanChange(existing.LockTime, now) && !finalDogs.Contains(existing)) || finalDogs.Any(dog => !dogs.Contains(dog) && !LockPolicy.CanChange(dog.LockTime, now)))
+            return Result<bool>.Failure("dog.locked", "A dog whose game has locked cannot be added, changed or removed.");
+
+        var unchanged = picks.Count == finalPicks.Count && picks.All(finalPicks.Contains) && dogs.Count == finalDogs.Count && dogs.All(finalDogs.Contains);
+        if (unchanged) return Result<bool>.Success(true);
+
+        var hadSelections = picks.Count > 0 || dogs.Count > 0;
+        picks.Clear();
+        picks.AddRange(finalPicks);
+        dogs.Clear();
+        dogs.AddRange(finalDogs);
+        Revision++;
+        if (hadSelections)
+        {
+            changes.Add(new(now, "Coach revised picks"));
+            Raise(new PickChanged(Id));
+        }
+        else Raise(new PickSubmitted(Id));
+        return Result<bool>.Success(true);
+    }
     public Result<bool> AddDog(DogPick dog, bool doubleDog, DateTimeOffset now) { var limit = doubleDog ? 2 : 1; if (!LockPolicy.CanChange(dog.LockTime, now) || dogs.Count == limit || dogs.Any(item => item.TeamId == dog.TeamId || item.GameId == dog.GameId)) return Result<bool>.Failure("dog.invalid", "Dog pick is invalid."); dogs.Add(dog); return Result<bool>.Success(true); }
 }
 public sealed record PickSubmitted(BallotId BallotId) : IDomainEvent;

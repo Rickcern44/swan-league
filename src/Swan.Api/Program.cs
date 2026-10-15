@@ -3,6 +3,7 @@ using Swan.Api.Authentication;
 using Swan.Services;
 using Swan.Api.Endpoints;
 using Swan.Api.Endpoints.Admin;
+using Swan.Api.Endpoints.Coach;
 using Swan.Core.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,7 @@ builder.Services.AddAuthentication("SwanSession")
     .AddScheme<AuthenticationSchemeOptions, SwanSessionAuthenticationHandler>("SwanSession", _ => { });
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Admin", policy => policy.RequireAuthenticatedUser().RequireRole(nameof(UserRole.Admin)))
+    .AddPolicy("CoachOnly", policy => policy.RequireAuthenticatedUser().RequireRole(nameof(UserRole.Coach)))
     .AddPolicy("Coach", policy => policy.RequireAuthenticatedUser().RequireRole(nameof(UserRole.Admin), nameof(UserRole.Coach)));
 
 var app = builder.Build();
@@ -31,6 +33,7 @@ app.MapIdentityEndpoints();
 app.MapAuditEndpoints();
 app.MapWeekEndpoints();
 app.MapDashboardEndpoints();
+app.MapCoachPickEndpoints();
 app.MapSeasonEndpoints();
 
 app.Run();

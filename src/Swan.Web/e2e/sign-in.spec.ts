@@ -170,7 +170,10 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
     await expect(page.getByText("Recompute scores: done.")).toBeVisible();
 
     await page.getByRole("button", { name: "‹ League desk" }).click();
-    await expect(page.getByText("You are caught up")).toBeVisible();
+    // The seeded Week 2 is open for coach picks, so nothing needs a decision but the season is not finished.
+    await expect(
+      page.getByText("Nothing needs a decision right now."),
+    ).toBeVisible();
   }
   await page
     .getByRole("navigation", { name: "Primary" })
@@ -577,11 +580,105 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
 
   await signIn(page, "coach1@swan.local");
   await expect(page.getByText("Signed in as Coach 1 · Coach")).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Welcome, Coach 1" }),
-  ).toBeVisible();
   await expect(page.getByText("Season setup")).not.toBeVisible();
   expect((await page.request.get("/api/admin/dashboard")).status()).toBe(403);
+
+  // The coach desk: pages the coach opens may only ever call coach endpoints.
+  const calledPaths: string[] = [];
+  page.on("request", (request) =>
+    calledPaths.push(new URL(request.url()).pathname),
+  );
+  const desk = async () =>
+    (await (await page.request.get("/api/coach/picks/current")).json()) as {
+      state: string;
+      revision: number;
+      week: { id: string; isDoubleDogWeek: boolean };
+      games: { teamId: string; selected: boolean }[];
+      dogs: { teamId: string; selected: boolean }[];
+    };
+  const before = await desk();
+  // Picks are only saved on a fresh volume (a used one already holds a ballot from an earlier run).
+  if (before.state === "open" && before.revision === 0) {
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Who are you starting?" }),
+    ).toBeVisible();
+    await expect(page.getByText("Choose 2 dogs this week")).toBeVisible();
+    const starts = page.getByRole("button", { name: /^Start / });
+    for (let i = 0; i < 3; i++) await starts.first().click();
+    await expect(page.getByText("3 of 3 chosen · all set")).toBeVisible();
+    // A fourth start is blocked.
+    await expect(starts.first()).toBeDisabled();
+    const dogs = page.getByRole("button", { name: /^Pick dog / });
+    for (let i = 0; i < 2; i++) await dogs.first().click();
+    await page.getByRole("button", { name: "Save 3 picks and 2 dogs" }).click();
+    await expect(page.getByText("Picks saved.")).toBeVisible();
+
+    // The saved ballot survives a reload.
+    await page.reload();
+    await expect(page.getByRole("button", { name: /^Starting / })).toHaveCount(
+      3,
+    );
+    await expect(
+      page.getByRole("button", { name: /^Dog picked / }),
+    ).toHaveCount(2);
+
+    // Revise: drop one start and save again.
+    await page
+      .getByRole("button", { name: /^Starting / })
+      .first()
+      .click();
+    await page.getByRole("button", { name: "Save 2 picks and 2 dogs" }).click();
+    await expect(page.getByText("Picks saved.")).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("button", { name: /^Starting / })).toHaveCount(
+      2,
+    );
+
+    // The server refuses bad saves and keeps what is saved: a stale revision, a team that is not theirs, a fourth start.
+    const saved = await desk();
+    const put = (data: object) =>
+      page.request.put("/api/coach/picks/current", { data });
+    const mine = saved.games
+      .filter((game) => game.selected)
+      .map((game) => game.teamId);
+    const stale = await put({
+      weekId: saved.week.id,
+      expectedRevision: 0,
+      teamIds: mine,
+      dogTeamIds: [],
+    });
+    expect(stale.status()).toBe(409);
+    expect(((await stale.json()) as { code: string }).code).toBe(
+      "ballot.stale",
+    );
+    const stranger = await put({
+      weekId: saved.week.id,
+      expectedRevision: saved.revision,
+      teamIds: [crypto.randomUUID()],
+      dogTeamIds: [],
+    });
+    expect(stranger.status()).toBe(400);
+    const four = await put({
+      weekId: saved.week.id,
+      expectedRevision: saved.revision,
+      teamIds: saved.games.slice(0, 4).map((game) => game.teamId),
+      dogTeamIds: [],
+    });
+    expect(four.status()).toBe(400);
+    const unchanged = await desk();
+    expect(unchanged.revision).toBe(saved.revision);
+    expect(
+      unchanged.games
+        .filter((game) => game.selected)
+        .map((game) => game.teamId)
+        .sort(),
+    ).toEqual([...mine].sort());
+    expect(unchanged.dogs.filter((dog) => dog.selected)).toHaveLength(2);
+  }
+  expect(calledPaths.filter((path) => path.startsWith("/api/admin"))).toEqual(
+    [],
+  );
 
   // Checked last so it never hides a real failure above.
   expect(
