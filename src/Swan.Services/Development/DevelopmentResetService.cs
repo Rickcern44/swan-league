@@ -30,8 +30,11 @@ public sealed class DevelopmentResetService(SwanDbContext database, IAuditServic
             database.ChangeTracker.Clear();
             await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
             var removed = new Dictionary<string, int>();
+            // The table names are the constants above, never input.
+#pragma warning disable EF1002
             foreach (var (name, table) in Tables)
                 removed[name] = await database.Database.ExecuteSqlRawAsync($"delete from {table}", cancellationToken);
+#pragma warning restore EF1002
             // The history is cleared, then the reset itself is recorded as its first entry.
             await audit.AppendAsync(actor, "development.season-data-reset", "development", before: null, after: new { Removed = removed }, cancellationToken: cancellationToken);
             await transaction.CommitAsync(cancellationToken);

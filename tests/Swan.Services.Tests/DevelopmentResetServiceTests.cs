@@ -60,8 +60,10 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
             "communication.notifications", "communication.announcements", "platform.audit_entries", "schedule.teams", "identity.users", "identity.sessions", "identity.login_tokens",
         };
         var result = new Dictionary<string, int>();
+#pragma warning disable EF1002 // the names are the literals above
         foreach (var table in tables)
             result[table] = await database.Database.SqlQueryRaw<int>($"select count(*)::int as \"Value\" from {table}").SingleAsync();
+#pragma warning restore EF1002
         return result;
     }
 
