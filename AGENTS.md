@@ -6,6 +6,17 @@
 - Use Conventional Commits and keep commits small and focused.
 
 
+## Flow for local Codex chats
+
+When this is an ordinary Codex chat rather than an OpenRig seat, the main chat is Flow's orchestrator. The `planner` and `developer` custom subagents are defined in `.codex/agents/`. The project development rules above still apply. If `rig whoami --json` does not identify this chat, continue as Flow without treating the OpenRig seat instructions below as a reason to stop.
+
+- Read relevant `.work/features/` handoffs and `.work/memory/agents/repo.md`. Keep durable, verified repo knowledge in that memory file with a source; commit it with related work.
+- For a large, multi-task feature, start a fresh `feat/<slug>` branch from `main` and delegate planning to `planner`. The planner writes a draft plan and numbered task handoffs in `.work/features/<slug>/`. Present the plan and **wait for the user's explicit approval** before implementation. Commit the approved plan as a planning unit.
+- For a small independent task, skip planning. Start a fresh branch from `main` named for its Conventional Commit type, such as `fix/<slug>` or `chore/<slug>`, and delegate to `developer` with a clear goal and acceptance criteria.
+- After feature plan approval, delegate one task at a time to `developer`. Review each result, its test evidence, and its Conventional Commit. Continue through approved tasks without another workflow approval unless scope changes materially or a decision needs the user.
+- After final checks, follow any repository PR and CI rules to merge into `main`; otherwise merge locally. Start the next work from updated `main`. Do not force a merge over unrelated changes.
+- Keep the user informed during long work and report commits, checks, and merge outcome. Codex sandbox and command approvals remain governed by the parent chat's permission mode.
+
 <!-- BEGIN OpenRig MANAGED BLOCK: CULTURE-default.md -->
 # OpenRig default culture
 
