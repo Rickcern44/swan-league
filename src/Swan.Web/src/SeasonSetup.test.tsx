@@ -1704,7 +1704,7 @@ test("the review opens with a compact summary of the saved choices and the launc
   expect(summary.getByText(/6 active coaches/)).toBeVisible();
   expect(summary.getByText(/Missed team-pick fine \$5\.00/)).toBeVisible();
   expect(
-    within(form).getByRole("button", { name: "Open roster draft" }),
+    within(form).getByRole("button", { name: "Open draft" }),
   ).toBeEnabled();
   expect(putCalls()).toEqual([]);
 });
@@ -1775,7 +1775,7 @@ test("a team without a finish is shown as not set in its division line", async (
 test("the launch decision says what it does before anything is sent", async () => {
   const form = await openReview();
   const launch = within(form).getByRole("group", {
-    name: "Open the roster draft",
+    name: "Open the draft",
   });
 
   expect(launch).toHaveTextContent("cannot be undone");
@@ -1809,11 +1809,9 @@ test("blockers are listed first with a Fix link to their step and opening the dr
     within(form).getByText(/30 of 32 teams have a division finish\./),
   ).toBeVisible();
   expect(
-    within(form).getByRole("button", { name: "Open roster draft" }),
+    within(form).getByRole("button", { name: "Open draft" }),
   ).toBeDisabled();
-  expect(
-    within(form).getByText(/Fix these to open the roster draft/),
-  ).toBeVisible();
+  expect(within(form).getByText(/Fix these to open the draft/)).toBeVisible();
   fireEvent.click(
     within(form).getByRole("button", { name: "Fix: Teams and point values" }),
   );
@@ -1840,7 +1838,7 @@ test("a zero-coach warning is shown with a Fix link but does not stop opening th
     within(form).getByText(/No coaches have been added yet/),
   ).toBeVisible();
   expect(
-    within(form).getByRole("button", { name: "Open roster draft" }),
+    within(form).getByRole("button", { name: "Open draft" }),
   ).toBeEnabled();
   fireEvent.click(within(form).getByRole("button", { name: "Fix: Coaches" }));
   expect(await screen.findByRole("form", { name: "Coaches" })).toBeVisible();
@@ -1858,16 +1856,14 @@ test("confirming finishes setup once, then opens the roster draft with the Easte
     },
   };
   const form = await openReview();
-  fireEvent.change(within(form).getByLabelText(/Roster draft deadline/), {
+  fireEvent.change(within(form).getByLabelText(/Draft deadline/), {
     target: { value: "2026-10-20T18:00" },
   });
 
-  fireEvent.click(
-    within(form).getByRole("button", { name: "Open roster draft" }),
-  );
+  fireEvent.click(within(form).getByRole("button", { name: "Open draft" }));
 
   const dialog = await screen.findByRole("alertdialog", {
-    name: "Open the roster draft?",
+    name: "Open the draft?",
   });
   expect(dialog).toHaveTextContent("nine teams");
   expect(dialog).toHaveTextContent("Tue, Oct 20, 6:00 PM Eastern Time");
@@ -1892,35 +1888,31 @@ test("confirming finishes setup once, then opens the roster draft with the Easte
 
 test("Cancel in the confirmation sends nothing, keeps the deadline and returns focus to the button", async () => {
   const form = await openReview();
-  fireEvent.change(within(form).getByLabelText(/Roster draft deadline/), {
+  fireEvent.change(within(form).getByLabelText(/Draft deadline/), {
     target: { value: "2026-10-20T18:00" },
   });
-  fireEvent.click(
-    within(form).getByRole("button", { name: "Open roster draft" }),
-  );
+  fireEvent.click(within(form).getByRole("button", { name: "Open draft" }));
   const dialog = await screen.findByRole("alertdialog");
   expect(within(dialog).getByRole("heading", { level: 3 })).toHaveFocus();
 
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
   expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-  expect(within(form).getByLabelText(/Roster draft deadline/)).toHaveValue(
+  expect(within(form).getByLabelText(/Draft deadline/)).toHaveValue(
     "2026-10-20T18:00",
   );
   expect(
-    within(form).getByRole("button", { name: "Open roster draft" }),
+    within(form).getByRole("button", { name: "Open draft" }),
   ).toHaveFocus();
   expect(calls.some((call) => call.method === "POST")).toBe(false);
 });
 
 test("Escape closes the confirmation", async () => {
   const form = await openReview();
-  fireEvent.change(within(form).getByLabelText(/Roster draft deadline/), {
+  fireEvent.change(within(form).getByLabelText(/Draft deadline/), {
     target: { value: "2026-10-20T18:00" },
   });
-  fireEvent.click(
-    within(form).getByRole("button", { name: "Open roster draft" }),
-  );
+  fireEvent.click(within(form).getByRole("button", { name: "Open draft" }));
   const dialog = await screen.findByRole("alertdialog");
 
   fireEvent.keyDown(dialog, { key: "Escape" });
@@ -1939,7 +1931,7 @@ test("a finished setup is shown as finished after a reload and resumes on the re
   expect(await within(form).findByText(/Setup is finished/)).toBeVisible();
   expect(screen.getByText("Milestone 4 of 4: Ready to launch")).toBeVisible();
   expect(
-    within(form).getByRole("button", { name: "Open roster draft" }),
+    within(form).getByRole("button", { name: "Open draft" }),
   ).toBeEnabled();
 });
 
@@ -1962,7 +1954,7 @@ test("a setup that was finished but has since lost something says so and cannot 
     within(form).getByText(/finished earlier, but something has changed/i),
   ).toBeVisible();
   expect(
-    within(form).getByRole("button", { name: "Open roster draft" }),
+    within(form).getByRole("button", { name: "Open draft" }),
   ).toBeDisabled();
 });
 
@@ -1976,12 +1968,10 @@ test("a refusal from finishing stays in the confirmation and keeps the review", 
     },
   };
   const form = await openReview();
-  fireEvent.change(within(form).getByLabelText(/Roster draft deadline/), {
+  fireEvent.change(within(form).getByLabelText(/Draft deadline/), {
     target: { value: "2026-10-20T18:00" },
   });
-  fireEvent.click(
-    within(form).getByRole("button", { name: "Open roster draft" }),
-  );
+  fireEvent.click(within(form).getByRole("button", { name: "Open draft" }));
 
   fireEvent.click(
     within(await screen.findByRole("alertdialog")).getByRole("button", {
@@ -2006,7 +1996,7 @@ test("a failed load shows an error and leaves Back", async () => {
 
   expect(await within(form).findByRole("alert")).toHaveTextContent("Boom");
   expect(
-    within(form).queryByRole("button", { name: "Open roster draft" }),
+    within(form).queryByRole("button", { name: "Open draft" }),
   ).not.toBeInTheDocument();
   expect(within(form).getByRole("button", { name: "Back" })).toBeVisible();
 });
@@ -2188,12 +2178,10 @@ const ACTIVATE = "POST /api/admin/seasons/setup/activate";
 test("a deadline is required before the confirmation, and nothing is sent", async () => {
   const form = await openReview();
 
-  fireEvent.click(
-    within(form).getByRole("button", { name: "Open roster draft" }),
-  );
+  fireEvent.click(within(form).getByRole("button", { name: "Open draft" }));
 
   expect(await within(form).findByRole("alert")).toHaveTextContent(
-    "Choose the roster draft deadline",
+    "Choose the draft deadline",
   );
   expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   expect(calls.some((call) => call.method === "POST")).toBe(false);
@@ -2214,15 +2202,10 @@ test("an already finished setup skips the finish call and goes straight to openi
   };
   render(<App />);
   const form = await screen.findByRole("form", { name: "Ready to launch" });
-  fireEvent.change(
-    await within(form).findByLabelText(/Roster draft deadline/),
-    {
-      target: { value: "2026-10-20T18:00" },
-    },
-  );
-  fireEvent.click(
-    within(form).getByRole("button", { name: "Open roster draft" }),
-  );
+  fireEvent.change(await within(form).findByLabelText(/Draft deadline/), {
+    target: { value: "2026-10-20T18:00" },
+  });
+  fireEvent.click(within(form).getByRole("button", { name: "Open draft" }));
   fireEvent.click(
     within(await screen.findByRole("alertdialog")).getByRole("button", {
       name: "Confirm and open",
@@ -2232,7 +2215,7 @@ test("an already finished setup skips the finish call and goes straight to openi
   expect(await screen.findByText(/The season is live/)).toBeVisible();
   expect(screen.getByText(/open until Tue, Oct 20, 6:00 PM ET/)).toBeVisible();
   expect(calls.some((call) => call.url.endsWith("/review/finish"))).toBe(false);
-  fireEvent.click(screen.getByRole("link", { name: "Open the roster draft" }));
+  fireEvent.click(screen.getByRole("link", { name: "Open the draft" }));
   await vi.waitFor(() => expect(window.location.pathname).toBe("/draft"));
 });
 
@@ -2249,15 +2232,10 @@ test.each([
     replies[ACTIVATE] = { status, body: { code: "x", message } };
     render(<App />);
     const form = await screen.findByRole("form", { name: "Ready to launch" });
-    fireEvent.change(
-      await within(form).findByLabelText(/Roster draft deadline/),
-      {
-        target: { value: "2026-10-20T18:00" },
-      },
-    );
-    fireEvent.click(
-      within(form).getByRole("button", { name: "Open roster draft" }),
-    );
+    fireEvent.change(await within(form).findByLabelText(/Draft deadline/), {
+      target: { value: "2026-10-20T18:00" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Open draft" }));
 
     fireEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", {
@@ -2271,7 +2249,7 @@ test.each([
     expect(screen.queryByText(/The season is live/)).not.toBeInTheDocument();
     // The commissioner can still cancel and correct the deadline.
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(within(form).getByLabelText(/Roster draft deadline/)).toHaveValue(
+    expect(within(form).getByLabelText(/Draft deadline/)).toHaveValue(
       "2026-10-20T18:00",
     );
   },
@@ -2327,38 +2305,34 @@ test("starting a season updates what a commissioner who is only a coach can reac
   };
   render(<App />);
   const start = await screen.findByRole("group", {
-    name: "Open the roster draft",
+    name: "Open the draft",
   });
   expect(
     within(screen.getByRole("navigation", { name: "Primary" })).queryByRole(
       "link",
-      { name: "Roster draft" },
+      { name: "Draft" },
     ),
   ).not.toBeInTheDocument();
 
-  fireEvent.change(within(start).getByLabelText(/Roster draft deadline/), {
+  fireEvent.change(within(start).getByLabelText(/Draft deadline/), {
     target: { value: "2026-10-20T18:00" },
   });
-  fireEvent.click(
-    within(start).getByRole("button", { name: "Open roster draft" }),
-  );
+  fireEvent.click(within(start).getByRole("button", { name: "Open draft" }));
   fireEvent.click(
     within(await screen.findByRole("alertdialog")).getByRole("button", {
       name: "Confirm and open",
     }),
   );
-  fireEvent.click(
-    await screen.findByRole("link", { name: "Open the roster draft" }),
-  );
+  fireEvent.click(await screen.findByRole("link", { name: "Open the draft" }));
 
   expect(
     await screen.findByText(/No draft deadline was set for this season/),
   ).toBeVisible();
   expect(
-    screen.getByRole("heading", { level: 1, name: "Roster draft" }),
+    screen.getByRole("heading", { level: 1, name: "Draft" }),
   ).toBeVisible();
   const nav = within(screen.getByRole("navigation", { name: "Primary" }));
-  expect(nav.getByRole("link", { name: "Roster draft" })).toHaveAttribute(
+  expect(nav.getByRole("link", { name: "Draft" })).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -2488,7 +2462,7 @@ test("a failed reset says why and leaves the season in place", async () => {
 
 test("Enter in the deadline field asks for the confirmation without sending anything", async () => {
   const form = await openReview();
-  const input = within(form).getByLabelText(/Roster draft deadline/);
+  const input = within(form).getByLabelText(/Draft deadline/);
   fireEvent.change(input, { target: { value: "2026-10-20T18:00" } });
 
   fireEvent.keyDown(input, { key: "Enter" });
@@ -2510,15 +2484,10 @@ test("after a refused launch focus returns to the confirmation, so Escape still 
   };
   render(<App />);
   const form = await screen.findByRole("form", { name: "Ready to launch" });
-  fireEvent.change(
-    await within(form).findByLabelText(/Roster draft deadline/),
-    {
-      target: { value: "2026-10-20T18:00" },
-    },
-  );
-  fireEvent.click(
-    within(form).getByRole("button", { name: "Open roster draft" }),
-  );
+  fireEvent.change(await within(form).findByLabelText(/Draft deadline/), {
+    target: { value: "2026-10-20T18:00" },
+  });
+  fireEvent.click(within(form).getByRole("button", { name: "Open draft" }));
   fireEvent.click(
     within(await screen.findByRole("alertdialog")).getByRole("button", {
       name: "Confirm and open",

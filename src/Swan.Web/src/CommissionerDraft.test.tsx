@@ -109,8 +109,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const ready = () =>
-  screen.findByRole("heading", { level: 1, name: "Roster draft" });
+const ready = () => screen.findByRole("heading", { level: 1, name: "Draft" });
 const rows = () =>
   within(screen.getByRole("region", { name: "Coaches" })).getAllByRole(
     "listitem",
@@ -390,7 +389,7 @@ test("the admin navigation links to the roster draft and marks it current", asyn
   open();
   await ready();
 
-  expect(screen.getByRole("link", { name: "Roster draft" })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: "Draft" })).toHaveAttribute(
     "aria-current",
     "page",
   );

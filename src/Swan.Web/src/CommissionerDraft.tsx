@@ -87,17 +87,17 @@ export default function CommissionerDraft() {
   if (loaded.status === "loading")
     return (
       <section aria-busy="true" aria-labelledby="draft-title">
-        <h1 id="draft-title">Roster draft</h1>
-        <p role="status">Loading the roster draft…</p>
+        <h1 id="draft-title">Draft</h1>
+        <p role="status">Loading the draft…</p>
       </section>
     );
 
   if (loaded.status === "failed")
     return (
       <section aria-labelledby="draft-title">
-        <h1 id="draft-title">Roster draft</h1>
+        <h1 id="draft-title">Draft</h1>
         <div role="alert" className="notice problem">
-          <strong>Could not load the roster draft.</strong> {loaded.error}
+          <strong>Could not load the draft.</strong> {loaded.error}
         </div>
         <button
           type="button"
@@ -114,7 +114,7 @@ export default function CommissionerDraft() {
   if (loaded.status === "forbidden")
     return (
       <section aria-labelledby="draft-title">
-        <h1 id="draft-title">Roster draft</h1>
+        <h1 id="draft-title">Draft</h1>
         <div className="band">
           <h2>Only the commissioner can manage rosters</h2>
           <p>
@@ -128,13 +128,10 @@ export default function CommissionerDraft() {
   if (loaded.status === "none")
     return (
       <section aria-labelledby="draft-title">
-        <h1 id="draft-title">Roster draft</h1>
+        <h1 id="draft-title">Draft</h1>
         <div className="band">
           <h2>No season is live yet</h2>
-          <p>
-            The roster draft starts when the season is started from Season
-            setup.
-          </p>
+          <p>The draft starts when the season is started from Season setup.</p>
           <button type="button" onClick={() => goTo("/setup")}>
             Go to Season setup
           </button>
@@ -153,7 +150,7 @@ export default function CommissionerDraft() {
   return (
     <section aria-labelledby="draft-title">
       <p className="eyebrow">{draft.seasonName}</p>
-      <h1 id="draft-title">Roster draft</h1>
+      <h1 id="draft-title">Draft</h1>
       <p className="lede">
         {draft.deadline
           ? draft.draftOpen

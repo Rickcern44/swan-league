@@ -14,7 +14,7 @@ function destinations(
     { label: "Week", path: "", soon: true },
     { label: "Standings", path: "", soon: true },
     ...(role === "Admin" ? [] : [{ label: "Roster", path: "/roster" }]),
-    ...(canDraft ? [{ label: "Roster draft", path: "/draft" }] : []),
+    ...(canDraft ? [{ label: "Draft", path: "/draft" }] : []),
     ...(canSetup ? [{ label: "Season setup", path: "/setup" }] : []),
   ];
 }

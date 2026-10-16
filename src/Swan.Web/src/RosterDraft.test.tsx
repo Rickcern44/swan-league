@@ -309,7 +309,7 @@ test("after the deadline a complete roster is shown as final for the coach", asy
   );
 
   expect(
-    await screen.findByRole("heading", { name: "The roster draft is closed" }),
+    await screen.findByRole("heading", { name: "The draft is closed" }),
   ).toBeVisible();
   expect(
     screen.getByText(/Only the commissioner can change them now/),
@@ -359,9 +359,7 @@ test("a coach reaches the roster from the navigation and never calls an admin or
     "aria-current",
     "page",
   );
-  expect(
-    screen.queryByRole("link", { name: "Roster draft" }),
-  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Draft" })).not.toBeInTheDocument();
   expect(
     calls.some(
       (c) =>
