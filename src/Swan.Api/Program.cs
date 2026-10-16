@@ -39,6 +39,7 @@ app.MapCoachPickEndpoints();
 app.MapRosterDraftEndpoints();
 app.MapCommissionerRosterEndpoints();
 app.MapSeasonEndpoints();
+if (app.Environment.IsDevelopment()) app.MapDevelopmentEndpoints();
 
 app.Run();
 

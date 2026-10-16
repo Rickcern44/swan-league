@@ -65,12 +65,12 @@ public static class IdentityEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> GetCurrentUser(ClaimsPrincipal principal, SessionService sessions, CancellationToken cancellationToken)
+    private static async Task<IResult> GetCurrentUser(ClaimsPrincipal principal, SessionService sessions, IHostEnvironment environment, CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var id)) return Results.Unauthorized();
         var role = principal.FindFirstValue(ClaimTypes.Role);
         var access = await sessions.AccessAsync(new UserId(id), role == nameof(UserRole.Admin), cancellationToken);
-        return Results.Ok(new { id, Name = principal.FindFirstValue(ClaimTypes.Name), Role = role, SetupAccess = access.Setup, CommissionsLiveSeason = access.CommissionsLiveSeason });
+        return Results.Ok(new { id, Name = principal.FindFirstValue(ClaimTypes.Name), Role = role, SetupAccess = access.Setup, CommissionsLiveSeason = access.CommissionsLiveSeason, DevelopmentTools = environment.IsDevelopment() && role == nameof(UserRole.Admin) });
     }
 
     private sealed record RequestSignInLinkRequest(string Email);

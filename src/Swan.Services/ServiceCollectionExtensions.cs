@@ -28,6 +28,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddScoped<MagicLinkService>();
         builder.Services.AddScoped<SessionService>();
         builder.Services.AddScoped<ISetupAccessService, SetupAccessService>();
+        builder.Services.AddScoped<Swan.Services.Development.DevelopmentResetService>();
         builder.Services.AddScoped<IAuditService, AuditService>();
         builder.Services.AddScoped<IWeekAdministrationService, WeekAdministrationService>();
         builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
