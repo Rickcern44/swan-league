@@ -1,6 +1,5 @@
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
-.rig/
 
 # Build, test, and dependency output
 bin/
