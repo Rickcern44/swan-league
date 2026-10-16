@@ -81,7 +81,7 @@ button {
   padding: 1rem;
 }
 
-.card h3 {
+.card h2 {
   margin: 0;
 }
 
@@ -124,7 +124,7 @@ button {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .card h3,
+  .card h2,
   .card .actions,
   .card .total,
   .card label.check {
@@ -1077,4 +1077,112 @@ li.game.coach-incomplete {
 
 li.game.coach-locked .status strong {
   color: var(--ink);
+}
+
+.card h2 {
+  font-size: 1.15rem;
+}
+
+.milestones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.5rem;
+}
+
+.milestones li {
+  border-top: 0.25rem solid #d9e2ec;
+  padding-top: 0.4rem;
+}
+
+.milestones li[aria-current="step"] {
+  border-top-color: var(--brass, #b8862b);
+}
+
+.milestones button.link {
+  min-height: 2.75rem;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.milestones li > span {
+  display: inline-block;
+  padding: 0.6rem 0;
+}
+
+.resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-left: 0.25rem solid var(--brass, #b8862b);
+  padding: 0.5rem 0.75rem;
+  background: #fff;
+}
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.summary-cards li {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  border: 1px solid #d9e2ec;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.summary-cards button {
+  justify-self: start;
+}
+
+details.schedule-detail,
+details.dev-tools {
+  display: grid;
+  gap: 0.5rem;
+}
+
+details summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.launch {
+  border-color: var(--brass, #b8862b);
+}
+
+.confirm {
+  display: grid;
+  gap: 0.5rem;
+  border: 2px solid var(--ink, #12355b);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background: #fff;
+}
+
+.confirm h3 {
+  margin: 0;
+}
+
+.confirm p {
+  margin: 0;
+}
+
+.dev-tools {
+  border-top: 1px dashed #9fb3c8;
+  padding-top: 0.5rem;
 }

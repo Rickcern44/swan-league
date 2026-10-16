@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import CommissionerDraft from "./CommissionerDraft";
-import { RefreshAccess } from "./AccessContext";
+import { DevelopmentTools, RefreshAccess } from "./AccessContext";
 import PickDesk from "./PickDesk";
 import RosterDraft from "./RosterDraft";
 import Dashboard from "./Dashboard";
@@ -15,6 +15,7 @@ type CurrentUser = {
   role: "Admin" | "Coach";
   setupAccess?: "manage" | "create" | "none";
   commissionsLiveSeason?: boolean;
+  developmentTools?: boolean;
 };
 
 export default function App() {
@@ -95,40 +96,42 @@ export default function App() {
     const workspaceWeek = /^\/weeks\/([0-9a-f-]{36})\/?$/i.exec(path)?.[1];
     return (
       <RefreshAccess.Provider value={refreshAccess}>
-        <Shell
-          name={user.name}
-          role={user.role}
-          canSetup={canSetup}
-          canDraft={canDraft}
-          path={path}
-          onNavigate={navigate}
-          onSignOut={() => void signOut()}
-        >
-          {path === "/draft" && canDraft ? (
-            <CommissionerDraft />
-          ) : inSetup && canSetup ? (
-            <SeasonSetup
-              createOnly={!isAdmin && user.setupAccess === "create"}
-            />
-          ) : !isAdmin ? (
-            path === "/roster" ? (
-              <RosterDraft />
+        <DevelopmentTools.Provider value={user.developmentTools === true}>
+          <Shell
+            name={user.name}
+            role={user.role}
+            canSetup={canSetup}
+            canDraft={canDraft}
+            path={path}
+            onNavigate={navigate}
+            onSignOut={() => void signOut()}
+          >
+            {path === "/draft" && canDraft ? (
+              <CommissionerDraft />
+            ) : inSetup && canSetup ? (
+              <SeasonSetup
+                createOnly={!isAdmin && user.setupAccess === "create"}
+              />
+            ) : !isAdmin ? (
+              path === "/roster" ? (
+                <RosterDraft />
+              ) : (
+                <PickDesk />
+              )
+            ) : workspaceWeek ? (
+              <WeekWorkspace
+                key={workspaceWeek}
+                weekId={workspaceWeek}
+                onBack={() => navigate("/")}
+              />
             ) : (
-              <PickDesk />
-            )
-          ) : workspaceWeek ? (
-            <WeekWorkspace
-              key={workspaceWeek}
-              weekId={workspaceWeek}
-              onBack={() => navigate("/")}
-            />
-          ) : (
-            <Dashboard
-              onSeasonSetup={() => navigate("/setup")}
-              onOpenWeek={(id) => navigate(`/weeks/${id}`)}
-            />
-          )}
-        </Shell>
+              <Dashboard
+                onSeasonSetup={() => navigate("/setup")}
+                onOpenWeek={(id) => navigate(`/weeks/${id}`)}
+              />
+            )}
+          </Shell>
+        </DevelopmentTools.Provider>
       </RefreshAccess.Provider>
     );
   }

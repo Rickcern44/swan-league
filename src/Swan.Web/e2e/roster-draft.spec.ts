@@ -120,28 +120,28 @@ test("a commissioner starts a season, coaches draft and lock nine teams, the dea
     ).toBe(true);
 
     await commish.goto("/setup");
-    const review = commish.getByRole("form", { name: "Review and create" });
+    const review = commish.getByRole("form", { name: "Ready to launch" });
     await expect(review).toBeVisible();
-    // Starting needs a finished Setup: the control is not there until Finish setup.
-    await expect(
-      commish.getByRole("group", { name: "Start the season" }),
-    ).toHaveCount(0);
-    await review.getByRole("button", { name: "Finish setup" }).click();
-    const start = commish.getByRole("group", { name: "Start the season" });
-    await expect(start).toBeVisible();
-
-    // Activation needs a deadline, and rejects one in the past.
-    await start.getByRole("button", { name: "Start season" }).click();
-    await expect(start.getByRole("alert")).toContainText(
+    // Opening the draft needs a deadline, and rejects one in the past; asking only shows the confirmation.
+    const launch = review.getByRole("group", { name: "Open the roster draft" });
+    await launch.getByRole("button", { name: "Open roster draft" }).click();
+    await expect(launch.getByRole("alert")).toContainText(
       "Choose the roster draft deadline",
     );
-    await start.getByLabel(/Roster draft deadline/).fill(easternInput(-1));
-    await start.getByRole("button", { name: "Start season" }).click();
-    await expect(start.getByRole("alert")).toContainText(
+    await launch.getByLabel(/Roster draft deadline/).fill(easternInput(-1));
+    await launch.getByRole("button", { name: "Open roster draft" }).click();
+    const confirm = commish.getByRole("alertdialog", {
+      name: "Open the roster draft?",
+    });
+    await expect(confirm).toContainText("only you, the commissioner");
+    await confirm.getByRole("button", { name: "Confirm and open" }).click();
+    await expect(confirm.getByRole("alert")).toContainText(
       "must be in the future",
     );
-    await start.getByLabel(/Roster draft deadline/).fill(easternInput(3));
-    await start.getByRole("button", { name: "Start season" }).click();
+    await confirm.getByRole("button", { name: "Cancel" }).click();
+    await launch.getByLabel(/Roster draft deadline/).fill(easternInput(3));
+    await launch.getByRole("button", { name: "Open roster draft" }).click();
+    await confirm.getByRole("button", { name: "Confirm and open" }).click();
     await expect(
       commish.getByText(/The season is live. The roster draft is open until/),
     ).toBeVisible();

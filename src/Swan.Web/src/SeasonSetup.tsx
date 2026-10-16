@@ -1,5 +1,5 @@
 import { FormEvent, useContext, useEffect, useRef, useState } from "react";
-import { RefreshAccess } from "./AccessContext";
+import { DevelopmentTools, RefreshAccess } from "./AccessContext";
 import { formatDeadline, goTo } from "./draftTime";
 
 type Money = { amount: number; currency: string };
@@ -99,6 +99,9 @@ export default function SeasonSetup({
   }, [createOnly]);
 
   const apply = (season: Season) => setLoaded({ status: "ready", season });
+  const refreshAccess = useContext(RefreshAccess);
+  const developmentTools = useContext(DevelopmentTools);
+  const [resetDone, setResetDone] = useState(false);
 
   return (
     <section className="setup" aria-labelledby="setup-title">
@@ -107,9 +110,24 @@ export default function SeasonSetup({
       {loaded.status === "failed" && (
         <p role="alert">Could not load the Setup season: {loaded.error}</p>
       )}
+      {resetDone && loaded.status === "none" && (
+        <p role="status">
+          Local season data was reset. Start a fresh season below.
+        </p>
+      )}
       {loaded.status === "none" && <StartCard onSeason={apply} />}
       {loaded.status === "ready" && (
         <SetupCards season={loaded.season} onSeason={apply} />
+      )}
+      {developmentTools && loaded.status !== "loading" && (
+        <ResetTools
+          onReset={() => {
+            window.history.replaceState({}, "", "/setup");
+            setResetDone(true);
+            setLoaded({ status: "none" });
+            void refreshAccess();
+          }}
+        />
       )}
     </section>
   );
@@ -144,7 +162,7 @@ function Card({
         onSubmit();
       }}
     >
-      <h3>{title}</h3>
+      <h2>{title}</h2>
       {children}
       <div className="actions">
         {notice?.kind === "error" && <span role="alert">{notice.text}</span>}
@@ -227,6 +245,77 @@ function StartCard({ onSeason }: { onSeason: (season: Season) => void }) {
   );
 }
 
+// Development builds only (the server maps the route and reports developmentTools only there): empties the local season data so setup can start over. Teams and development accounts stay, and nobody is signed out.
+function ResetTools({ onReset }: { onReset: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const heading = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (confirming) heading.current?.focus();
+  }, [confirming]);
+
+  async function reset() {
+    setBusy(true);
+    setProblem("");
+    const result = await send(
+      "POST",
+      "/api/admin/development/reset-season-data",
+    );
+    setBusy(false);
+    if (!("value" in result)) return setProblem(result.error);
+    onReset();
+  }
+
+  return (
+    <details className="dev-tools">
+      <summary>Development tools</summary>
+      <p className="hint">
+        Removes local seasons, rosters, schedules, picks, scores, and audit
+        history. Teams and development accounts remain. This cannot be undone.
+      </p>
+      {!confirming && (
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => setConfirming(true)}
+        >
+          Reset local season data
+        </button>
+      )}
+      {confirming && (
+        <div
+          role="alertdialog"
+          aria-labelledby="reset-confirm-title"
+          className="confirm"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setConfirming(false);
+          }}
+        >
+          <h3 id="reset-confirm-title" tabIndex={-1} ref={heading}>
+            Reset all local season data?
+          </h3>
+          {problem && <span role="alert">{problem}</span>}
+          <div className="actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => setConfirming(false)}
+            >
+              Cancel
+            </button>
+            <button type="button" disabled={busy} onClick={() => void reset()}>
+              Reset season data
+            </button>
+          </div>
+        </div>
+      )}
+    </details>
+  );
+}
+
 const wizardSteps = [
   "Basics",
   "Money",
@@ -237,7 +326,7 @@ const wizardSteps = [
   "Fines and payouts",
   "League settings",
   "Coaches",
-  "Review and create",
+  "Ready to launch",
 ] as const;
 const lastStep = wizardSteps.length - 1;
 const stepSlugs = [
@@ -252,7 +341,15 @@ const stepSlugs = [
   "coaches",
   "review",
 ];
-const upcoming: string[] = [];
+// Four milestones group the ten saved sub-steps. The server's saved step only ever moves forward, so each milestone is a contiguous run of sub-steps.
+const milestones = [
+  { name: "League foundation", first: 0, last: 2 },
+  { name: "Schedule and scoring", first: 3, last: 5 },
+  { name: "People and payouts", first: 6, last: 8 },
+  { name: "Ready to launch", first: 9, last: 9 },
+] as const;
+const milestoneOf = (step: number) =>
+  milestones.findIndex((m) => step >= m.first && step <= m.last);
 
 function SetupCards({
   season,
@@ -422,25 +519,72 @@ function SetupCards({
   );
   const back = view > 0 ? () => goTo(view - 1) : undefined;
 
+  const resumeStep = Math.min(season.setupStep, lastStep);
+  const finished = season.setupStep > lastStep;
+  const current = milestoneOf(view);
+  const part = view - milestones[current].first + 1;
+  const parts = milestones[current].last - milestones[current].first + 1;
+  const openMilestone = (index: number) => {
+    const m = milestones[index];
+    goTo(
+      season.setupStep > m.last
+        ? m.first
+        : Math.max(m.first, Math.min(resumeStep, m.last)),
+    );
+  };
+
   return (
     <>
       <p className="lead">Set up {season.name}</p>
       <p>
-        <span>{`Step ${view + 1} of ${wizardSteps.length}`}</span>
+        <span>{`Milestone ${current + 1} of ${milestones.length}: ${milestones[current].name}`}</span>
+        {parts > 1 && (
+          <>
+            {" · "}
+            <span>{`Part ${part} of ${parts}: ${wizardSteps[view]}`}</span>
+          </>
+        )}
         {" · Your progress is saved with this season."}
       </p>
-      <ol className="progress" aria-label="Setup progress">
-        {wizardSteps.map((title, index) => (
-          <li key={title} aria-current={index === view ? "step" : undefined}>
-            {index < Math.min(season.setupStep, wizardSteps.length)
-              ? "✓ "
-              : index === view
-                ? "● "
-                : "○ "}
-            {title}
-          </li>
-        ))}
-      </ol>
+      <nav aria-label="Setup milestones">
+        <ol className="progress milestones">
+          {milestones.map((m, index) => {
+            const done = season.setupStep > m.last;
+            const reached = season.setupStep >= m.first;
+            const mark = done ? "✓ " : index === current ? "● " : "○ ";
+            return (
+              <li
+                key={m.name}
+                aria-current={index === current ? "step" : undefined}
+              >
+                {reached ? (
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => openMilestone(index)}
+                  >
+                    {mark}
+                    {m.name}
+                  </button>
+                ) : (
+                  <span>
+                    {mark}
+                    {m.name}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+      {!finished && milestoneOf(resumeStep) !== current && (
+        <p className="resume">
+          <span>{`Next up: ${wizardSteps[resumeStep]}`}</span>
+          <button type="button" onClick={() => goTo(resumeStep)}>
+            Continue setup
+          </button>
+        </p>
+      )}
       {view === 0 && (
         <Card
           title="Basics"
@@ -642,7 +786,6 @@ function SetupCards({
           onFix={goTo}
         />
       )}
-      {upcoming.length > 0 && <p>Coming next: {upcoming.join(" → ")}</p>}
     </>
   );
 }
@@ -792,18 +935,28 @@ function ScheduleStep({
           {`Schedule imported: ${saved.gameCount} games in ${weekCount(saved)} weeks.`}
         </span>
       )}
-      {shown?.weeks.map((week) => (
-        <fieldset key={week.week} className="division">
-          <legend>{`Week ${week.week}`}</legend>
-          <ul className="games">
-            {week.games.map((game) => (
-              <li key={game.providerGameId}>
-                {`${game.awayTeam} at ${game.homeTeam} · ${easternKickoff.format(new Date(game.kickoff))}`}
-              </li>
-            ))}
-          </ul>
-        </fieldset>
-      ))}
+      {preview && !saved?.imported && (
+        <span role="status" className="hint">
+          {`Preview: ${preview.gameCount} games in ${weekCount(preview)} weeks. Nothing is saved until you import.`}
+        </span>
+      )}
+      {shown && shown.weeks.length > 0 && (
+        <details className="schedule-detail">
+          <summary>{`Review games by week (${shown.gameCount})`}</summary>
+          {shown.weeks.map((week) => (
+            <fieldset key={week.week} className="division">
+              <legend>{`Week ${week.week}`}</legend>
+              <ul className="games">
+                {week.games.map((game) => (
+                  <li key={game.providerGameId}>
+                    {`${game.awayTeam} at ${game.homeTeam} · ${easternKickoff.format(new Date(game.kickoff))}`}
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+          ))}
+        </details>
+      )}
       {preview && (
         <button
           type="button"
@@ -1735,76 +1888,19 @@ const clock = (value: string | null) => {
   return `${hours % 12 === 0 ? 12 : hours % 12}:${String(minutes).padStart(2, "0")} ${hours < 12 ? "AM" : "PM"}`;
 };
 
-// Everything here is read from saved data. Finishing setup only records that the wizard is complete.
-// The commissioner's next step after Setup is finished: set the roster draft deadline (Eastern Time) and start the season. The server checks the caller really is its commissioner.
-function StartSeason() {
-  const refreshAccess = useContext(RefreshAccess);
-  const [deadline, setDeadline] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState("");
-  const [started, setStarted] = useState<string>();
+// Shown as the Eastern wall-clock time the commissioner typed; the string is read as UTC only so the browser's own zone never shifts it.
+const deadlineText = (value: string) =>
+  `${new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(`${value}:00Z`))} Eastern Time`;
 
-  async function start() {
-    if (!deadline) {
-      setProblem("Choose the roster draft deadline first.");
-      return;
-    }
-    setBusy(true);
-    setProblem("");
-    const result = await send<{ rosterDraftDeadline: string }>(
-      "POST",
-      "/api/admin/seasons/setup/activate",
-      { rosterDraftDeadlineEastern: deadline },
-    );
-    setBusy(false);
-    if (!("value" in result)) return setProblem(result.error);
-    setStarted(formatDeadline(result.value.rosterDraftDeadline));
-  }
-
-  if (started)
-    return (
-      <div role="status" className="done">
-        <span>{`The season is live. The roster draft is open until ${started}.`}</span>{" "}
-        <a
-          href="/draft"
-          onClick={(event) => {
-            event.preventDefault();
-            // Starting ends this person's Setup access and opens the roster draft, so read what they can reach now, then go there.
-            void refreshAccess().then(() => goTo("/draft"));
-          }}
-        >
-          Open the roster draft
-        </a>
-      </div>
-    );
-
-  return (
-    <fieldset className="division" role="group" aria-label="Start the season">
-      <legend>Start the season</legend>
-      <span className="hint">
-        Starting the season cannot be undone. It opens the roster draft: coaches
-        choose and lock their nine teams until the deadline, and after that only
-        you, the commissioner, can correct a roster. Times are Eastern Time.
-      </span>
-      <label>
-        Roster draft deadline (Eastern Time)
-        <input
-          type="datetime-local"
-          value={deadline}
-          onChange={(event) => {
-            setDeadline(event.target.value);
-            setProblem("");
-          }}
-        />
-      </label>
-      {problem && <span role="alert">{problem}</span>}
-      <button type="button" disabled={busy} onClick={() => void start()}>
-        Start season
-      </button>
-    </fieldset>
-  );
-}
-
+// Everything here is read from saved data. Opening the roster draft finishes setup if it is not finished yet, then starts the season.
+// The commissioner's final decision: the roster draft deadline (Eastern Time), then a confirmation. The server checks the caller really is its commissioner.
 function ReviewStep({
   season,
   onSeason,
@@ -1816,8 +1912,16 @@ function ReviewStep({
   onBack?: () => void;
   onFix: (page: number) => void;
 }) {
+  const refreshAccess = useContext(RefreshAccess);
   const [review, setReview] = useState<Review>();
   const [notice, setNotice] = useState<Notice>();
+  const [deadline, setDeadline] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const [started, setStarted] = useState<string>();
+  const confirmHeading = useRef<HTMLHeadingElement>(null);
+  const openButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     void send<Review>("GET", "/api/admin/seasons/setup/review").then(
@@ -1828,16 +1932,53 @@ function ReviewStep({
     );
   }, []);
 
-  async function finish() {
-    const finished = await send<Review>(
+  const cancelled = useRef(false);
+  useEffect(() => {
+    if (confirming) confirmHeading.current?.focus();
+    // The button is remounted once the confirmation closes, so focus goes back after that render.
+    else if (cancelled.current) {
+      cancelled.current = false;
+      openButton.current?.focus();
+    }
+  }, [confirming]);
+
+  function cancel() {
+    cancelled.current = true;
+    setConfirming(false);
+    setProblem("");
+  }
+
+  function ask() {
+    if (!deadline) return setProblem("Choose the roster draft deadline first.");
+    setProblem("");
+    setConfirming(true);
+  }
+
+  async function launch() {
+    if (!review) return;
+    setBusy(true);
+    setProblem("");
+    if (!review.completed) {
+      const finished = await send<Review>(
+        "POST",
+        "/api/admin/seasons/setup/review/finish",
+      );
+      if (!("value" in finished)) {
+        setBusy(false);
+        return setProblem(finished.error);
+      }
+      setReview(finished.value);
+      onSeason({ ...season, setupStep: 10 });
+    }
+    const result = await send<{ rosterDraftDeadline: string }>(
       "POST",
-      "/api/admin/seasons/setup/review/finish",
+      "/api/admin/seasons/setup/activate",
+      { rosterDraftDeadlineEastern: deadline },
     );
-    if (!("value" in finished))
-      return setNotice({ kind: "error", text: finished.error });
-    setReview(finished.value);
-    setNotice(undefined);
-    onSeason({ ...season, setupStep: 10 });
+    setBusy(false);
+    if (!("value" in result)) return setProblem(result.error);
+    setConfirming(false);
+    setStarted(formatDeadline(result.value.rosterDraftDeadline));
   }
 
   const issue = (entry: ReviewIssue, kind: "blocker" | "warning") => {
@@ -1860,34 +2001,50 @@ function ReviewStep({
   };
 
   const blocked = review ? review.blockers.length > 0 : true;
-  const done = review?.completed && !blocked;
+  const edit = (label: string, page: number) => (
+    <button
+      type="button"
+      className="secondary"
+      aria-label={`Edit ${label}`}
+      onClick={() => onFix(page)}
+    >
+      Edit
+    </button>
+  );
   return (
     <Card
-      title="Review and create"
+      title="Ready to launch"
       wide
       notice={notice}
-      action={review && !done ? "Finish setup" : undefined}
-      actionDisabled={blocked}
       onBack={onBack}
-      onSubmit={() => void finish()}
+      onSubmit={() => (confirming || blocked ? undefined : ask())}
     >
       {!review && !notice && <span>Loading the review…</span>}
-      {review && (
+      {review && started && (
+        <div role="status" className="done">
+          <span>{`The season is live. The roster draft is open until ${started}.`}</span>{" "}
+          <a
+            href="/draft"
+            onClick={(event) => {
+              event.preventDefault();
+              // Starting ends this person's Setup access and opens the roster draft, so read what they can reach now, then go there.
+              void refreshAccess().then(() => goTo("/draft"));
+            }}
+          >
+            Open the roster draft
+          </a>
+        </div>
+      )}
+      {review && !started && (
         <>
-          <span className="hint">
-            Finishing setup only marks this draft as complete. It does not
-            activate the season, send invitations or emails, open the roster
-            window, create rosters or move any money.
-          </span>
-          {done && (
-            <span role="status" className="done">
-              {`Setup is finished. ${review.basics.name} is still a draft in Setup: nothing has been activated, sent or created.`}
-            </span>
-          )}
-          {done && <StartSeason />}
           {review.completed && blocked && (
             <span className="hint">
               Setup was finished earlier, but something has changed since.
+            </span>
+          )}
+          {review.completed && !blocked && (
+            <span role="status" className="done">
+              Setup is finished. Choose the roster draft deadline to open it.
             </span>
           )}
           {review.blockers.length > 0 && (
@@ -1896,6 +2053,7 @@ function ReviewStep({
               <ul className="issues">
                 {review.blockers.map((entry) => issue(entry, "blocker"))}
               </ul>
+              <span className="hint">Fix these to open the roster draft.</span>
             </fieldset>
           )}
           {review.warnings.length > 0 && (
@@ -1906,73 +2064,163 @@ function ReviewStep({
               </ul>
             </fieldset>
           )}
-          {blocked && (
+          <ul className="summary-cards" aria-label="Setup summary">
+            <li>
+              <strong>League foundation</strong>
+              <span>{`${review.basics.name} (${review.basics.year})${review.basics.isSimulation ? " · simulation" : ""}`}</span>
+              <span>{`Buy-in ${dollars(Math.round(review.money.buyIn * 100))} · picks lock Sundays at ${clock(review.teamPickDeadlineEastern)} Eastern`}</span>
+              {edit("League foundation", 0)}
+            </li>
+            <li>
+              <strong>Schedule and scoring</strong>
+              <span>{`${review.schedule.weeks} weeks, ${review.schedule.games} games imported`}</span>
+              <span>{`${review.teams.entered} of ${review.teams.total} teams have a division finish · double-dog weeks: ${review.doubleDogWeeks.length > 0 ? review.doubleDogWeeks.join(", ") : "none chosen"}`}</span>
+              {edit("Schedule and scoring", 3)}
+            </li>
+            <li>
+              <strong>People and payouts</strong>
+              <span>{`${review.activeCoaches} active ${review.activeCoaches === 1 ? "coach" : "coaches"}`}</span>
+              <span>{`Missed team-pick fine ${review.payouts.missedPickFine === null ? "not set" : dollars(Math.round(review.payouts.missedPickFine * 100))}`}</span>
+              {edit("People and payouts", 6)}
+            </li>
+          </ul>
+          <details className="schedule-detail">
+            <summary>View all details</summary>
+            <fieldset className="division">
+              <legend>Basics</legend>
+              <span>{`${review.basics.name} (${review.basics.year})`}</span>
+              <span>{`Simulation season: ${review.basics.isSimulation ? "yes" : "no"}`}</span>
+            </fieldset>
+            <fieldset className="division">
+              <legend>Money</legend>
+              <span>{`Buy-in ${dollars(Math.round(review.money.buyIn * 100))}`}</span>
+              <span>
+                {review.money.pools
+                  .map(
+                    (pool) =>
+                      `${pool.name} ${dollars(Math.round(pool.stake * 100))}`,
+                  )
+                  .join(" · ")}
+              </span>
+              <span>{`Missed team-pick fine ${review.payouts.missedPickFine === null ? "not set" : dollars(Math.round(review.payouts.missedPickFine * 100))}`}</span>
+              <ul className="issues">
+                {review.payouts.pools.map((pool) => (
+                  <li key={pool.pool}>
+                    {pool.places.length === 0
+                      ? `${pool.pool}: not set`
+                      : `${pool.pool}: ${pool.places.map((place) => `${ordinal(place.position)} ${place.percent.toFixed(2)}%`).join(" · ")}`}
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+            <fieldset className="division">
+              <legend>Schedule and teams</legend>
+              <span>{`Team picks lock Sundays at ${clock(review.teamPickDeadlineEastern)} Eastern`}</span>
+              <span>{`${review.teams.entered} of ${review.teams.total} teams have a division finish`}</span>
+              <span>{`${review.schedule.weeks} weeks, ${review.schedule.games} games imported`}</span>
+              <span>{`Double-dog weeks: ${review.doubleDogWeeks.length > 0 ? review.doubleDogWeeks.join(", ") : "none chosen"}`}</span>
+            </fieldset>
+            <fieldset className="division">
+              <legend>Teams and point values</legend>
+              <ul className="issues" aria-label="Teams by division">
+                {[
+                  ...new Set(review.teams.teams.map((team) => team.division)),
+                ].map((division) => (
+                  <li key={division}>
+                    {`${division}: ${review.teams.teams
+                      .filter((team) => team.division === division)
+                      .sort(
+                        (a, b) =>
+                          (a.finishPosition ?? 99) - (b.finishPosition ?? 99) ||
+                          a.name.localeCompare(b.name),
+                      )
+                      .map((team) =>
+                        team.finishPosition === null
+                          ? `${team.name} not set`
+                          : `${ordinal(team.finishPosition)} ${team.name} (${team.pointValue} ${team.pointValue === 1 ? "pt" : "pts"})`,
+                      )
+                      .join(" · ")}`}
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+            <fieldset className="division">
+              <legend>League settings and coaches</legend>
+              <span>{`R17 ${review.leagueSettings.teamMayAlsoBeDog ? "on" : "off"} · R18 ${review.leagueSettings.pointColors.map((entry) => `${entry.points} ${entry.color}`).join(", ")} · R19 ${review.leagueSettings.recordHolder === "FirstOccurrence" ? "first occurrence" : "most occurrences"}`}</span>
+              <span>{`${review.activeCoaches} active ${review.activeCoaches === 1 ? "coach" : "coaches"}`}</span>
+            </fieldset>
+          </details>
+          <fieldset
+            className="division launch"
+            aria-label="Open the roster draft"
+          >
+            <legend>Open the roster draft</legend>
             <span className="hint">
-              Fix the blockers above to finish setup.
+              This is the last step. It starts the season and cannot be undone.
+              Times are Eastern Time.
             </span>
-          )}
-          <fieldset className="division">
-            <legend>Basics</legend>
-            <span>{`${review.basics.name} (${review.basics.year})`}</span>
-            <span>{`Simulation season: ${review.basics.isSimulation ? "yes" : "no"}`}</span>
-          </fieldset>
-          <fieldset className="division">
-            <legend>Money</legend>
-            <span>{`Buy-in ${dollars(Math.round(review.money.buyIn * 100))}`}</span>
-            <span>
-              {review.money.pools
-                .map(
-                  (pool) =>
-                    `${pool.name} ${dollars(Math.round(pool.stake * 100))}`,
-                )
-                .join(" · ")}
-            </span>
-            <span>{`Missed team-pick fine ${review.payouts.missedPickFine === null ? "not set" : dollars(Math.round(review.payouts.missedPickFine * 100))}`}</span>
-            <ul className="issues">
-              {review.payouts.pools.map((pool) => (
-                <li key={pool.pool}>
-                  {pool.places.length === 0
-                    ? `${pool.pool}: not set`
-                    : `${pool.pool}: ${pool.places.map((place) => `${ordinal(place.position)} ${place.percent.toFixed(2)}%`).join(" · ")}`}
-                </li>
-              ))}
-            </ul>
-          </fieldset>
-          <fieldset className="division">
-            <legend>Schedule and teams</legend>
-            <span>{`Team picks lock Sundays at ${clock(review.teamPickDeadlineEastern)} Eastern`}</span>
-            <span>{`${review.teams.entered} of ${review.teams.total} teams have a division finish`}</span>
-            <span>{`${review.schedule.weeks} weeks, ${review.schedule.games} games imported`}</span>
-            <span>{`Double-dog weeks: ${review.doubleDogWeeks.length > 0 ? review.doubleDogWeeks.join(", ") : "none chosen"}`}</span>
-          </fieldset>
-          <fieldset className="division">
-            <legend>Teams and point values</legend>
-            <ul className="issues" aria-label="Teams by division">
-              {[
-                ...new Set(review.teams.teams.map((team) => team.division)),
-              ].map((division) => (
-                <li key={division}>
-                  {`${division}: ${review.teams.teams
-                    .filter((team) => team.division === division)
-                    .sort(
-                      (a, b) =>
-                        (a.finishPosition ?? 99) - (b.finishPosition ?? 99) ||
-                        a.name.localeCompare(b.name),
-                    )
-                    .map((team) =>
-                      team.finishPosition === null
-                        ? `${team.name} not set`
-                        : `${ordinal(team.finishPosition)} ${team.name} (${team.pointValue} ${team.pointValue === 1 ? "pt" : "pts"})`,
-                    )
-                    .join(" · ")}`}
-                </li>
-              ))}
-            </ul>
-          </fieldset>
-          <fieldset className="division">
-            <legend>League settings and coaches</legend>
-            <span>{`R17 ${review.leagueSettings.teamMayAlsoBeDog ? "on" : "off"} · R18 ${review.leagueSettings.pointColors.map((entry) => `${entry.points} ${entry.color}`).join(", ")} · R19 ${review.leagueSettings.recordHolder === "FirstOccurrence" ? "first occurrence" : "most occurrences"}`}</span>
-            <span>{`${review.activeCoaches} active ${review.activeCoaches === 1 ? "coach" : "coaches"}`}</span>
+            <label>
+              Roster draft deadline (Eastern Time)
+              <input
+                type="datetime-local"
+                value={deadline}
+                disabled={confirming}
+                onChange={(event) => {
+                  setDeadline(event.target.value);
+                  setProblem("");
+                }}
+              />
+            </label>
+            {!confirming && problem && <span role="alert">{problem}</span>}
+            {!confirming && (
+              <button
+                type="button"
+                ref={openButton}
+                disabled={blocked}
+                onClick={ask}
+              >
+                Open roster draft
+              </button>
+            )}
+            {confirming && (
+              <div
+                role="alertdialog"
+                aria-labelledby="launch-confirm-title"
+                className="confirm"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") cancel();
+                }}
+              >
+                <h3
+                  id="launch-confirm-title"
+                  tabIndex={-1}
+                  ref={confirmHeading}
+                >
+                  Open the roster draft?
+                </h3>
+                <p>
+                  {`Coaches choose and lock their nine teams until ${deadlineText(deadline)}. After that only you, the commissioner, can correct a roster.`}
+                </p>
+                {problem && <span role="alert">{problem}</span>}
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={cancel}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void launch()}
+                  >
+                    Confirm and open
+                  </button>
+                </div>
+              </div>
+            )}
           </fieldset>
         </>
       )}
