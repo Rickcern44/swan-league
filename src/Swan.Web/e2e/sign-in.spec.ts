@@ -446,7 +446,11 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
       await expect(
         page.getByText("Milestone 4 of 4: Ready to launch"),
       ).toBeVisible();
-      await expect(review.getByText("3 active coaches")).toBeVisible();
+      await expect(
+        review
+          .getByRole("list", { name: "Setup summary" })
+          .getByText("3 active coaches"),
+      ).toBeVisible();
       await expect(
         review.getByText(/0 of 18 weeks are imported/),
       ).toBeVisible();
