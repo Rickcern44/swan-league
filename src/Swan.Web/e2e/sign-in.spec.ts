@@ -458,10 +458,10 @@ test("seeded admin sets up the season and coach sees no admin controls", async (
         review.getByText(/Choose the 3 or 4 double-dog weeks/),
       ).toBeVisible();
       await expect(
-        review.getByRole("group", { name: "Open the roster draft" }),
+        review.getByRole("group", { name: "Open the draft" }),
       ).toContainText("cannot be undone");
       await expect(
-        review.getByRole("button", { name: "Open roster draft" }),
+        review.getByRole("button", { name: "Open draft" }),
       ).toBeDisabled();
       await review
         .getByRole("button", { name: "Fix: Schedule import" })

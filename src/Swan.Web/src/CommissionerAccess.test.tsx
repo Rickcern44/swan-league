@@ -66,7 +66,7 @@ test("a coach who commissions the Setup season gets Season setup in the navigati
     within(nav()).getByRole("link", { name: "Season setup" }),
   ).toHaveAttribute("aria-current", "page");
   expect(
-    within(nav()).queryByRole("link", { name: "Roster draft" }),
+    within(nav()).queryByRole("link", { name: "Draft" }),
   ).not.toBeInTheDocument();
   expect(calls.some((c) => c.url === "/api/admin/seasons/setup")).toBe(true);
   expect(calls.some((c) => c.url.includes("/api/coach/picks"))).toBe(false);
@@ -120,7 +120,7 @@ test("a coach with no commissioner role sees no Season setup, and /setup is just
     within(nav()).queryByRole("link", { name: "Season setup" }),
   ).not.toBeInTheDocument();
   expect(
-    within(nav()).queryByRole("link", { name: "Roster draft" }),
+    within(nav()).queryByRole("link", { name: "Draft" }),
   ).not.toBeInTheDocument();
   expect(
     screen.queryByRole("heading", { name: "Season setup" }),
@@ -155,11 +155,12 @@ test("a coach who commissions the live season reaches the commissioner roster vi
   // Wait for the loaded page (the loading state has the same heading and is replaced).
   await screen.findByText(/No draft deadline was set for this season/);
   expect(
-    screen.getByRole("heading", { level: 1, name: "Roster draft" }),
+    screen.getByRole("heading", { level: 1, name: "Draft" }),
   ).toBeVisible();
-  expect(
-    within(nav()).getByRole("link", { name: "Roster draft" }),
-  ).toHaveAttribute("aria-current", "page");
+  expect(within(nav()).getByRole("link", { name: "Draft" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
   expect(within(nav()).getByRole("link", { name: "Roster" })).toBeVisible();
   expect(
     within(nav()).queryByRole("link", { name: "Season setup" }),
@@ -186,9 +187,7 @@ test("an administrator keeps both links and both pages whatever the access flags
   expect(
     await screen.findByRole("heading", { level: 1, name: "Season setup" }),
   ).toBeVisible();
-  expect(
-    within(nav()).getByRole("link", { name: "Roster draft" }),
-  ).toBeVisible();
+  expect(within(nav()).getByRole("link", { name: "Draft" })).toBeVisible();
   expect(
     within(nav()).getByRole("link", { name: "Season setup" }),
   ).toBeVisible();

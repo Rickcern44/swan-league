@@ -163,7 +163,7 @@ test("keyboard order follows the page: skip link, header, navigation, then the c
     "Skip to main content",
     "Sign out",
     "Home",
-    "Roster draft",
+    "Draft",
     "Season setup",
   ]);
   expect(names[5]).toContain("Lines need approval");

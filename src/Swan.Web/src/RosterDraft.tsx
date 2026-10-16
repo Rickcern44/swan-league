@@ -224,7 +224,7 @@ export default function RosterDraft() {
           )}
           {desk.state === "closed" && desk.complete && (
             <>
-              <h2>The roster draft is closed</h2>
+              <h2>The draft is closed</h2>
               <p>
                 {desk.deadline
                   ? `It closed ${formatDeadline(desk.deadline)}. `
@@ -239,8 +239,8 @@ export default function RosterDraft() {
               <h2>Your roster is incomplete</h2>
               <p role="status">
                 {desk.deadline
-                  ? `The roster draft closed ${formatDeadline(desk.deadline)} `
-                  : "The roster draft is closed "}
+                  ? `The draft closed ${formatDeadline(desk.deadline)} `
+                  : "The draft is closed "}
                 with {mine.length} of 9 teams chosen. You cannot make weekly
                 picks until the commissioner completes your roster.
               </p>

@@ -123,15 +123,15 @@ test("a commissioner starts a season, coaches draft and lock nine teams, the dea
     const review = commish.getByRole("form", { name: "Ready to launch" });
     await expect(review).toBeVisible();
     // Opening the draft needs a deadline, and rejects one in the past; asking only shows the confirmation.
-    const launch = review.getByRole("group", { name: "Open the roster draft" });
-    await launch.getByRole("button", { name: "Open roster draft" }).click();
+    const launch = review.getByRole("group", { name: "Open the draft" });
+    await launch.getByRole("button", { name: "Open draft" }).click();
     await expect(launch.getByRole("alert")).toContainText(
-      "Choose the roster draft deadline",
+      "Choose the draft deadline",
     );
-    await launch.getByLabel(/Roster draft deadline/).fill(easternInput(-1));
-    await launch.getByRole("button", { name: "Open roster draft" }).click();
+    await launch.getByLabel(/Draft deadline/).fill(easternInput(-1));
+    await launch.getByRole("button", { name: "Open draft" }).click();
     const confirm = commish.getByRole("alertdialog", {
-      name: "Open the roster draft?",
+      name: "Open the draft?",
     });
     await expect(confirm).toContainText("only you, the commissioner");
     await confirm.getByRole("button", { name: "Confirm and open" }).click();
@@ -139,15 +139,15 @@ test("a commissioner starts a season, coaches draft and lock nine teams, the dea
       "must be in the future",
     );
     await confirm.getByRole("button", { name: "Cancel" }).click();
-    await launch.getByLabel(/Roster draft deadline/).fill(easternInput(3));
-    await launch.getByRole("button", { name: "Open roster draft" }).click();
+    await launch.getByLabel(/Draft deadline/).fill(easternInput(3));
+    await launch.getByRole("button", { name: "Open draft" }).click();
     await confirm.getByRole("button", { name: "Confirm and open" }).click();
     await expect(
-      commish.getByText(/The season is live. The roster draft is open until/),
+      commish.getByText(/The season is live. The draft is open until/),
     ).toBeVisible();
-    await commish.getByRole("link", { name: "Open the roster draft" }).click();
+    await commish.getByRole("link", { name: "Open the draft" }).click();
     await expect(
-      commish.getByRole("heading", { level: 1, name: "Roster draft" }),
+      commish.getByRole("heading", { level: 1, name: "Draft" }),
     ).toBeVisible();
     await expect(
       commish.getByText("3 missing · 0 incomplete · 0 complete · 0 locked"),
@@ -306,7 +306,7 @@ test("a commissioner starts a season, coaches draft and lock nine teams, the dea
     execSync(passDeadline!, { stdio: "inherit" });
     await coach3.reload();
     await expect(
-      coach3.getByRole("heading", { name: "The roster draft is closed" }),
+      coach3.getByRole("heading", { name: "The draft is closed" }),
     ).toBeVisible();
     expect((await put(all.slice(1, 10))).status()).toBe(409);
     expect(

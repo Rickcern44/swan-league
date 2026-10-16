@@ -1958,7 +1958,7 @@ function ReviewStep({
   }
 
   function ask() {
-    if (!deadline) return setProblem("Choose the roster draft deadline first.");
+    if (!deadline) return setProblem("Choose the draft deadline first.");
     setProblem("");
     setConfirming(true);
   }
@@ -2031,7 +2031,7 @@ function ReviewStep({
       {!review && !notice && <span>Loading the review…</span>}
       {review && started && (
         <div role="status" className="done">
-          <span>{`The season is live. The roster draft is open until ${started}.`}</span>{" "}
+          <span>{`The season is live. The draft is open until ${started}.`}</span>{" "}
           <a
             href="/draft"
             onClick={(event) => {
@@ -2040,7 +2040,7 @@ function ReviewStep({
               void refreshAccess().then(() => goTo("/draft"));
             }}
           >
-            Open the roster draft
+            Open the draft
           </a>
         </div>
       )}
@@ -2053,7 +2053,7 @@ function ReviewStep({
           )}
           {review.completed && !blocked && (
             <span role="status" className="done">
-              Setup is finished. Choose the roster draft deadline to open it.
+              Setup is finished. Choose the draft deadline to open it.
             </span>
           )}
           {review.blockers.length > 0 && (
@@ -2062,7 +2062,7 @@ function ReviewStep({
               <ul className="issues">
                 {review.blockers.map((entry) => issue(entry, "blocker"))}
               </ul>
-              <span className="hint">Fix these to open the roster draft.</span>
+              <span className="hint">Fix these to open the draft.</span>
             </fieldset>
           )}
           {review.warnings.length > 0 && (
@@ -2159,17 +2159,14 @@ function ReviewStep({
               <span>{`${review.activeCoaches} active ${review.activeCoaches === 1 ? "coach" : "coaches"}`}</span>
             </fieldset>
           </details>
-          <fieldset
-            className="division launch"
-            aria-label="Open the roster draft"
-          >
-            <legend>Open the roster draft</legend>
+          <fieldset className="division launch" aria-label="Open the draft">
+            <legend>Open the draft</legend>
             <span className="hint">
               This is the last step. It starts the season and cannot be undone.
               Times are Eastern Time.
             </span>
             <label>
-              Roster draft deadline (Eastern Time)
+              Draft deadline (Eastern Time)
               <input
                 type="datetime-local"
                 value={deadline}
@@ -2194,7 +2191,7 @@ function ReviewStep({
                 disabled={blocked}
                 onClick={ask}
               >
-                Open roster draft
+                Open draft
               </button>
             )}
             {confirming && (
@@ -2211,7 +2208,7 @@ function ReviewStep({
                   tabIndex={-1}
                   ref={confirmHeading}
                 >
-                  Open the roster draft?
+                  Open the draft?
                 </h3>
                 <p>
                   {`Coaches choose and lock their nine teams until ${deadlineText(deadline)}. After that only you, the commissioner, can correct a roster.`}
