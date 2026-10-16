@@ -2485,3 +2485,14 @@ test("a failed reset says why and leaves the season in place", async () => {
   ).toHaveTextContent("Boom");
   expect(screen.getByRole("form", { name: "Basics" })).toBeVisible();
 });
+
+test("Enter in the deadline field asks for the confirmation without sending anything", async () => {
+  const form = await openReview();
+  const input = within(form).getByLabelText(/Roster draft deadline/);
+  fireEvent.change(input, { target: { value: "2026-10-20T18:00" } });
+
+  fireEvent.keyDown(input, { key: "Enter" });
+
+  expect(await screen.findByRole("alertdialog")).toBeVisible();
+  expect(calls.some((call) => call.method === "POST")).toBe(false);
+});

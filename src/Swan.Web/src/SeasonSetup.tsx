@@ -2169,6 +2169,12 @@ function ReviewStep({
                   setDeadline(event.target.value);
                   setProblem("");
                 }}
+                onKeyDown={(event) => {
+                  // This form has no submit button, so Enter is handled here.
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  if (!blocked && !confirming) ask();
+                }}
               />
             </label>
             {!confirming && problem && <span role="alert">{problem}</span>}

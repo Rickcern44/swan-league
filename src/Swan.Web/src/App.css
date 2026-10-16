@@ -1176,6 +1176,21 @@ details summary {
 
 .confirm h3 {
   margin: 0;
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+form.card.wide
+  .launch
+  label
+  input[type="datetime-local"]:not([type="checkbox"]):not([type="radio"]) {
+  width: 100%;
+  max-width: 16rem;
+  min-width: 0;
+}
+
+.confirm .actions {
+  justify-content: flex-start;
 }
 
 .confirm p {
@@ -1185,4 +1200,8 @@ details summary {
 .dev-tools {
   border-top: 1px dashed #9fb3c8;
   padding-top: 0.5rem;
+}
+
+.launch > button {
+  justify-self: start;
 }
