@@ -1,6 +1,6 @@
-#:sdk Aspire.AppHost.Sdk@13.5.4
+#:sdk Aspire.AppHost.Sdk@13.6.1
 #:property AspireUseCliBundle=true
-#:package Aspire.Hosting.JavaScript@13.5.4
+#:package Aspire.Hosting.JavaScript@13.6.1
 #:package Aspire.Hosting.PostgreSQL@13.6.1
 #:package CommunityToolkit.Aspire.Hosting.MailPit@13.6.1-beta.930
 
