@@ -15,6 +15,7 @@ When this is an ordinary Codex chat rather than an OpenRig seat, the main chat i
 - For a small independent task, skip planning. Start a fresh branch from `main` named for its Conventional Commit type, such as `fix/<slug>` or `chore/<slug>`, and delegate to `developer` with a clear goal and acceptance criteria.
 - After feature plan approval, delegate one task at a time to `developer`. Review each result, its test evidence, and its Conventional Commit. Continue through approved tasks without another workflow approval unless scope changes materially or a decision needs the user.
 - After final checks, follow any repository PR and CI rules to merge into `main`; otherwise merge locally. Start the next work from updated `main`. Do not force a merge over unrelated changes.
+- For this repository, the user explicitly authorizes Flow, after the user approves a feature plan and required checks pass, to push that feature branch, open the required PR, and merge it into `main` without another routine approval. Pause if scope changes materially, required checks fail, or the merge conflicts.
 - Keep the user informed during long work and report commits, checks, and merge outcome. Codex sandbox and command approvals remain governed by the parent chat's permission mode.
 
 <!-- BEGIN OpenRig MANAGED BLOCK: CULTURE-default.md -->
