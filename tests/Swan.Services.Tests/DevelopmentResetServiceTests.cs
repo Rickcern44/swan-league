@@ -44,6 +44,10 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
         database.WeekScores.Add(score);
         database.Ledgers.Add(new Ledger(new LedgerId(Guid.NewGuid()), season.Id));
         database.Notifications.Add(new Notification(new NotificationId(Guid.NewGuid()), membership.Id, "week.opened", "Week 2 is open"));
+        var preferences = new NotificationPreferences(membership.Id);
+        Assert.True(preferences.Mute(NotificationCategory.Reminders).IsSuccess);
+        database.NotificationPreferences.Add(preferences);
+        database.PushSubscriptions.Add(new PushSubscription(new PushSubscriptionId(Guid.NewGuid()), membership.Id, "https://push.example/endpoint", "p256dh", "auth"));
         database.Announcements.Add(new Announcement(new AnnouncementId(Guid.NewGuid()), "Welcome", clock.UtcNow));
         await new AuditService(database, clock).AppendAsync(Admin, "season.setup.created", season.Id.Value.ToString());
         database.Sessions.Add(new UserSession(new SessionId(Guid.NewGuid()), Admin, new string('A', 64), clock.UtcNow, clock.UtcNow.AddDays(30)));
@@ -57,7 +61,7 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
         {
             "league.seasons", "league.memberships", "schedule.season_teams", "schedule.weeks", "schedule.games", "schedule.dog_options", "picks.rosters", "picks.ballots", "picks.team_picks",
             "picks.dog_picks", "picks.pick_changes", "scoring.week_scores", "scoring.score_lines", "money.ledgers", "money.ledger_items", "money.pool_settlements", "money.pool_placements",
-            "communication.notifications", "communication.announcements", "platform.audit_entries", "schedule.teams", "identity.users", "identity.sessions", "identity.login_tokens",
+            "communication.notifications", "communication.notification_preferences", "communication.push_subscriptions", "communication.announcements", "platform.audit_entries", "schedule.teams", "identity.users", "identity.sessions", "identity.login_tokens",
         };
         var result = new Dictionary<string, int>();
 #pragma warning disable EF1002 // the names are the literals above
@@ -72,7 +76,7 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
     {
         await SeedEverythingAsync();
         var before = await CountsAsync();
-        Assert.All(new[] { "league.seasons", "league.memberships", "schedule.weeks", "schedule.games", "picks.rosters", "picks.ballots", "picks.team_picks", "scoring.week_scores", "scoring.score_lines", "money.ledgers", "communication.notifications", "communication.announcements" }, table => Assert.True(before[table] > 0, table));
+        Assert.All(new[] { "league.seasons", "league.memberships", "schedule.weeks", "schedule.games", "picks.rosters", "picks.ballots", "picks.team_picks", "scoring.week_scores", "scoring.score_lines", "money.ledgers", "communication.notifications", "communication.notification_preferences", "communication.push_subscriptions", "communication.announcements" }, table => Assert.True(before[table] > 0, table));
 
         var result = await Reset();
 
@@ -82,7 +86,7 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
         {
             "league.seasons", "league.memberships", "schedule.season_teams", "schedule.weeks", "schedule.games", "schedule.dog_options", "picks.rosters", "picks.ballots", "picks.team_picks",
             "picks.dog_picks", "picks.pick_changes", "scoring.week_scores", "scoring.score_lines", "money.ledgers", "money.ledger_items", "money.pool_settlements", "money.pool_placements",
-            "communication.notifications", "communication.announcements",
+            "communication.notifications", "communication.notification_preferences", "communication.push_subscriptions", "communication.announcements",
         };
         Assert.All(cleared, table => Assert.Equal(0, after[table]));
         Assert.Equal(32, after["schedule.teams"]);
