@@ -256,6 +256,10 @@ function ResetTools({ onReset }: { onReset: () => void }) {
     if (confirming) heading.current?.focus();
   }, [confirming]);
 
+  useEffect(() => {
+    if (confirming && problem && !busy) heading.current?.focus();
+  }, [confirming, problem, busy]);
+
   async function reset() {
     setBusy(true);
     setProblem("");
@@ -1941,6 +1945,11 @@ function ReviewStep({
       openButton.current?.focus();
     }
   }, [confirming]);
+
+  // A refusal disables the buttons while it is shown, which drops focus to the page; bring it back inside so Escape and Tab still work.
+  useEffect(() => {
+    if (confirming && problem && !busy) confirmHeading.current?.focus();
+  }, [confirming, problem, busy]);
 
   function cancel() {
     cancelled.current = true;

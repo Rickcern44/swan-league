@@ -2496,3 +2496,61 @@ test("Enter in the deadline field asks for the confirmation without sending anyt
   expect(await screen.findByRole("alertdialog")).toBeVisible();
   expect(calls.some((call) => call.method === "POST")).toBe(false);
 });
+
+test("after a refused launch focus returns to the confirmation, so Escape still closes it", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 10 }) };
+  replies[REVIEW] = { status: 200, body: reviewData({ completed: true }) };
+  replies[ACTIVATE] = {
+    status: 400,
+    body: {
+      code: "x",
+      message: "The roster draft deadline must be in the future.",
+    },
+  };
+  render(<App />);
+  const form = await screen.findByRole("form", { name: "Ready to launch" });
+  fireEvent.change(
+    await within(form).findByLabelText(/Roster draft deadline/),
+    {
+      target: { value: "2026-10-20T18:00" },
+    },
+  );
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Open roster draft" }),
+  );
+  fireEvent.click(
+    within(await screen.findByRole("alertdialog")).getByRole("button", {
+      name: "Confirm and open",
+    }),
+  );
+  const dialog = await screen.findByRole("alertdialog");
+  await within(dialog).findByRole("alert");
+
+  await vi.waitFor(() =>
+    expect(within(dialog).getByRole("heading", { level: 3 })).toHaveFocus(),
+  );
+  fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+});
+
+test("after a refused reset focus returns to the confirmation", async () => {
+  stubApi("Admin", true);
+  replies[SETUP] = { status: 200, body: season() };
+  replies[RESET] = { status: 500, body: { title: "Boom" } };
+  render(<App />);
+  await screen.findByRole("form", { name: "Basics" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Reset local season data" }),
+  );
+  const dialog = screen.getByRole("alertdialog");
+
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Reset season data" }),
+  );
+
+  await within(dialog).findByRole("alert");
+  await vi.waitFor(() =>
+    expect(within(dialog).getByRole("heading", { level: 3 })).toHaveFocus(),
+  );
+});
