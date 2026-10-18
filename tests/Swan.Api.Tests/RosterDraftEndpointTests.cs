@@ -38,7 +38,7 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
             services.AddSingleton<ICommissionerRosterService>(commissioner);
         })).CreateClient();
 
-        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method == "GET" ? null : JsonContent.Create(new { }) });
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method == "GET" ? null : JsonContent.Create(new { }) }, TestContext.Current.CancellationToken);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
         Assert.Empty(coach.Calls);
@@ -54,7 +54,7 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         var coach = new FakeCoachRoster();
         using var client = CreateClient("Admin", coach, new FakeCommissionerRoster());
 
-        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method == "GET" ? null : JsonContent.Create(new { seasonId = SeasonGuid, expectedRevision = 0, teamIds = new Guid[0] }) });
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method == "GET" ? null : JsonContent.Create(new { seasonId = SeasonGuid, expectedRevision = 0, teamIds = new Guid[0] }) }, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Empty(coach.Calls);
@@ -66,12 +66,12 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         var coach = new FakeCoachRoster();
         using var client = CreateClient("Coach", coach, new FakeCommissionerRoster());
 
-        var read = await client.GetAsync("/api/coach/roster");
-        var save = await client.PutAsJsonAsync("/api/coach/roster", new { seasonId = SeasonGuid, expectedRevision = 2, teamIds = new[] { TeamGuid } });
-        var @lock = await client.PostAsJsonAsync("/api/coach/roster/lock", new { seasonId = SeasonGuid, expectedRevision = 3 });
+        var read = await client.GetAsync("/api/coach/roster", TestContext.Current.CancellationToken);
+        var save = await client.PutAsJsonAsync("/api/coach/roster", new { seasonId = SeasonGuid, expectedRevision = 2, teamIds = new[] { TeamGuid } }, cancellationToken: TestContext.Current.CancellationToken);
+        var @lock = await client.PostAsJsonAsync("/api/coach/roster/lock", new { seasonId = SeasonGuid, expectedRevision = 3 }, cancellationToken: TestContext.Current.CancellationToken);
 
         foreach (var response in new[] { read, save, @lock }) response.EnsureSuccessStatusCode();
-        using var json = JsonDocument.Parse(await read.Content.ReadAsStringAsync());
+        using var json = JsonDocument.Parse(await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var root = json.RootElement;
         Assert.Equal(("open", "2026 Swan League"), (root.GetProperty("state").GetString(), root.GetProperty("seasonName").GetString()));
         Assert.Equal("2026-10-20T18:00", root.GetProperty("deadlineEastern").GetString());
@@ -91,13 +91,13 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
     {
         using var client = CreateClient("Coach", new FakeCoachRoster { Failure = new Error(code, "Say what to fix.") }, new FakeCommissionerRoster());
 
-        var save = await client.PutAsJsonAsync("/api/coach/roster", new { seasonId = SeasonGuid, expectedRevision = 0, teamIds = new[] { TeamGuid } });
-        var @lock = await client.PostAsJsonAsync("/api/coach/roster/lock", new { seasonId = SeasonGuid, expectedRevision = 0 });
+        var save = await client.PutAsJsonAsync("/api/coach/roster", new { seasonId = SeasonGuid, expectedRevision = 0, teamIds = new[] { TeamGuid } }, cancellationToken: TestContext.Current.CancellationToken);
+        var @lock = await client.PostAsJsonAsync("/api/coach/roster/lock", new { seasonId = SeasonGuid, expectedRevision = 0 }, cancellationToken: TestContext.Current.CancellationToken);
 
         foreach (var response in new[] { save, @lock })
         {
             Assert.Equal(status, response.StatusCode);
-            Assert.Equal((code, "Say what to fix."), ((await response.Content.ReadFromJsonAsync<Error>())!.Code, "Say what to fix."));
+            Assert.Equal((code, "Say what to fix."), ((await response.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken))!.Code, "Say what to fix."));
         }
     }
 
@@ -114,7 +114,7 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         var coach = new FakeCoachRoster();
         using var client = CreateClient("Coach", coach, new FakeCommissionerRoster());
 
-        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = new StringContent(body, Encoding.UTF8, "application/json") }, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(coach.Calls);
@@ -126,12 +126,12 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         var commissioner = new FakeCommissionerRoster { Failure = new Error("commissioner.required", "Only the season's commissioner can manage its rosters.") };
         using var client = CreateClient("Coach", new FakeCoachRoster(), commissioner);
 
-        var read = await client.GetAsync("/api/commissioner/roster-draft");
-        var correct = await client.PostAsJsonAsync("/api/commissioner/roster-draft/corrections", new { seasonId = SeasonGuid, membershipId = MembershipGuid, expectedRevision = 0, addTeamId = TeamGuid, reason = "x" });
+        var read = await client.GetAsync("/api/commissioner/roster-draft", TestContext.Current.CancellationToken);
+        var correct = await client.PostAsJsonAsync("/api/commissioner/roster-draft/corrections", new { seasonId = SeasonGuid, membershipId = MembershipGuid, expectedRevision = 0, addTeamId = TeamGuid, reason = "x" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, read.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, correct.StatusCode);
-        Assert.Equal("commissioner.required", (await correct.Content.ReadFromJsonAsync<Error>())!.Code);
+        Assert.Equal("commissioner.required", (await correct.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken))!.Code);
     }
 
     [Fact]
@@ -140,12 +140,12 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         var service = new FakeCommissionerRoster();
         using var client = CreateClient("Admin", new FakeCoachRoster(), service);
 
-        var read = await client.GetAsync("/api/commissioner/roster-draft");
-        var correct = await client.PostAsJsonAsync("/api/commissioner/roster-draft/corrections", new { seasonId = SeasonGuid, membershipId = MembershipGuid, expectedRevision = 4, removeTeamId = TeamGuid, addTeamId = Guid.Parse("00000000-0000-0000-0000-0000000000aa"), reason = "Picked the wrong team" });
+        var read = await client.GetAsync("/api/commissioner/roster-draft", TestContext.Current.CancellationToken);
+        var correct = await client.PostAsJsonAsync("/api/commissioner/roster-draft/corrections", new { seasonId = SeasonGuid, membershipId = MembershipGuid, expectedRevision = 4, removeTeamId = TeamGuid, addTeamId = Guid.Parse("00000000-0000-0000-0000-0000000000aa"), reason = "Picked the wrong team" }, cancellationToken: TestContext.Current.CancellationToken);
 
         read.EnsureSuccessStatusCode();
         correct.EnsureSuccessStatusCode();
-        using var json = JsonDocument.Parse(await read.Content.ReadAsStringAsync());
+        using var json = JsonDocument.Parse(await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var coach = json.RootElement.GetProperty("coaches")[0];
         Assert.Equal(("Coach A", "missing"), (coach.GetProperty("name").GetString(), coach.GetProperty("status").GetString()));
         Assert.Equal(MembershipGuid, coach.GetProperty("membershipId").GetGuid());
@@ -167,10 +167,10 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
     {
         using var client = CreateClient("Admin", new FakeCoachRoster(), new FakeCommissionerRoster { Failure = new Error(code, "Say what to fix.") });
 
-        var response = await client.PostAsJsonAsync("/api/commissioner/roster-draft/corrections", new { seasonId = SeasonGuid, membershipId = MembershipGuid, expectedRevision = 0, addTeamId = TeamGuid, reason = "Because" });
+        var response = await client.PostAsJsonAsync("/api/commissioner/roster-draft/corrections", new { seasonId = SeasonGuid, membershipId = MembershipGuid, expectedRevision = 0, addTeamId = TeamGuid, reason = "Because" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(status, response.StatusCode);
-        Assert.Equal(code, (await response.Content.ReadFromJsonAsync<Error>())!.Code);
+        Assert.Equal(code, (await response.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken))!.Code);
     }
 
     [Theory]
@@ -183,7 +183,7 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         var service = new FakeCommissionerRoster();
         using var client = CreateClient("Admin", new FakeCoachRoster(), service);
 
-        var response = await client.PostAsync("/api/commissioner/roster-draft/corrections", new StringContent(body, Encoding.UTF8, "application/json"));
+        var response = await client.PostAsync("/api/commissioner/roster-draft/corrections", new StringContent(body, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);

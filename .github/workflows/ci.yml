@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/Swan.Web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/Swan.Web/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Verify container runtime
+        run: docker info
+      - run: dotnet restore Swan.slnx
+      - run: dotnet build Swan.slnx --configuration Release --no-restore
+      - run: dotnet format Swan.slnx --verify-no-changes
+      - run: ./scripts/verify-ef-model.sh
+      - name: Run tests
+        run: >-
+          dotnet test --solution Swan.slnx --configuration Release --no-build
+          -- --max-threads 1

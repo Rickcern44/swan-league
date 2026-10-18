@@ -28,9 +28,9 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
     private MembershipId membershipB;
     private DateTimeOffset deadline;
 
-    public Task InitializeAsync() => postgres.StartAsync();
+    public ValueTask InitializeAsync() => new(postgres.StartAsync());
 
-    public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
+    public ValueTask DisposeAsync() => postgres.DisposeAsync();
 
     private TeamId T(int index) => teams[index].Id;
     private Guid[] Nine(int from = 0) => teams.Skip(from).Take(9).Select(team => team.Id.Value).ToArray();
@@ -229,11 +229,11 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
         await SeedAsync();
         await using var first = CreateDatabase();
         first.Rosters.Add(new Roster(new RosterId(Guid.NewGuid()), seasonId, membershipA));
-        await first.SaveChangesAsync();
+        await first.SaveChangesAsync(TestContext.Current.CancellationToken);
         await using var second = CreateDatabase();
         second.Rosters.Add(new Roster(new RosterId(Guid.NewGuid()), seasonId, membershipA));
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => second.SaveChangesAsync());
+        await Assert.ThrowsAsync<DbUpdateException>(() => second.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]

@@ -22,9 +22,9 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:18.3").Build();
     private readonly MutableClock clock = new(new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero));
 
-    public Task InitializeAsync() => postgres.StartAsync();
+    public ValueTask InitializeAsync() => new(postgres.StartAsync());
 
-    public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
+    public ValueTask DisposeAsync() => postgres.DisposeAsync();
 
     // The development sample (a live season with rosters, two weeks of games and dog options) plus the things it does not create: a ballot, a score, a ledger, a notification and an announcement.
     private async Task SeedEverythingAsync()
@@ -119,11 +119,11 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
         await Reset();
 
         await using var database = CreateDatabase();
-        Assert.False(await database.Seasons.AnyAsync());
+        Assert.False(await database.Seasons.AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
         // Starting over is just creating a season: the catalog and the administrator are still there, and the seeder will not bring the sample back.
-        await DevelopmentSeeder.SeedAsync(database);
-        Assert.False(await database.Seasons.AnyAsync());
-        Assert.True(await database.Users.AnyAsync(user => user.Id == Admin));
+        await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
+        Assert.False(await database.Seasons.AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(await database.Users.AnyAsync(user => user.Id == Admin, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
             await database.Database.ExecuteSqlRawAsync("""
                 create table public.reset_probe (season uuid not null references league.seasons ("Id"));
                 insert into public.reset_probe select "Id" from league.seasons limit 1
-                """);
+                """, cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var before = await CountsAsync();

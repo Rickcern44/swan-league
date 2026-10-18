@@ -46,7 +46,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Coach", service);
 
-        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method != "GET" ? JsonContent.Create(new { year = 2026, name = "x" }) : null });
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url) { Content = method != "GET" ? JsonContent.Create(new { year = 2026, name = "x" }) : null }, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -58,8 +58,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var created = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "2026 Season", isSimulation = true, buyIn = 1 });
-        var read = await client.GetAsync("/api/admin/seasons/setup");
+        var created = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "2026 Season", isSimulation = true, buyIn = 1 }, cancellationToken: TestContext.Current.CancellationToken);
+        var read = await client.GetAsync("/api/admin/seasons/setup", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         read.EnsureSuccessStatusCode();
@@ -74,10 +74,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
 
-        var response = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "x" });
+        var response = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "x" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, response.StatusCode);
-        Assert.Contains(code, await response.Content.ReadAsStringAsync());
+        Assert.Contains(code, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -86,8 +86,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService { Failure = new Error("season.missing", "No season is in Setup.") };
         using var client = CreateClient("Admin", service);
 
-        var read = await client.GetAsync("/api/admin/seasons/setup");
-        var create = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026 });
+        var read = await client.GetAsync("/api/admin/seasons/setup", TestContext.Current.CancellationToken);
+        var create = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
         Assert.Contains("create:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:2026::False", service.Calls);
@@ -100,7 +100,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "2027 Season", isSimulation = true, buyIn = 1 });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "2027 Season", isSimulation = true, buyIn = 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(["update:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:2027:2027 Season:True"], service.Calls);
@@ -112,7 +112,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "x" });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "x" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
         Assert.Empty(service.Calls);
@@ -127,10 +127,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "x" });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup", new { year = 2027, name = "x" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, response.StatusCode);
-        Assert.Contains(code, await response.Content.ReadAsStringAsync());
+        Assert.Contains(code, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/money", new { buyIn = 150, main = 90, dog = 30, regularSeason = 15, playoff = 15, currency = "EUR" });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/money", new { buyIn = 150, main = 90, dog = 30, regularSeason = 15, playoff = 15, currency = "EUR" }, cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(["money:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:150/90/30/15/15:USD"], service.Calls);
@@ -151,7 +151,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/money", new { buyIn = 100, main = 60, dog = 20, regularSeason = 10, playoff = 10 });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/money", new { buyIn = 100, main = 60, dog = 20, regularSeason = 10, playoff = 10 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
         Assert.Empty(service.Calls);
@@ -165,10 +165,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/money", new { buyIn = 100, main = 60, dog = 20, regularSeason = 10, playoff = 10 });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/money", new { buyIn = 100, main = 60, dog = 20, regularSeason = 10, playoff = 10 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, response.StatusCode);
-        Assert.Contains(code, await response.Content.ReadAsStringAsync());
+        Assert.Contains(code, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00", ignored = 1 });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00", ignored = 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(["deadline:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:11:30:00"], service.Calls);
@@ -189,7 +189,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00" });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
         Assert.Empty(service.Calls);
@@ -206,7 +206,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsync("/api/admin/seasons/setup/deadline", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync("/api/admin/seasons/setup/deadline", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -219,10 +219,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00" });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/deadline", new { teamPickDeadlineEastern = "11:30:00" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, response.StatusCode);
-        Assert.Contains(code, await response.Content.ReadAsStringAsync());
+        Assert.Contains(code, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -231,11 +231,11 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step = 1, ignored = true });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step = 1, ignored = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(["step:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:Money"], service.Calls);
-        Assert.Contains("\"setupStep\":0", await response.Content.ReadAsStringAsync());
+        Assert.Contains("\"setupStep\":0", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step = 1 });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step = 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
         Assert.Empty(service.Calls);
@@ -260,7 +260,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsync("/api/admin/seasons/setup/step", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync("/api/admin/seasons/setup/step", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -274,10 +274,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step = 1 });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step = 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, response.StatusCode);
-        Assert.Contains(code, await response.Content.ReadAsStringAsync());
+        Assert.Contains(code, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     private static readonly string TeamA = "11111111-1111-1111-1111-111111111111";
@@ -288,10 +288,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.GetAsync("/api/admin/seasons/setup/teams");
+        var response = await client.GetAsync("/api/admin/seasons/setup/teams", TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadAsStringAsync();
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"division\":\"AFC East\"", body);
         Assert.Contains("\"teamId\":\"11111111-1111-1111-1111-111111111111\"", body);
         Assert.Equal(["teams:get"], service.Calls);
@@ -303,11 +303,11 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = new[] { new { teamId = TeamA, finishPosition = 2, pointValue = 99 } } });
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = new[] { new { teamId = TeamA, finishPosition = 2, pointValue = 99 } } }, cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal([$"teams:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:{TeamA}=2"], service.Calls);
-        Assert.Contains("\"pointValue\":2", await response.Content.ReadAsStringAsync());
+        Assert.Contains("\"pointValue\":2", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -316,8 +316,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/teams");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = Array.Empty<object>() });
+        var read = await client.GetAsync("/api/admin/seasons/setup/teams", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = Array.Empty<object>() }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
         Assert.Empty(service.Calls);
@@ -335,7 +335,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsync("/api/admin/seasons/setup/teams", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync("/api/admin/seasons/setup/teams", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -349,11 +349,11 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "rejected") });
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/teams");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = new[] { new { teamId = TeamA, finishPosition = 1 } } });
+        var read = await client.GetAsync("/api/admin/seasons/setup/teams", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/teams", new { teams = new[] { new { teamId = TeamA, finishPosition = 1 } } }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, write.StatusCode);
-        Assert.Contains(code, await write.Content.ReadAsStringAsync());
+        Assert.Contains(code, await write.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         if (code == "season.missing") Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
     }
 
@@ -363,13 +363,13 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/schedule");
-        var preview = await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null);
-        var imported = await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1", extra = 1 });
+        var read = await client.GetAsync("/api/admin/seasons/setup/schedule", TestContext.Current.CancellationToken);
+        var preview = await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null, TestContext.Current.CancellationToken);
+        var imported = await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1", extra = 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(new[] { read, preview, imported }, response => response.EnsureSuccessStatusCode());
         Assert.Equal(["schedule:get", "schedule:preview", "schedule:import:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:FP1"], service.Calls);
-        var body = await preview.Content.ReadAsStringAsync();
+        var body = await preview.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"fingerprint\":\"FP1\"", body);
         Assert.Contains("\"providerGameId\":\"99\"", body);
         Assert.Contains("\"kickoff\":\"2026-09-13T17:00:00+00:00\"", body);
@@ -383,9 +383,9 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
 
         var responses = new[]
         {
-            await client.GetAsync("/api/admin/seasons/setup/schedule"),
-            await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null),
-            await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1" }),
+            await client.GetAsync("/api/admin/seasons/setup/schedule", TestContext.Current.CancellationToken),
+            await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null, TestContext.Current.CancellationToken),
+            await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1" }, cancellationToken: TestContext.Current.CancellationToken),
         };
 
         Assert.All(responses, response => Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
@@ -402,7 +402,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PostAsync("/api/admin/seasons/setup/schedule/import", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PostAsync("/api/admin/seasons/setup/schedule/import", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -420,12 +420,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "concise admin-safe message") });
 
-        var preview = await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null);
-        var imported = await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1" });
+        var preview = await client.PostAsync("/api/admin/seasons/setup/schedule/preview", null, TestContext.Current.CancellationToken);
+        var imported = await client.PostAsJsonAsync("/api/admin/seasons/setup/schedule/import", new { fingerprint = "FP1" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, preview.StatusCode);
         Assert.Equal(expected, imported.StatusCode);
-        var body = await imported.Content.ReadAsStringAsync();
+        var body = await imported.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains(code, body);
         Assert.Contains("concise admin-safe message", body);
     }
@@ -436,13 +436,13 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks");
-        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 17, 2, 12 }, extra = true });
+        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks", TestContext.Current.CancellationToken);
+        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 17, 2, 12 }, extra = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         read.EnsureSuccessStatusCode();
         saved.EnsureSuccessStatusCode();
         Assert.Equal(["dogs:get", "dogs:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:17,2,12"], service.Calls);
-        var body = await read.Content.ReadAsStringAsync();
+        var body = await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"week\":2", body);
         Assert.Contains("\"required\":true", body);
         Assert.Contains("\"reason\":\"Required by the rules\"", body);
@@ -454,8 +454,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 2, 12, 17 } });
+        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 2, 12, 17 } }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
         Assert.Empty(service.Calls);
@@ -473,7 +473,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsync("/api/admin/seasons/setup/double-dog-weeks", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync("/api/admin/seasons/setup/double-dog-weeks", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -488,12 +488,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 2, 12, 17 } });
+        var read = await client.GetAsync("/api/admin/seasons/setup/double-dog-weeks", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/double-dog-weeks", new { weeks = new[] { 2, 12, 17 } }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected == HttpStatusCode.BadRequest ? HttpStatusCode.BadRequest : expected, write.StatusCode);
         Assert.Equal(expected == HttpStatusCode.BadRequest ? HttpStatusCode.BadRequest : expected, read.StatusCode);
-        var body = await write.Content.ReadAsStringAsync();
+        var body = await write.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains(code, body);
         Assert.Contains("say what to fix", body);
     }
@@ -511,13 +511,13 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts");
-        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody(7.5m));
+        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts", TestContext.Current.CancellationToken);
+        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody(7.5m), cancellationToken: TestContext.Current.CancellationToken);
 
         read.EnsureSuccessStatusCode();
         saved.EnsureSuccessStatusCode();
         Assert.Equal(["payouts:get", "payouts:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:7.5USD:Main=1@70.5,2@29.5;Dog=1@70.5,2@29.5;Regular Season=1@70.5,2@29.5;Playoff=1@70.5,2@29.5"], service.Calls);
-        var body = await read.Content.ReadAsStringAsync();
+        var body = await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"activeCoaches\":2", body);
         Assert.Contains("\"pot\":120", body);
         Assert.Contains("\"amount\":120", body);
@@ -529,8 +529,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody());
+        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
         Assert.Empty(service.Calls);
@@ -554,7 +554,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsync("/api/admin/seasons/setup/fines-and-payouts", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync("/api/admin/seasons/setup/fines-and-payouts", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -568,12 +568,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody());
+        var read = await client.GetAsync("/api/admin/seasons/setup/fines-and-payouts", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/fines-and-payouts", PayoutsBody(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, write.StatusCode);
         Assert.Equal(expected, read.StatusCode);
-        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
+        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     private static object LeagueBody(bool dog = false, string recordHolder = "MostOccurrences", object[]? colors = null) => new
@@ -589,13 +589,13 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings");
-        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody());
+        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings", TestContext.Current.CancellationToken);
+        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(), cancellationToken: TestContext.Current.CancellationToken);
 
         read.EnsureSuccessStatusCode();
         saved.EnsureSuccessStatusCode();
         Assert.Equal(["rules:get", "rules:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:False:1=Red,2=Yellow,3=Blue,4=Green:MostOccurrences"], service.Calls);
-        var body = await read.Content.ReadAsStringAsync();
+        var body = await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"teamMayAlsoBeDog\":true", body);
         Assert.Contains("\"color\":\"Green\"", body);
         Assert.Contains("\"recordHolder\":\"FirstOccurrence\"", body);
@@ -607,8 +607,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody());
+        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
         Assert.Empty(service.Calls);
@@ -634,7 +634,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsync("/api/admin/seasons/setup/league-settings", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync("/api/admin/seasons/setup/league-settings", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -646,13 +646,13 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var duplicateColor = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(colors: [new { points = 1, color = "Red" }, new { points = 2, color = "Red" }, new { points = 3, color = "Blue" }, new { points = 4, color = "Green" }]));
-        var missingPoint = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(colors: [new { points = 1, color = "Red" }, new { points = 2, color = "Yellow" }, new { points = 3, color = "Blue" }]));
-        var undefinedRecord = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", new { teamMayAlsoBeDog = true, pointColors = new[] { new { points = 1, color = "Green" }, new { points = 2, color = "Blue" }, new { points = 3, color = "Yellow" }, new { points = 4, color = "Red" } }, recordHolder = 9 });
+        var duplicateColor = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(colors: [new { points = 1, color = "Red" }, new { points = 2, color = "Red" }, new { points = 3, color = "Blue" }, new { points = 4, color = "Green" }]), cancellationToken: TestContext.Current.CancellationToken);
+        var missingPoint = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(colors: [new { points = 1, color = "Red" }, new { points = 2, color = "Yellow" }, new { points = 3, color = "Blue" }]), cancellationToken: TestContext.Current.CancellationToken);
+        var undefinedRecord = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", new { teamMayAlsoBeDog = true, pointColors = new[] { new { points = 1, color = "Green" }, new { points = 2, color = "Blue" }, new { points = 3, color = "Yellow" }, new { points = 4, color = "Red" } }, recordHolder = 9 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(new[] { duplicateColor, missingPoint, undefinedRecord }, response => Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode));
-        Assert.Contains("season.league-settings", await duplicateColor.Content.ReadAsStringAsync());
-        Assert.Contains("only one point value", await duplicateColor.Content.ReadAsStringAsync());
+        Assert.Contains("season.league-settings", await duplicateColor.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("only one point value", await duplicateColor.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Empty(service.Calls);
     }
 
@@ -664,12 +664,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody());
+        var read = await client.GetAsync("/api/admin/seasons/setup/league-settings", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/league-settings", LeagueBody(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, write.StatusCode);
         Assert.Equal(expected, read.StatusCode);
-        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
+        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -678,15 +678,15 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/coaches");
-        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = new object[] { new { email = "Pat@Example.com", name = "Pat", role = "Admin" }, new { email = "lee@example.com", name = "Lee" } } });
-        var empty = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = Array.Empty<object>() });
+        var read = await client.GetAsync("/api/admin/seasons/setup/coaches", TestContext.Current.CancellationToken);
+        var saved = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = new object[] { new { email = "Pat@Example.com", name = "Pat", role = "Admin" }, new { email = "lee@example.com", name = "Lee" } } }, cancellationToken: TestContext.Current.CancellationToken);
+        var empty = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = Array.Empty<object>() }, cancellationToken: TestContext.Current.CancellationToken);
 
         read.EnsureSuccessStatusCode();
         saved.EnsureSuccessStatusCode();
         empty.EnsureSuccessStatusCode();
         Assert.Equal(["coaches:get", "coaches:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:Pat@Example.com/Pat;lee@example.com/Lee", "coaches:put:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:"], service.Calls);
-        var body = await read.Content.ReadAsStringAsync();
+        var body = await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"activeCoaches\":1", body);
         Assert.Contains("\"email\":\"pat@example.com\"", body);
         Assert.Contains("\"selected\":false", body);
@@ -698,8 +698,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/coaches");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = Array.Empty<object>() });
+        var read = await client.GetAsync("/api/admin/seasons/setup/coaches", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = Array.Empty<object>() }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(new[] { read.StatusCode, write.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
         Assert.Empty(service.Calls);
@@ -716,7 +716,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsync("/api/admin/seasons/setup/coaches", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync("/api/admin/seasons/setup/coaches", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -730,12 +730,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/coaches");
-        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = new[] { new { email = "a@example.com", name = "A" } } });
+        var read = await client.GetAsync("/api/admin/seasons/setup/coaches", TestContext.Current.CancellationToken);
+        var write = await client.PutAsJsonAsync("/api/admin/seasons/setup/coaches", new { coaches = new[] { new { email = "a@example.com", name = "A" } } }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, write.StatusCode);
         Assert.Equal(expected, read.StatusCode);
-        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync());
+        Assert.Contains("say what to fix", await write.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -744,13 +744,13 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/review");
-        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null);
+        var read = await client.GetAsync("/api/admin/seasons/setup/review", TestContext.Current.CancellationToken);
+        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null, TestContext.Current.CancellationToken);
 
         read.EnsureSuccessStatusCode();
         finish.EnsureSuccessStatusCode();
         Assert.Equal(["review:get", "review:finish:9c9b2c10-a312-4b77-a26a-ef546e87f3c9"], service.Calls);
-        var body = await read.Content.ReadAsStringAsync();
+        var body = await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"ready\":false", body);
         Assert.Contains("\"code\":\"teams\"", body);
         Assert.Contains("\"step\":\"TeamsAndPoints\"", body);
@@ -763,8 +763,8 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/review");
-        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null);
+        var read = await client.GetAsync("/api/admin/seasons/setup/review", TestContext.Current.CancellationToken);
+        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null, TestContext.Current.CancellationToken);
 
         Assert.All(new[] { read.StatusCode, finish.StatusCode }, status => Assert.Contains(status, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect }));
         Assert.Empty(service.Calls);
@@ -778,12 +778,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "say what to fix") });
 
-        var read = await client.GetAsync("/api/admin/seasons/setup/review");
-        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null);
+        var read = await client.GetAsync("/api/admin/seasons/setup/review", TestContext.Current.CancellationToken);
+        var finish = await client.PostAsync("/api/admin/seasons/setup/review/finish", null, TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, finish.StatusCode);
         Assert.Equal(expected, read.StatusCode);
-        Assert.Contains("say what to fix", await finish.Content.ReadAsStringAsync());
+        Assert.Contains("say what to fix", await finish.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -792,10 +792,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService { Failure = new Error("season.creator-forbidden", "Only an administrator or a league commissioner can create a season.") };
         using var client = CreateClient("Coach", service);
 
-        var response = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "2026 Season" });
+        var response = await client.PostAsJsonAsync("/api/admin/seasons", new { year = 2026, name = "2026 Season" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Equal(("season.creator-forbidden", "Only an administrator or a league commissioner can create a season."), ((await response.Content.ReadFromJsonAsync<Error>())!.Code, "Only an administrator or a league commissioner can create a season."));
+        Assert.Equal(("season.creator-forbidden", "Only an administrator or a league commissioner can create a season."), ((await response.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken))!.Code, "Only an administrator or a league commissioner can create a season."));
     }
 
     [Fact]
@@ -804,11 +804,11 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" });
+        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" }, cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(["activate:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:2026-10-20T18:00:00:Unspecified"], service.Calls);
-        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal(("Live", "2026-10-20T18:00"), (json.RootElement.GetProperty("state").GetString(), json.RootElement.GetProperty("rosterDraftDeadlineEastern").GetString()));
         Assert.Equal(new DateTimeOffset(2026, 10, 20, 22, 0, 0, TimeSpan.Zero), json.RootElement.GetProperty("rosterDraftDeadline").GetDateTimeOffset());
     }
@@ -826,10 +826,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PostAsync("/api/admin/seasons/setup/activate", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PostAsync("/api/admin/seasons/setup/activate", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("season.draft-deadline", (await response.Content.ReadFromJsonAsync<Error>())!.Code);
+        Assert.Equal("season.draft-deadline", (await response.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken))!.Code);
         Assert.Empty(service.Calls);
     }
 
@@ -844,10 +844,10 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClient("Admin", new FakeSeasonService { Failure = new Error(code, "Say what to fix.") });
 
-        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" });
+        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(status, response.StatusCode);
-        Assert.Equal((code, "Say what to fix."), ((await response.Content.ReadFromJsonAsync<Error>())!.Code, "Say what to fix."));
+        Assert.Equal((code, "Say what to fix."), ((await response.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken))!.Code, "Say what to fix."));
     }
 
     [Fact]
@@ -856,7 +856,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ISeasonSetupService>(service))).CreateClient();
 
-        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" });
+        var response = await client.PostAsJsonAsync("/api/admin/seasons/setup/activate", new { rosterDraftDeadlineEastern = "2026-10-20T18:00" }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
         Assert.Empty(service.Calls);

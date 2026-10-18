@@ -20,18 +20,18 @@ public sealed class PingEndpointTests(WebApplicationFactory<Program> factory)
     [Fact]
     public async Task GetPingReturnsPong()
     {
-        var response = await factory.CreateClient().GetAsync("/api/ping");
+        var response = await factory.CreateClient().GetAsync("/api/ping", TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
 
-        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal("pong", payload.RootElement.GetProperty("message").GetString());
     }
 
     [Fact]
     public async Task GetMeWithoutSessionReturnsUnauthorized()
     {
-        var response = await factory.CreateClient().GetAsync("/api/me");
+        var response = await factory.CreateClient().GetAsync("/api/me", TestContext.Current.CancellationToken);
 
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -41,7 +41,7 @@ public sealed class PingEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClientForRole("Coach");
 
-        var response = await client.GetAsync("/api/admin/audit");
+        var response = await client.GetAsync("/api/admin/audit", TestContext.Current.CancellationToken);
 
         Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -51,7 +51,7 @@ public sealed class PingEndpointTests(WebApplicationFactory<Program> factory)
     {
         using var client = CreateClientForRole("Admin");
 
-        var response = await client.GetAsync("/api/admin/audit");
+        var response = await client.GetAsync("/api/admin/audit", TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
     }

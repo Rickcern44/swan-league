@@ -76,8 +76,9 @@ To make the last check suitable for CI, run `./scripts/verify-ef-model.sh`.
 Run UI formatting, linting, unit tests, and the production build from `src/Swan.Web`:
 
 ```sh
-npm run format:check
-npm run lint
+npm run format:check # Biome
+npm run lint         # Biome
+npm run check        # Biome formatter, linter, and import organization
 npm test
 npm run build
 ```

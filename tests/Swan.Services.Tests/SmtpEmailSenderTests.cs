@@ -14,21 +14,21 @@ public sealed class SmtpEmailSenderTests : IAsyncLifetime
         .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(1025))
         .Build();
 
-    public Task InitializeAsync() => mailpit.StartAsync();
-    public Task DisposeAsync() => mailpit.DisposeAsync().AsTask();
+    public ValueTask InitializeAsync() => new(mailpit.StartAsync());
+    public ValueTask DisposeAsync() => mailpit.DisposeAsync();
 
     [Fact]
     public async Task SmtpSenderDeliversMessageVisibleThroughMailpitApi()
     {
         var sender = new SmtpEmailSender(mailpit.Hostname, mailpit.GetMappedPublicPort(1025), "noreply@swan.local");
-        await sender.SendAsync(new EmailMessage("coach@example.com", "Mailpit integration", "Welcome", false));
+        await sender.SendAsync(new EmailMessage("coach@example.com", "Mailpit integration", "Welcome", false), TestContext.Current.CancellationToken);
 
         using var client = new HttpClient { BaseAddress = new Uri($"http://{mailpit.Hostname}:{mailpit.GetMappedPublicPort(8025)}") };
         for (var attempt = 0; attempt < 10; attempt++)
         {
-            var response = await client.GetStringAsync("/api/v1/messages");
+            var response = await client.GetStringAsync("/api/v1/messages", TestContext.Current.CancellationToken);
             if (response.Contains("Mailpit integration", StringComparison.Ordinal)) return;
-            await Task.Delay(100);
+            await Task.Delay(100, TestContext.Current.CancellationToken);
         }
 
         throw new Xunit.Sdk.XunitException("Mailpit did not expose the sent message through its API.");

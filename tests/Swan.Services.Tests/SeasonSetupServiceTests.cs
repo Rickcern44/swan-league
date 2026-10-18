@@ -22,9 +22,9 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     private static readonly UserId Admin = new(Guid.Parse("9c9b2c10-a312-4b77-a26a-ef546e87f3c9"));
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:18.3").Build();
 
-    public Task InitializeAsync() => postgres.StartAsync();
+    public ValueTask InitializeAsync() => new(postgres.StartAsync());
 
-    public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
+    public ValueTask DisposeAsync() => postgres.DisposeAsync();
 
     [Fact]
     public async Task SeasonIdentityPoolsAndSetupStateRoundTripThroughPostgres()
@@ -34,11 +34,11 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(Season.CreateBlank(id, 2026, "2026 Season", isSimulation: true).Value!);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var reloaded = CreateDatabase();
-        var season = await reloaded.Seasons.SingleAsync(value => value.Id == id);
+        var season = await reloaded.Seasons.SingleAsync(value => value.Id == id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal((2026, "2026 Season", true, SeasonState.Setup), (season.Year, season.Name, season.IsSimulation, season.State));
         Assert.Equal([("Main", 60m), ("Dog", 20m), ("Regular Season", 10m), ("Playoff", 10m)], season.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
         Assert.Equal(new TimeOnly(13, 0), season.Settings.TeamPickDeadlineEastern);
@@ -52,11 +52,11 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var id = Guid.NewGuid();
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 1)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 1)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         await using var reloaded = CreateDatabase();
-        var legacy = await reloaded.Seasons.SingleAsync(value => value.Id == new SeasonId(id));
+        var legacy = await reloaded.Seasons.SingleAsync(value => value.Id == new SeasonId(id), cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal((0, "", false, SeasonState.Live), (legacy.Year, legacy.Name, legacy.IsSimulation, legacy.State));
         Assert.Empty(legacy.Pools);
     }
@@ -87,7 +87,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var noSetupYet = await Run(service => service.GetSetupAsync());
@@ -123,13 +123,13 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "2026 Season", isSimulation: false).Value!);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2027, "2027 Season", isSimulation: false).Value!);
-            var rejected = await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+            var rejected = await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync(TestContext.Current.CancellationToken));
             Assert.IsType<Npgsql.PostgresException>(rejected.InnerException);
         }
 
@@ -142,8 +142,8 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
                 database.Seasons.Add(live);
             }
 
-            await database.SaveChangesAsync();
-            Assert.Equal(3, await database.Seasons.CountAsync());
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(3, await database.Seasons.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         }
     }
 
@@ -165,16 +165,16 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     {
         await using (var database = CreateDatabase())
         {
-            await database.GetService<IMigrator>().MigrateAsync("20261013132526_AddSeasonIdentityAndPools");
+            await database.GetService<IMigrator>().MigrateAsync("20261013132526_AddSeasonIdentityAndPools", TestContext.Current.CancellationToken);
             foreach (var id in new[] { Guid.NewGuid(), Guid.NewGuid() })
-                await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+                await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         await using var upgrading = CreateDatabase();
-        var failure = await Assert.ThrowsAnyAsync<Exception>(() => upgrading.Database.MigrateAsync());
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => upgrading.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Contains("more than one Setup season", failure.ToString());
-        Assert.Equal(2, await upgrading.Seasons.CountAsync(season => season.State == SeasonState.Setup));
+        Assert.Equal(2, await upgrading.Seasons.CountAsync(season => season.State == SeasonState.Setup, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var result = await Run(service => service.UpdateSetupBasicsAsync(Admin, 2030, "Changed", isSimulation: true));
@@ -254,13 +254,13 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
         await using var activating = CreateDatabase();
-        await using var transaction = await activating.Database.BeginTransactionAsync();
-        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""");
+        await using var transaction = await activating.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
+        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""", cancellationToken: TestContext.Current.CancellationToken);
 
         var edit = Run(service => service.UpdateSetupBasicsAsync(Admin, 2030, "Changed", isSimulation: true));
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
         Assert.False(edit.IsCompleted);
-        await transaction.CommitAsync();
+        await transaction.CommitAsync(TestContext.Current.CancellationToken);
         var result = await edit;
 
         Assert.False(result.IsSuccess);
@@ -329,7 +329,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var result = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
@@ -347,13 +347,13 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
         await using var activating = CreateDatabase();
-        await using var transaction = await activating.Database.BeginTransactionAsync();
-        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""");
+        await using var transaction = await activating.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
+        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""", cancellationToken: TestContext.Current.CancellationToken);
 
         var edit = Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
         Assert.False(edit.IsCompleted);
-        await transaction.CommitAsync();
+        await transaction.CommitAsync(TestContext.Current.CancellationToken);
         var result = await edit;
 
         Assert.False(result.IsSuccess);
@@ -368,7 +368,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         var id = Guid.NewGuid();
         await using (var database = CreateDatabase())
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""", cancellationToken: TestContext.Current.CancellationToken);
 
         var updated = await Run(service => service.UpdateSetupMoneyAsync(Admin, NewMoney));
 
@@ -423,7 +423,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var result = await Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)));
@@ -440,13 +440,13 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
         await using var activating = CreateDatabase();
-        await using var transaction = await activating.Database.BeginTransactionAsync();
-        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""");
+        await using var transaction = await activating.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
+        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""", cancellationToken: TestContext.Current.CancellationToken);
 
         var edit = Run(service => service.UpdateSetupDeadlineAsync(Admin, new TimeOnly(11, 30)));
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
         Assert.False(edit.IsCompleted);
-        await transaction.CommitAsync();
+        await transaction.CommitAsync(TestContext.Current.CancellationToken);
         var result = await edit;
 
         Assert.False(result.IsSuccess);
@@ -510,7 +510,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var result = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Money));
@@ -526,13 +526,13 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
         await using var activating = CreateDatabase();
-        await using var transaction = await activating.Database.BeginTransactionAsync();
-        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""");
+        await using var transaction = await activating.Database.BeginTransactionAsync(TestContext.Current.CancellationToken);
+        await activating.Database.ExecuteSqlRawAsync("""update league.seasons set "State" = 1""", cancellationToken: TestContext.Current.CancellationToken);
 
         var edit = Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.Money));
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
         Assert.False(edit.IsCompleted);
-        await transaction.CommitAsync();
+        await transaction.CommitAsync(TestContext.Current.CancellationToken);
         var result = await edit;
 
         Assert.False(result.IsSuccess);
@@ -548,7 +548,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var id = Guid.NewGuid();
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var found = await Run(service => service.GetSetupAsync());
@@ -597,7 +597,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         {
             database.Seasons.Add(live);
             database.SeasonTeams.Add(new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), live.Id, teams[0].Id, teams[0].Division, 1, 0));
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var created = await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
@@ -677,13 +677,13 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var east = teams.Where(team => team.Division == "AFC East").ToList();
         await using var database = CreateDatabase();
         database.SeasonTeams.Add(new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), created.Value!.Id, east[0].Id, "AFC East", 1, 0));
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         database.SeasonTeams.Add(new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), created.Value.Id, east[1].Id, "AFC East", 1, 0));
-        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync(TestContext.Current.CancellationToken));
         database.ChangeTracker.Clear();
         database.SeasonTeams.Add(new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), created.Value.Id, east[0].Id, "AFC East", 2, 0));
-        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -691,19 +691,19 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     {
         await using (var database = CreateDatabase())
         {
-            await database.GetService<IMigrator>().MigrateAsync("20261013203733_AddSetupStep");
+            await database.GetService<IMigrator>().MigrateAsync("20261013203733_AddSetupStep", TestContext.Current.CancellationToken);
             var (season, team) = (Guid.NewGuid(), Guid.NewGuid());
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({season}, '100|USD|3|', 1)""");
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into schedule.teams ("Id", "Name", "CreatedAt", "Division") values ({team}, 'A', now(), 'AFC East')""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({season}, '100|USD|3|', 1)""", cancellationToken: TestContext.Current.CancellationToken);
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into schedule.teams ("Id", "Name", "CreatedAt", "Division") values ({team}, 'A', now(), 'AFC East')""", cancellationToken: TestContext.Current.CancellationToken);
             foreach (var finish in new[] { 1, 1 })
-                await database.Database.ExecuteSqlInterpolatedAsync($"""insert into schedule.season_teams ("Id", "SeasonId", "TeamId", "Division", "FinishPosition", "FinishTies") values ({Guid.NewGuid()}, {season}, {team}, 'AFC East', {finish}, 0)""");
+                await database.Database.ExecuteSqlInterpolatedAsync($"""insert into schedule.season_teams ("Id", "SeasonId", "TeamId", "Division", "FinishPosition", "FinishTies") values ({Guid.NewGuid()}, {season}, {team}, 'AFC East', {finish}, 0)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         await using var upgrading = CreateDatabase();
-        var failure = await Assert.ThrowsAnyAsync<Exception>(() => upgrading.Database.MigrateAsync());
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => upgrading.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Contains("unique season teams", failure.ToString());
-        Assert.Equal(2, await upgrading.SeasonTeams.CountAsync());
+        Assert.Equal(2, await upgrading.SeasonTeams.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     // A Setup season with teams and a full imported schedule whose Week 12 holds Thanksgiving (Thu Nov 26) and Week 17 holds Christmas (Fri Dec 25).
@@ -856,7 +856,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var id = Guid.NewGuid();
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var season = await Run((service, database) => database.Seasons.SingleAsync());
@@ -1009,7 +1009,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var id = Guid.NewGuid();
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({id}, '100|USD|3|', 0)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var plan = await Run(service => service.GetSetupFinesAndPayoutsAsync());
@@ -1029,7 +1029,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         Assert.Equal("season.missing", (await Run(service => service.GetSetupFinesAndPayoutsAsync())).Error!.Code);
@@ -1108,8 +1108,8 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, '125.50|USD|4|', 1)""");
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, '100|USD|3|11:30 AM', 0)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, '125.50|USD|4|', 1)""", cancellationToken: TestContext.Current.CancellationToken);
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, '100|USD|3|11:30 AM', 0)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var seasons = await Run((service, database) => database.Seasons.AsNoTracking().OrderBy(season => season.State).ToListAsync());
@@ -1137,7 +1137,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             var stored = $"100|USD|3||{storedRules}";
-            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, {stored}, 1)""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""insert into league.seasons ("Id", "Settings", "State") values ({Guid.NewGuid()}, {stored}, 1)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var season = await Run((service, database) => database.Seasons.AsNoTracking().SingleAsync());
@@ -1155,7 +1155,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Seasons.Add(live);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         Assert.Equal("season.missing", (await Run(service => service.GetSetupLeagueSettingsAsync())).Error!.Code);
@@ -1624,17 +1624,17 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var membership = await SeedCommissionerAsync(commissioner);
         // The deactivation is written but not yet committed.
         await using var connection = new Npgsql.NpgsqlConnection(postgres.GetConnectionString());
-        await connection.OpenAsync();
-        await using var other = await connection.BeginTransactionAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var other = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
         await using (var update = new Npgsql.NpgsqlCommand("""update league.memberships set "IsActive" = false where "Id" = @id""", connection, other))
         {
             update.Parameters.AddWithValue("id", membership.Value);
-            Assert.Equal(1, await update.ExecuteNonQueryAsync());
+            Assert.Equal(1, await update.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
         }
 
         var create = Run(service => service.CreateBlankAsync(commissioner, 2026, "2026 Season", false));
-        var finishedEarly = await Task.WhenAny(create, Task.Delay(TimeSpan.FromSeconds(2))) == create;
-        await other.CommitAsync();
+        var finishedEarly = await Task.WhenAny(create, Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken)) == create;
+        await other.CommitAsync(TestContext.Current.CancellationToken);
         var result = await create;
 
         Assert.False(finishedEarly, "The creation must wait for the membership row instead of trusting the old active state.");
@@ -1714,7 +1714,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlRawAsync("""delete from schedule.season_teams where "SeasonId" in (select "Id" from league.seasons where "State" = 0) and ctid in (select ctid from schedule.season_teams limit 1)""");
+            await database.Database.ExecuteSqlRawAsync("""delete from schedule.season_teams where "SeasonId" in (select "Id" from league.seasons where "State" = 0) and ctid in (select ctid from schedule.season_teams limit 1)""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var noTeam = (await Run(service => service.GetSetupReviewAsync())).Value!;
@@ -1728,7 +1728,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await ReadyToFinish();
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlRawAsync("""delete from schedule.weeks where "Number" = 18""");
+            await database.Database.ExecuteSqlRawAsync("""delete from schedule.weeks where "Number" = 18""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var review = (await Run(service => service.GetSetupReviewAsync())).Value!;
@@ -1810,7 +1810,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.True((await Run(service => service.FinishSetupAsync(Admin))).IsSuccess);
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlRawAsync("""delete from schedule.weeks where "Number" = 3""");
+            await database.Database.ExecuteSqlRawAsync("""delete from schedule.weeks where "Number" = 3""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var review = (await Run(service => service.GetSetupReviewAsync())).Value!;
@@ -1997,11 +1997,15 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var audit = await Run((service, database) => database.AuditEntries.SingleAsync(entry => entry.Action == "season.setup.schedule.imported"));
         Assert.Equal((Admin, season.Id.Value.ToString()), (audit.UserId, audit.ResourceId));
         Assert.Contains("BALLDONTLIE", audit.Details);
-        Assert.Contains(preview.Value.Fingerprint!, audit.Details);
+        Assert.NotNull(preview.Value);
+        var previewPlan = preview.Value!;
+        Assert.Contains(previewPlan.Fingerprint!, audit.Details);
         Assert.Contains("2026-10-14T12:00:00", audit.Details);
         var reloaded = await Run(service => service.GetSetupScheduleAsync());
-        Assert.True(reloaded.Value!.Imported);
-        Assert.Equal(19, reloaded.Value.GameCount);
+        Assert.NotNull(reloaded.Value);
+        var reloadedPlan = reloaded.Value!;
+        Assert.True(reloadedPlan.Imported);
+        Assert.Equal(19, reloadedPlan.GameCount);
     }
 
     [Fact]
@@ -2010,9 +2014,11 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var (teams, _) = await SetupWithTeams();
         ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1])));
         var preview = await Run(service => service.PreviewScheduleAsync());
-        Assert.True((await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!))).IsSuccess);
+        Assert.NotNull(preview.Value);
+        var previewPlan = preview.Value!;
+        Assert.True((await Run(service => service.ImportScheduleAsync(Admin, previewPlan.Fingerprint!))).IsSuccess);
 
-        var again = await Run(service => service.ImportScheduleAsync(Admin, preview.Value.Fingerprint!));
+        var again = await Run(service => service.ImportScheduleAsync(Admin, previewPlan.Fingerprint!));
         var previewAgain = await Run(service => service.PreviewScheduleAsync());
 
         Assert.Equal("schedule.exists", again.Error!.Code);
@@ -2080,7 +2086,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Teams.Add(outsider);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var cases = new (string Name, ProviderGame[] Games)[]
@@ -2116,7 +2122,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await using (var database = CreateDatabase())
         {
             database.Weeks.Add(other);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1]), PG("11", 1, teams[2], teams[3])));
@@ -2136,13 +2142,13 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
         for (var index = 0; index < 3; index++) week.AddGame(new Game(new GameId(Guid.NewGuid()), teams[0].Id, teams[1].Id, new Kickoff(Kickoff)));
         database.Weeks.Add(week);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var second = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));
         second.AddGame(new Game(new GameId(Guid.NewGuid()), teams[0].Id, teams[1].Id, new Kickoff(Kickoff), providerGameId: "5"));
         second.AddGame(new Game(new GameId(Guid.NewGuid()), teams[2].Id, teams[3].Id, new Kickoff(Kickoff), providerGameId: "5"));
         database.Weeks.Add(second);
-        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]

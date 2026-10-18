@@ -23,9 +23,9 @@ public sealed class SwanDbContextTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:18.3").Build();
 
-    public Task InitializeAsync() => postgres.StartAsync();
+    public ValueTask InitializeAsync() => new(postgres.StartAsync());
 
-    public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
+    public ValueTask DisposeAsync() => postgres.DisposeAsync();
 
     [Fact]
     public void DesignTimeFactoryUsesNpgsqlWithoutConnecting()
@@ -39,17 +39,17 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     {
         await using var database = await CreateMigratedDatabase();
 
-        await DevelopmentSeeder.SeedAsync(database);
-        var firstTeamCount = await database.Teams.CountAsync();
-        var firstSeasonTeamCount = await database.SeasonTeams.CountAsync();
+        await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
+        var firstTeamCount = await database.Teams.CountAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var firstSeasonTeamCount = await database.SeasonTeams.CountAsync(cancellationToken: TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
-        await DevelopmentSeeder.SeedAsync(database);
+        await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
 
-        var finishes = await database.SeasonTeams.ToListAsync();
+        var finishes = await database.SeasonTeams.ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(32, firstTeamCount);
         Assert.Equal(32, firstSeasonTeamCount);
-        Assert.Equal(32, await database.Teams.CountAsync());
-        Assert.All(await database.Teams.ToListAsync(), team => Assert.False(string.IsNullOrWhiteSpace(team.Division)));
+        Assert.Equal(32, await database.Teams.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.All(await database.Teams.ToListAsync(cancellationToken: TestContext.Current.CancellationToken), team => Assert.False(string.IsNullOrWhiteSpace(team.Division)));
         Assert.All(finishes.GroupBy(team => team.Division), division => Assert.Equal(new[] { 1, 2, 3, 4 }, division.Select(team => team.FinishPosition).Order()));
     }
 
@@ -58,18 +58,18 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     {
         await using var database = await CreateMigratedDatabase();
 
-        await DevelopmentSeeder.SeedAsync(database);
+        await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var rosters = await database.Rosters.AsNoTracking().ToListAsync();
-        var open = await database.Weeks.AsNoTracking().SingleAsync(week => week.State == WeekState.Open);
+        var rosters = await database.Rosters.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var open = await database.Weeks.AsNoTracking().SingleAsync(week => week.State == WeekState.Open, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(6, rosters.Count);
         Assert.All(rosters, roster => Assert.Equal(9, roster.Teams.Count));
         Assert.Equal((2, 16), (open.Number, open.Games.Count));
         Assert.All(open.Games, game => Assert.NotNull(game.ApprovedLine));
         Assert.NotEmpty(open.DogOptions);
         Assert.All(open.Games, game => Assert.True(game.Kickoff.Value > DateTimeOffset.UtcNow));
-        Assert.Equal(WeekState.Draft, (await database.Weeks.AsNoTracking().SingleAsync(week => week.Number == 1)).State);
+        Assert.Equal(WeekState.Draft, (await database.Weeks.AsNoTracking().SingleAsync(week => week.Number == 1, cancellationToken: TestContext.Current.CancellationToken)).State);
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public sealed class SwanDbContextTests : IAsyncLifetime
 
         await using var database = new SwanDbContext(options);
 
-        await database.Database.MigrateAsync();
+        await database.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
         var seasonId = new SeasonId(Guid.NewGuid());
         database.Users.Add(new User(new UserId(Guid.NewGuid()), Email.Create("coach@example.com").Value!, "Coach"));
         database.Seasons.Add(new Season(seasonId, new SeasonSettings(Money.Create(100m, "USD").Value!, 3), []));
@@ -92,22 +92,22 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         database.Ledgers.Add(new Ledger(new LedgerId(Guid.NewGuid()), seasonId));
         database.Announcements.Add(new Swan.Core.Communication.Announcement(new AnnouncementId(Guid.NewGuid()), "Welcome", DateTimeOffset.UtcNow));
         database.ScheduledJobs.Add(new ScheduledJob(new ScheduledJobId(Guid.NewGuid()), "send-reminders", DateTimeOffset.UtcNow));
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        Assert.Equal("Coach", (await database.Users.SingleAsync()).Name);
-        Assert.Equal(1, await database.Seasons.CountAsync());
-        Assert.Equal(1, await database.Weeks.CountAsync());
-        Assert.Equal(1, await database.Rosters.CountAsync());
-        Assert.Equal(1, await database.WeekScores.CountAsync());
-        Assert.Equal(1, await database.Ledgers.CountAsync());
-        Assert.Equal(1, await database.Announcements.CountAsync());
-        Assert.Equal(1, await database.ScheduledJobs.CountAsync());
+        Assert.Equal("Coach", (await database.Users.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Name);
+        Assert.Equal(1, await database.Seasons.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(1, await database.Weeks.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(1, await database.Rosters.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(1, await database.WeekScores.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(1, await database.Ledgers.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(1, await database.Announcements.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(1, await database.ScheduledJobs.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
 
-        await database.Database.OpenConnectionAsync();
+        await database.Database.OpenConnectionAsync(cancellationToken: TestContext.Current.CancellationToken);
         await using var command = database.Database.GetDbConnection().CreateCommand();
         command.CommandText = "select count(*) from pg_namespace where nspname in ('identity', 'league', 'schedule', 'picks', 'scoring', 'money', 'communication', 'platform')";
-        Assert.Equal(8L, Convert.ToInt64(await command.ExecuteScalarAsync()));
+        Assert.Equal(8L, Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken)));
     }
 
     [Fact]
@@ -123,10 +123,10 @@ public sealed class SwanDbContextTests : IAsyncLifetime
 
         await using var database = await CreateMigratedDatabase();
         database.Ballots.Add(ballot);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var restored = await database.Ballots.SingleAsync(value => value.Id == ballot.Id);
+        var restored = await database.Ballots.SingleAsync(value => value.Id == ballot.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Single(restored.Picks);
         Assert.Single(restored.Dogs);
         Assert.Single(restored.Changes);
@@ -146,10 +146,10 @@ public sealed class SwanDbContextTests : IAsyncLifetime
 
         await using var database = await CreateMigratedDatabase();
         database.Weeks.Add(week);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var restored = await database.Weeks.SingleAsync(value => value.Id == week.Id);
+        var restored = await database.Weeks.SingleAsync(value => value.Id == week.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(-3.5m, restored.Games.Single().ApprovedLine!.Value);
         Assert.Equal(team, restored.DogOptions.Single().TeamId);
     }
@@ -164,10 +164,10 @@ public sealed class SwanDbContextTests : IAsyncLifetime
 
         await using var database = await CreateMigratedDatabase();
         database.Ledgers.Add(ledger);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var restored = await database.Ledgers.SingleAsync(value => value.Id == ledger.Id);
+        var restored = await database.Ledgers.SingleAsync(value => value.Id == ledger.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(new[] { 25m, 50m }, restored.Items.Select(item => item.Amount.Amount).Order());
         Assert.Contains(restored.Items, item => item.Memo == "payout");
     }
@@ -180,10 +180,10 @@ public sealed class SwanDbContextTests : IAsyncLifetime
 
         await using var database = await CreateMigratedDatabase();
         database.Seasons.Add(season);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var restored = await database.Seasons.SingleAsync(value => value.Id == season.Id);
+        var restored = await database.Seasons.SingleAsync(value => value.Id == season.Id, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(120m, restored.Settings.BuyIn.Amount);
         Assert.Equal("USD", restored.Settings.BuyIn.Currency);
         Assert.Equal(4, restored.Settings.DoubleDogWeeks);
@@ -194,9 +194,9 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     {
         await using var database = await CreateMigratedDatabase();
         database.PushSubscriptions.Add(new Swan.Core.Communication.PushSubscription(new PushSubscriptionId(Guid.NewGuid()), new MembershipId(Guid.NewGuid()), "https://push.example/sub", "one", "one"));
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.PushSubscriptions.Add(new Swan.Core.Communication.PushSubscription(new PushSubscriptionId(Guid.NewGuid()), new MembershipId(Guid.NewGuid()), "https://push.example/sub", "two", "two"));
-        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync());
+        await Assert.ThrowsAsync<DbUpdateException>(() => database.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -207,23 +207,23 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         var user = new User(new UserId(Guid.NewGuid()), email, "Magic Coach");
         database.Users.Add(user);
         database.Seasons.Add(new Season(new SeasonId(Guid.NewGuid()), new SeasonSettings(Money.Create(100m, "USD").Value!, 3), []));
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var sender = new CapturingEmailSender();
         var clock = new FakeClock(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
         var service = new MagicLinkService(database, sender, clock);
-        await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"));
-        await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"));
+        await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
+        await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
 
         var rawToken = TokenFrom(sender.Messages.Single().Body);
         database.ChangeTracker.Clear();
-        var stored = await database.Users.SingleAsync();
+        var stored = await database.Users.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotEqual(rawToken, stored.LoginTokens.Single().Value);
 
-        var redeemed = await service.RedeemAsync(rawToken);
+        var redeemed = await service.RedeemAsync(rawToken, TestContext.Current.CancellationToken);
         Assert.True(redeemed.IsSuccess);
         Assert.Equal("Magic Coach", redeemed.Value!.Name);
-        Assert.False((await service.RedeemAsync(rawToken)).IsSuccess);
+        Assert.False((await service.RedeemAsync(rawToken, TestContext.Current.CancellationToken)).IsSuccess);
     }
 
     [Fact]
@@ -233,25 +233,25 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         var email = Email.Create("inactive@example.com").Value!;
         var user = new User(new UserId(Guid.NewGuid()), email, "Inactive Coach");
         database.Users.Add(user);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var sender = new CapturingEmailSender();
         var clock = new FakeClock(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
         var service = new MagicLinkService(database, sender, clock);
-        await service.RequestAsync(email, "192.0.2.45", new Uri("https://swan.test/api/sign-in-links/redeem"));
+        await service.RequestAsync(email, "192.0.2.45", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
         var expired = TokenFrom(sender.Messages.Single().Body);
         clock.UtcNow = clock.UtcNow.AddMinutes(15);
-        Assert.False((await service.RedeemAsync(expired)).IsSuccess);
+        Assert.False((await service.RedeemAsync(expired, TestContext.Current.CancellationToken)).IsSuccess);
 
         database.ChangeTracker.Clear();
-        var inactive = await database.Users.SingleAsync();
+        var inactive = await database.Users.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
         inactive.Deactivate();
-        await database.SaveChangesAsync();
-        await service.RequestAsync(email, "192.0.2.46", new Uri("https://swan.test/api/sign-in-links/redeem"));
-        await service.RequestAsync(Email.Create("unknown@example.com").Value!, "192.0.2.47", new Uri("https://swan.test/api/sign-in-links/redeem"));
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await service.RequestAsync(email, "192.0.2.46", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
+        await service.RequestAsync(Email.Create("unknown@example.com").Value!, "192.0.2.47", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
 
         Assert.Single(sender.Messages);
-        Assert.False((await service.RedeemAsync(expired)).IsSuccess);
+        Assert.False((await service.RedeemAsync(expired, TestContext.Current.CancellationToken)).IsSuccess);
     }
 
     [Fact]
@@ -261,31 +261,31 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         var start = new DateTimeOffset(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
         var user = new User(new UserId(Guid.NewGuid()), Email.Create("session@example.com").Value!, "Session Coach");
         database.Users.Add(user);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         var sessions = new SessionService(database, new FakeClock(start));
-        var issued = await sessions.CreateAsync(user.Id);
+        var issued = await sessions.CreateAsync(user.Id, TestContext.Current.CancellationToken);
 
-        var current = await sessions.AuthenticateAsync(issued.Credential);
+        var current = await sessions.AuthenticateAsync(issued.Credential, TestContext.Current.CancellationToken);
 
         Assert.Equal(("Session Coach", "Coach", user.Id), (current!.Name, current.Role, current.UserId));
         Assert.Equal(start.Add(SessionService.Lifetime), issued.ExpiresAt);
         Assert.Matches("^[0-9A-F]{64}$", issued.Credential);
-        Assert.NotEqual(issued.Credential, (await database.Sessions.SingleAsync()).TokenHash);
+        Assert.NotEqual(issued.Credential, (await database.Sessions.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).TokenHash);
         // A user id, a made-up credential, a lower-case copy and nothing at all are all refused.
-        Assert.Null(await sessions.AuthenticateAsync(user.Id.Value.ToString()));
-        Assert.Null(await sessions.AuthenticateAsync(Convert.ToHexString(Guid.NewGuid().ToByteArray()) + Convert.ToHexString(Guid.NewGuid().ToByteArray())));
-        Assert.Null(await sessions.AuthenticateAsync(issued.Credential.ToLowerInvariant()));
-        Assert.Null(await sessions.AuthenticateAsync(null));
-        Assert.Null(await new SessionService(database, new FakeClock(issued.ExpiresAt)).AuthenticateAsync(issued.Credential));
-        Assert.NotNull(await new SessionService(database, new FakeClock(issued.ExpiresAt.AddTicks(-1))).AuthenticateAsync(issued.Credential));
+        Assert.Null(await sessions.AuthenticateAsync(user.Id.Value.ToString(), TestContext.Current.CancellationToken));
+        Assert.Null(await sessions.AuthenticateAsync(Convert.ToHexString(Guid.NewGuid().ToByteArray()) + Convert.ToHexString(Guid.NewGuid().ToByteArray()), TestContext.Current.CancellationToken));
+        Assert.Null(await sessions.AuthenticateAsync(issued.Credential.ToLowerInvariant(), TestContext.Current.CancellationToken));
+        Assert.Null(await sessions.AuthenticateAsync(null, TestContext.Current.CancellationToken));
+        Assert.Null(await new SessionService(database, new FakeClock(issued.ExpiresAt)).AuthenticateAsync(issued.Credential, TestContext.Current.CancellationToken));
+        Assert.NotNull(await new SessionService(database, new FakeClock(issued.ExpiresAt.AddTicks(-1))).AuthenticateAsync(issued.Credential, TestContext.Current.CancellationToken));
 
-        await sessions.RevokeAsync(issued.Credential);
-        Assert.Null(await sessions.AuthenticateAsync(issued.Credential));
-        var second = await sessions.CreateAsync(user.Id);
+        await sessions.RevokeAsync(issued.Credential, TestContext.Current.CancellationToken);
+        Assert.Null(await sessions.AuthenticateAsync(issued.Credential, TestContext.Current.CancellationToken));
+        var second = await sessions.CreateAsync(user.Id, TestContext.Current.CancellationToken);
         Assert.NotEqual(issued.Credential, second.Credential);
         user.Deactivate();
-        await database.SaveChangesAsync();
-        Assert.Null(await sessions.AuthenticateAsync(second.Credential));
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+        Assert.Null(await sessions.AuthenticateAsync(second.Credential, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -296,10 +296,10 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         var actor = new UserId(Guid.NewGuid());
         var audit = new AuditService(database, clock);
 
-        await audit.AppendAsync(actor, "season.activate", "season-1", new { state = "setup" }, new { state = "live" }, "Commissioner approved");
-        await audit.AppendAsync(new UserId(Guid.NewGuid()), "season.activate", "season-2");
+        await audit.AppendAsync(actor, "season.activate", "season-1", new { state = "setup" }, new { state = "live" }, "Commissioner approved", TestContext.Current.CancellationToken);
+        await audit.AppendAsync(new UserId(Guid.NewGuid()), "season.activate", "season-2", cancellationToken: TestContext.Current.CancellationToken);
 
-        var entries = await audit.QueryAsync(new AuditFilter(Actor: actor, Action: "season.activate", From: clock.UtcNow.AddMinutes(-1), To: clock.UtcNow.AddMinutes(1)));
+        var entries = await audit.QueryAsync(new AuditFilter(Actor: actor, Action: "season.activate", From: clock.UtcNow.AddMinutes(-1), To: clock.UtcNow.AddMinutes(1)), TestContext.Current.CancellationToken);
         var entry = Assert.Single(entries);
         Assert.Equal(actor, entry.UserId);
         Assert.Contains("Commissioner approved", entry.Details);
@@ -321,12 +321,12 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         var secondScore = new WeekScore(new WeekScoreId(Guid.NewGuid()), season, second, week);
         secondScore.ReplaceLines([new Swan.Core.Scoring.ScoreLine(new TeamId(Guid.NewGuid()), 5, Swan.Core.Scoring.ScoreSource.TeamPick, "game-3")]);
         database.WeekScores.AddRange(firstScore, secondScore);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
         var standings = new StandingsService(database);
-        var main = await standings.GetAsync(season, StandingPool.Main);
-        var dogs = await standings.GetAsync(season, StandingPool.Dog);
+        var main = await standings.GetAsync(season, StandingPool.Main, cancellationToken: TestContext.Current.CancellationToken);
+        var dogs = await standings.GetAsync(season, StandingPool.Dog, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(second, main[0].MembershipId);
         Assert.Equal(5, main[0].Points);
@@ -355,15 +355,15 @@ public sealed class SwanDbContextTests : IAsyncLifetime
             new ScoreLine(new TeamId(Guid.NewGuid()), 6, ScoreSource.TeamPick, "playoff-win"),
             new ScoreLine(null, 3, ScoreSource.PlayoffQualification, "qualification")]);
         database.WeekScores.AddRange(regular, playoff);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
         var standings = new StandingsService(database);
-        var main = Assert.Single(await standings.GetAsync(season, StandingPool.Main));
-        var dogPool = Assert.Single(await standings.GetAsync(season, StandingPool.Dog));
-        var regularSeason = Assert.Single(await standings.GetAsync(season, StandingPool.RegularSeason));
-        var playoffPool = Assert.Single(await standings.GetAsync(season, StandingPool.Playoff));
-        var currentWeek = Assert.Single(await standings.GetAsync(season, StandingPool.Main, weekId: playoffWeek));
+        var main = Assert.Single(await standings.GetAsync(season, StandingPool.Main, cancellationToken: TestContext.Current.CancellationToken));
+        var dogPool = Assert.Single(await standings.GetAsync(season, StandingPool.Dog, cancellationToken: TestContext.Current.CancellationToken));
+        var regularSeason = Assert.Single(await standings.GetAsync(season, StandingPool.RegularSeason, cancellationToken: TestContext.Current.CancellationToken));
+        var playoffPool = Assert.Single(await standings.GetAsync(season, StandingPool.Playoff, cancellationToken: TestContext.Current.CancellationToken));
+        var currentWeek = Assert.Single(await standings.GetAsync(season, StandingPool.Main, weekId: playoffWeek, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Equal(13, main.Points);
         Assert.Equal(2, dogPool.Points);
@@ -387,10 +387,10 @@ public sealed class SwanDbContextTests : IAsyncLifetime
             return score;
         });
         database.WeekScores.AddRange(scores);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var standings = await new StandingsService(database).GetAsync(season, StandingPool.Main);
+        var standings = await new StandingsService(database).GetAsync(season, StandingPool.Main, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(standings, standing =>
         {
@@ -413,10 +413,10 @@ public sealed class SwanDbContextTests : IAsyncLifetime
             return score;
         });
         database.WeekScores.AddRange(scores);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var standings = await new StandingsService(database).GetAsync(season, StandingPool.Main);
+        var standings = await new StandingsService(database).GetAsync(season, StandingPool.Main, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal([1, 1, 1, 4], standings.Select(standing => standing.Rank));
         Assert.Equal([4, 4, 4, 2], standings.Select(standing => standing.Points));
@@ -450,16 +450,16 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         week.AddGame(new Game(gameId, new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow.AddDays(3))));
         foreach (var spread in new[] { -3.5m, 2m, -7m }) Assert.True(week.AddLine(gameId, new Spread(spread)).IsSuccess);
         database.Weeks.Add(week);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var reloaded = await database.Weeks.SingleAsync();
+        var reloaded = await database.Weeks.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal([-3.5m, 2m, -7m], reloaded.Games.Single().LineHistory.Select(line => line.Value));
         Assert.True(reloaded.ApproveLatestLine(gameId).IsSuccess);
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
-        var approved = (await database.Weeks.SingleAsync()).Games.Single();
+        var approved = (await database.Weeks.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Games.Single();
         Assert.Equal(-7m, approved.ApprovedLine!.Value);
         Assert.Equal(3, approved.LineHistory.Count);
     }

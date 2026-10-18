@@ -26,7 +26,7 @@ public sealed class SessionApiFixture : IAsyncLifetime
     public WebApplicationFactory<Program> Development { get; private set; } = null!;
     public WebApplicationFactory<Program> Production { get; private set; } = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         await postgres.StartAsync();
         await using (var database = new SwanDbContext(new DbContextOptionsBuilder<SwanDbContext>().UseNpgsql(postgres.GetConnectionString()).Options))
@@ -45,7 +45,7 @@ public sealed class SessionApiFixture : IAsyncLifetime
         Production = Create("Production");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         await Development.DisposeAsync();
         await Production.DisposeAsync();
@@ -109,8 +109,8 @@ public sealed class SecureSessionTests(SessionApiFixture fixture) : IClassFixtur
         var client = Client(fixture.Development);
 
         foreach (var forged in new[] { Coach1Id.ToString(), AdminId.ToString(), Coach1Id.ToString("N"), Coach1Id.ToString().ToUpperInvariant() })
-            Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get(url, forged))).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get(url, null))).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get(url, forged), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get(url, null), TestContext.Current.CancellationToken)).StatusCode);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public sealed class SecureSessionTests(SessionApiFixture fixture) : IClassFixtur
         var client = Client(fixture.Development);
 
         foreach (var guess in new[] { "", " ", "0", new string('A', 64), new string('a', 64), Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), "not-a-token", "../../etc/passwd" })
-            Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", guess))).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", guess), TestContext.Current.CancellationToken)).StatusCode);
     }
 
     [Fact]
@@ -130,9 +130,9 @@ public sealed class SecureSessionTests(SessionApiFixture fixture) : IClassFixtur
         Assert.Matches("^[A-F0-9]{64}$", credential);
         Assert.NotEqual(Coach1Id.ToString(), credential);
         Assert.DoesNotContain(Coach1Id.ToString(), setCookie, StringComparison.OrdinalIgnoreCase);
-        var me = await Client(fixture.Development).SendAsync(Get("/api/me", credential));
+        var me = await Client(fixture.Development).SendAsync(Get("/api/me", credential), TestContext.Current.CancellationToken);
         me.EnsureSuccessStatusCode();
-        var body = await me.Content.ReadFromJsonAsync<Dictionary<string, object>>();
+        var body = await me.Content.ReadFromJsonAsync<Dictionary<string, object>>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal("Coach", body!["role"].ToString());
         var stored = await fixture.WithDatabase(fixture.Development, (database, _) => database.Sessions.AsNoTracking().Where(session => session.UserId == new UserId(Coach1Id)).ToListAsync());
         var row = Assert.Single(stored);
@@ -171,11 +171,11 @@ public sealed class SecureSessionTests(SessionApiFixture fixture) : IClassFixtur
         var (coach, _) = await SignInAsync(fixture.Development, "coach4@swan.local");
         var client = Client(fixture.Development);
 
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/admin/dashboard", admin))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Get("/api/admin/dashboard", coach))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/coach/picks/current", coach))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Get("/api/coach/picks/current", admin))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/me", admin))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/admin/dashboard", admin), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Get("/api/admin/dashboard", coach), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/coach/picks/current", coach), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Get("/api/coach/picks/current", admin), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/me", admin), TestContext.Current.CancellationToken)).StatusCode);
     }
 
     [Fact]
@@ -187,15 +187,15 @@ public sealed class SecureSessionTests(SessionApiFixture fixture) : IClassFixtur
 
         var signOut = new HttpRequestMessage(HttpMethod.Post, "/api/sign-out");
         signOut.Headers.Add("Cookie", $"swan_session={first}");
-        var response = await client.SendAsync(signOut);
+        var response = await client.SendAsync(signOut, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Contains(response.Headers.GetValues("Set-Cookie"), value => value.StartsWith("swan_session=;"));
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", first))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/me", other.Credential))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", first), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/me", other.Credential), TestContext.Current.CancellationToken)).StatusCode);
         var revoked = await fixture.WithDatabase(fixture.Development, (database, _) => database.Sessions.AsNoTracking().CountAsync(session => session.RevokedAt != null && session.UserId == new UserId(Guid.Parse("00000000-0000-0000-0000-000000000205"))));
         Assert.Equal(1, revoked);
-        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/api/sign-out", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/api/sign-out", null, TestContext.Current.CancellationToken)).StatusCode);
     }
 
     [Fact]
@@ -206,20 +206,20 @@ public sealed class SecureSessionTests(SessionApiFixture fixture) : IClassFixtur
         var revoked = await fixture.WithDatabase(fixture.Development, (_, sessions) => sessions.CreateAsync(coach6));
         var live = await fixture.WithDatabase(fixture.Development, (_, sessions) => sessions.CreateAsync(coach6));
         var client = Client(fixture.Development);
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/me", live.Credential))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/me", live.Credential), TestContext.Current.CancellationToken)).StatusCode);
 
         await fixture.WithDatabase(fixture.Development, async (database, _) =>
             await database.Database.ExecuteSqlAsync($"""update identity.sessions set "ExpiresAt" = now() - interval '1 minute' where "TokenHash" = {Hash(expired.Credential)}"""));
         await fixture.WithDatabase(fixture.Development, async (database, _) =>
             await database.Database.ExecuteSqlAsync($"""update identity.sessions set "RevokedAt" = now() where "TokenHash" = {Hash(revoked.Credential)}"""));
 
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", expired.Credential))).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", revoked.Credential))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/me", live.Credential))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", expired.Credential), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", revoked.Credential), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Get("/api/me", live.Credential), TestContext.Current.CancellationToken)).StatusCode);
 
         await fixture.WithDatabase(fixture.Development, async (database, _) =>
             await database.Database.ExecuteSqlAsync($"""update identity.users set "IsActive" = false where "Id" = {coach6.Value}"""));
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", live.Credential))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Get("/api/me", live.Credential), TestContext.Current.CancellationToken)).StatusCode);
     }
 
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));

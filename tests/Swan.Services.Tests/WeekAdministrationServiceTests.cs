@@ -18,9 +18,9 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
     private static readonly UserId Admin = new(Guid.Parse("9c9b2c10-a312-4b77-a26a-ef546e87f3c9"));
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:18.3").Build();
 
-    public Task InitializeAsync() => postgres.StartAsync();
+    public ValueTask InitializeAsync() => new(postgres.StartAsync());
 
-    public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
+    public ValueTask DisposeAsync() => postgres.DisposeAsync();
 
     [Fact]
     public async Task DraftWeekMovesThroughLifecycleAndEveryActionIsAudited()
@@ -210,7 +210,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         {
             await AllowDuplicateBallotsAsync(database);
             database.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), seeded.Membership, seeded.Week));
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         foreach (var game in seeded.Games) await Run(service => service.ConfirmResultAsync(Admin, seeded.Week, game, 1, 0));
@@ -280,7 +280,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
 
         await using (var database = CreateDatabase())
         {
-            await database.Database.ExecuteSqlInterpolatedAsync($"""update league.seasons set "Settings" = replace("Settings", '|True|', '|False|') where "Id" = {season.Value}""");
+            await database.Database.ExecuteSqlInterpolatedAsync($"""update league.seasons set "Settings" = replace("Settings", '|True|', '|False|') where "Id" = {season.Value}""", cancellationToken: TestContext.Current.CancellationToken);
         }
 
         // No automatic re-score of the completed week...
@@ -336,7 +336,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         {
             await AllowDuplicateBallotsAsync(database);
             database.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), bad.Membership, bad.Week));
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var none = await Run(service => service.RecomputeSeasonAsync(Admin, empty));
@@ -505,7 +505,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
     {
         await using (var database = CreateDatabase())
         {
-            await database.Database.MigrateAsync();
+            await database.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
             var ravens = new Team(new TeamId(Guid.NewGuid()), "Baltimore Ravens", null, DateTimeOffset.UtcNow, "AFC North");
             var bills = new Team(new TeamId(Guid.NewGuid()), "Buffalo Bills", null, DateTimeOffset.UtcNow, "AFC East");
             database.Teams.AddRange(ravens, bills);
@@ -515,7 +515,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
             week.AddGame(late);
             week.AddGame(early);
             database.Weeks.Add(week);
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
             seededWeek = week.Id;
             seededEarly = early.Id;
         }
