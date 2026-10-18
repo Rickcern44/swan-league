@@ -63,9 +63,11 @@ public sealed class ScheduleImportPlanTests
         var built = Build(Full(Game("20", week: 2, kickoff: Sunday.AddDays(7)), Game("10", week: 1, kickoff: new DateTimeOffset(2026, 9, 13, 13, 0, 0, TimeSpan.FromHours(-4)))));
 
         Assert.True(built.IsSuccess);
-        Assert.Equal(Enumerable.Range(1, 18), built.Value!.Select(week => week.Number));
-        Assert.All(built.Value, week => Assert.Equal((Season, WeekKind.Regular, WeekState.Draft, true), (week.SeasonId, week.Type.Kind, week.State, week.Type.PicksRequired)));
-        var game = built.Value[0].Games.Single();
+        Assert.NotNull(built.Value);
+        var weeks = built.Value!;
+        Assert.Equal(Enumerable.Range(1, 18), weeks.Select(week => week.Number));
+        Assert.All(weeks, week => Assert.Equal((Season, WeekKind.Regular, WeekState.Draft, true), (week.SeasonId, week.Type.Kind, week.State, week.Type.PicksRequired)));
+        var game = weeks[0].Games.Single();
         Assert.Equal(("10", Bills.Id, Jets.Id), (game.ProviderGameId, game.HomeTeamId, game.AwayTeamId));
         Assert.Equal((Sunday, TimeSpan.Zero), (game.Kickoff.Value, game.Kickoff.Value.Offset));
     }

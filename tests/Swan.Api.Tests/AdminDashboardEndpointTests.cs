@@ -26,7 +26,7 @@ public sealed class AdminDashboardEndpointTests(WebApplicationFactory<Program> f
         var service = new FakeDashboardService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<IAdminDashboardService>(service))).CreateClient();
 
-        var response = await client.GetAsync(Url);
+        var response = await client.GetAsync(Url, TestContext.Current.CancellationToken);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
         Assert.Equal(0, service.Calls);
@@ -38,7 +38,7 @@ public sealed class AdminDashboardEndpointTests(WebApplicationFactory<Program> f
         var service = new FakeDashboardService();
         using var client = CreateClient("Coach", service);
 
-        var response = await client.GetAsync(Url);
+        var response = await client.GetAsync(Url, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(0, service.Calls);
@@ -55,10 +55,10 @@ public sealed class AdminDashboardEndpointTests(WebApplicationFactory<Program> f
             false));
         using var client = CreateClient("Admin", service);
 
-        var response = await client.GetAsync(Url);
+        var response = await client.GetAsync(Url, TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var root = json.RootElement;
         Assert.Equal("2026 Season", root.GetProperty("season").GetProperty("name").GetString());
         Assert.Equal("Draft", root.GetProperty("currentWeek").GetProperty("state").GetString());
@@ -74,10 +74,10 @@ public sealed class AdminDashboardEndpointTests(WebApplicationFactory<Program> f
     {
         using var client = CreateClient("Admin", new FakeDashboardService());
 
-        var response = await client.GetAsync(Url);
+        var response = await client.GetAsync(Url, TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("season").ValueKind);
         Assert.Empty(json.RootElement.GetProperty("attention").EnumerateArray());
     }
@@ -87,9 +87,9 @@ public sealed class AdminDashboardEndpointTests(WebApplicationFactory<Program> f
     {
         using var client = CreateClient("Admin", new FakeDashboardService());
 
-        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.PostAsync(Url, null)).StatusCode);
-        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.PutAsJsonAsync(Url, new { })).StatusCode);
-        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.DeleteAsync(Url)).StatusCode);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.PostAsync(Url, null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.PutAsJsonAsync(Url, new { }, cancellationToken: TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.DeleteAsync(Url, TestContext.Current.CancellationToken)).StatusCode);
     }
 
     private HttpClient CreateClient(string role, FakeDashboardService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>

@@ -6,6 +6,7 @@
     <Project Path="src/Swan.ServiceDefaults/Swan.ServiceDefaults.csproj" />
     <Project Path="src/Swan.Api/Swan.Api.csproj" />
     <Project Path="src/Swan.Worker/Swan.Worker.csproj" />
+    <Project Path="src/Swan.AppHost/Swan.AppHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Swan.Api.Tests/Swan.Api.Tests.csproj" />
@@ -13,5 +14,6 @@
     <Project Path="tests/Swan.Core.Tests/Swan.Core.Tests.csproj" />
     <Project Path="tests/Swan.Services.Tests/Swan.Services.Tests.csproj" />
     <Project Path="tests/Swan.Worker.Tests/Swan.Worker.Tests.csproj" />
+    <Project Path="tests/Swan.AppHost.Tests/Swan.AppHost.Tests.csproj" />
   </Folder>
 </Solution>

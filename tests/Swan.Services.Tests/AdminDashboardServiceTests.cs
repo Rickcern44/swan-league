@@ -13,14 +13,14 @@ public sealed class AdminDashboardServiceTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:18.3").Build();
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         await postgres.StartAsync();
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
     }
 
-    public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
+    public ValueTask DisposeAsync() => postgres.DisposeAsync();
 
     [Fact]
     public async Task WithNoLiveSeasonTheDashboardSaysSoEvenWhenASetupSeasonExists()

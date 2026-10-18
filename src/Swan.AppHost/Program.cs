@@ -1,17 +1,16 @@
-#:sdk Aspire.AppHost.Sdk@13.6.1
-#:property AspireUseCliBundle=true
-#:package Aspire.Hosting.JavaScript@13.6.1
-#:package Aspire.Hosting.PostgreSQL@13.6.1
-#:package CommunityToolkit.Aspire.Hosting.MailPit@13.6.1-beta.930
-
 var builder = DistributedApplication.CreateBuilder(args);
 
-var postgres = builder.AddPostgres("postgres")
-    .WithDataVolume();
+var postgres = builder.AddPostgres("postgres");
+var useVolumes = !bool.TryParse(builder.Configuration["UseVolumes"], out var configuredUseVolumes) || configuredUseVolumes;
+if (useVolumes)
+{
+    postgres.WithDataVolume();
+}
+
 var database = postgres.AddDatabase("swan");
 var mailpit = builder.AddMailPit("mailpit");
 
-var api = builder.AddProject("api", "src/Swan.Api/Swan.Api.csproj")
+var api = builder.AddProject<Projects.Swan_Api>("api")
     .WithReference(database)
     .WithReference(mailpit)
     .WaitFor(database)
@@ -19,11 +18,11 @@ var api = builder.AddProject("api", "src/Swan.Api/Swan.Api.csproj")
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
-builder.AddProject("worker", "src/Swan.Worker/Swan.Worker.csproj")
+builder.AddProject<Projects.Swan_Worker>("worker")
     .WithReference(database)
     .WaitFor(database);
 
-builder.AddViteApp("web", "src/Swan.Web")
+builder.AddViteApp("web", "../Swan.Web")
     .WithReference(api)
     .WaitFor(api)
     .WithExternalHttpEndpoints();

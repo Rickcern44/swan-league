@@ -36,9 +36,9 @@ public sealed class DevelopmentResetEndpointTests(SessionApiFixture fixture) : I
         var before = await Seasons();
         var client = Client(fixture.Production);
 
-        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Request(HttpMethod.Post, Url, admin))).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Request(HttpMethod.Post, Url, null))).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Request(HttpMethod.Get, Url, admin))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Request(HttpMethod.Post, Url, admin), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Request(HttpMethod.Post, Url, null), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Request(HttpMethod.Get, Url, admin), TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(before, await Seasons());
         Assert.True(before > 0);
     }
@@ -58,10 +58,10 @@ public sealed class DevelopmentResetEndpointTests(SessionApiFixture fixture) : I
         var before = await Seasons();
         var client = Client(fixture.Development);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Request(HttpMethod.Post, Url, null))).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Request(HttpMethod.Post, Url, SeededCoach.Value.ToString()))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Request(HttpMethod.Post, Url, coach))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Request(HttpMethod.Post, Url, commissionerSession))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Request(HttpMethod.Post, Url, null), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Request(HttpMethod.Post, Url, SeededCoach.Value.ToString()), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Request(HttpMethod.Post, Url, coach), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(Request(HttpMethod.Post, Url, commissionerSession), TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(before, await Seasons());
     }
 
@@ -87,18 +87,18 @@ public sealed class DevelopmentResetEndpointTests(SessionApiFixture fixture) : I
         var client = Client(fixture.Development);
         Assert.True(await Seasons() > 0);
 
-        var response = await client.SendAsync(Request(HttpMethod.Post, Url, admin));
+        var response = await client.SendAsync(Request(HttpMethod.Post, Url, admin), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var removed = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("removed");
+        var removed = (await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: TestContext.Current.CancellationToken)).GetProperty("removed");
         Assert.True(removed.GetProperty("seasons").GetInt32() > 0);
         Assert.Equal(0, await Seasons());
         // The administrator is not signed out (people and sessions are kept), there is no Setup season, and a new season can be created straight away.
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Request(HttpMethod.Get, "/api/me", admin))).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Request(HttpMethod.Get, "/api/admin/seasons/setup", admin))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Request(HttpMethod.Get, "/api/me", admin), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Request(HttpMethod.Get, "/api/admin/seasons/setup", admin), TestContext.Current.CancellationToken)).StatusCode);
         var create = Request(HttpMethod.Post, "/api/admin/seasons", admin);
         create.Content = JsonContent.Create(new { year = 2031, name = "A fresh start" });
-        Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(create)).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(create, TestContext.Current.CancellationToken)).StatusCode);
         var teams = await fixture.WithDatabase(fixture.Development, (database, _) => database.Teams.CountAsync());
         Assert.Equal(32, teams);
     }

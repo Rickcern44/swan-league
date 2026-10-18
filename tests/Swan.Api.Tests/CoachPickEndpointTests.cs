@@ -29,7 +29,7 @@ public sealed class CoachPickEndpointTests(WebApplicationFactory<Program> factor
         var service = new FakePickService();
         using var client = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ICoachPickService>(service))).CreateClient();
 
-        var response = await client.SendAsync(Request(method));
+        var response = await client.SendAsync(Request(method), TestContext.Current.CancellationToken);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
         Assert.Empty(service.Calls);
@@ -43,7 +43,7 @@ public sealed class CoachPickEndpointTests(WebApplicationFactory<Program> factor
         var service = new FakePickService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.SendAsync(Request(method));
+        var response = await client.SendAsync(Request(method), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -55,10 +55,10 @@ public sealed class CoachPickEndpointTests(WebApplicationFactory<Program> factor
         var service = new FakePickService();
         using var client = CreateClient("Coach", service);
 
-        var response = await client.GetAsync(Url);
+        var response = await client.GetAsync(Url, TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var root = json.RootElement;
         Assert.Equal(("open", "2026 Swan League", 3), (root.GetProperty("state").GetString(), root.GetProperty("seasonName").GetString(), root.GetProperty("revision").GetInt32()));
         Assert.Equal(WeekGuid, root.GetProperty("week").GetProperty("id").GetGuid());
@@ -74,11 +74,11 @@ public sealed class CoachPickEndpointTests(WebApplicationFactory<Program> factor
         var service = new FakePickService();
         using var client = CreateClient("Coach", service);
 
-        var response = await client.PutAsJsonAsync(Url, new { weekId = WeekGuid, expectedRevision = 3, teamIds = new[] { TeamGuid }, dogTeamIds = new Guid[0] });
+        var response = await client.PutAsJsonAsync(Url, new { weekId = WeekGuid, expectedRevision = 3, teamIds = new[] { TeamGuid }, dogTeamIds = new Guid[0] }, cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal([$"save:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:{WeekGuid}:3:{TeamGuid}:"], service.Calls);
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal("open", json.RootElement.GetProperty("state").GetString());
     }
 
@@ -94,10 +94,10 @@ public sealed class CoachPickEndpointTests(WebApplicationFactory<Program> factor
     {
         using var client = CreateClient("Coach", new FakePickService { Failure = new Error(code, "Say what to fix.") });
 
-        var response = await client.PutAsJsonAsync(Url, new { weekId = WeekGuid, expectedRevision = 0, teamIds = new[] { TeamGuid }, dogTeamIds = new Guid[0] });
+        var response = await client.PutAsJsonAsync(Url, new { weekId = WeekGuid, expectedRevision = 0, teamIds = new[] { TeamGuid }, dogTeamIds = new Guid[0] }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(status, response.StatusCode);
-        var error = await response.Content.ReadFromJsonAsync<Error>();
+        var error = await response.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal((code, "Say what to fix."), (error!.Code, error.Message));
     }
 
@@ -113,7 +113,7 @@ public sealed class CoachPickEndpointTests(WebApplicationFactory<Program> factor
         var service = new FakePickService();
         using var client = CreateClient("Coach", service);
 
-        var response = await client.PutAsync(Url, new StringContent(body, Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync(Url, new StringContent(body, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);

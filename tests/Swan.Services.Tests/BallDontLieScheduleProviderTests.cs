@@ -45,7 +45,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, handler) = Create(Key, Json(Page([Game(1, 1, "Buffalo Bills", "New York Jets")])));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.True(fetched.IsSuccess);
         var request = Assert.Single(handler.Requests);
@@ -64,7 +64,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, _) = Create(Key, Json(Page([Game(77, 3, "Buffalo Bills", "New York Jets", "2026-09-27T20:25:00.000Z")])));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Equal(Now, fetched.Value!.FetchedAt);
         var game = Assert.Single(fetched.Value.Games);
@@ -80,7 +80,7 @@ public sealed class BallDontLieScheduleProviderTests
             Json(Page([Game(2, 1, "C", "D")], next: 902)),
             Json(Page([Game(3, 2, "E", "F")])));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Equal(["1", "2", "3"], fetched.Value!.Games.Select(game => game.Id));
         Assert.Equal(3, handler.Requests.Count);
@@ -94,7 +94,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, _) = Create(Key, Json(Page([])));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2031);
+        var fetched = await provider.FetchRegularSeasonAsync(2031, TestContext.Current.CancellationToken);
 
         Assert.True(fetched.IsSuccess);
         Assert.Empty(fetched.Value!.Games);
@@ -108,7 +108,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, handler) = Create(key);
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Equal("schedule.config", fetched.Error!.Code);
         Assert.Empty(handler.Requests);
@@ -122,7 +122,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, _) = Create(Key, Json($"secret provider body mentioning {Key}", status));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Equal("schedule.provider", fetched.Error!.Code);
         Assert.DoesNotContain(Key, fetched.Error.Message);
@@ -135,7 +135,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, _) = Create(Key, _ => throw new HttpRequestException($"connection refused for {Key}"));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Equal("schedule.provider", fetched.Error!.Code);
         Assert.DoesNotContain(Key, fetched.Error.Message);
@@ -146,7 +146,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, _) = Create(Key, _ => throw new TaskCanceledException("The request was canceled due to the configured timeout."));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Equal("schedule.provider", fetched.Error!.Code);
         Assert.Contains("rate limit", fetched.Error.Message);
@@ -161,7 +161,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, _) = Create(Key, Json(body));
 
-        Assert.Equal("schedule.provider", (await provider.FetchRegularSeasonAsync(2026)).Error!.Code);
+        Assert.Equal("schedule.provider", (await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken)).Error!.Code);
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, _) = Create(Key, Json(Page([Game(9, 1, "A", "B", postseason: true)])));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Equal("schedule.provider", fetched.Error!.Code);
     }
@@ -182,7 +182,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, _) = Create(Key, Json(Page([Game(1, 1, "A", "B", date)])));
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Null(Assert.Single(fetched.Value!.Games).Kickoff);
     }
@@ -192,7 +192,7 @@ public sealed class BallDontLieScheduleProviderTests
     {
         var (provider, handler) = Create(Key, _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Page([Game(1, 1, "A", "B")], next: 5)) });
 
-        var fetched = await provider.FetchRegularSeasonAsync(2026);
+        var fetched = await provider.FetchRegularSeasonAsync(2026, TestContext.Current.CancellationToken);
 
         Assert.Equal("schedule.provider", fetched.Error!.Code);
         Assert.InRange(handler.Requests.Count, 2, 100);

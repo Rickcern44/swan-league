@@ -24,9 +24,9 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
     private WeekId weekId;
     private readonly List<GameId> games = [];
 
-    public Task InitializeAsync() => postgres.StartAsync();
+    public ValueTask InitializeAsync() => new(postgres.StartAsync());
 
-    public Task DisposeAsync() => postgres.DisposeAsync().AsTask();
+    public ValueTask DisposeAsync() => postgres.DisposeAsync();
 
     private TeamId T(int index) => teams[index].Id;
 
@@ -312,9 +312,9 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
         await SeedAsync();
         await using (var database = CreateDatabase())
         {
-            var week = await database.Weeks.SingleAsync();
+            var week = await database.Weeks.SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
             week.Lock();
-            await database.SaveChangesAsync();
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var save = await Run(service => service.SaveAsync(coachA, new SavePicks(weekId.Value, 0, [T(1).Value], [])));
@@ -329,18 +329,18 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
         await SeedAsync();
         // The admin's lock is in flight: written but not yet committed.
         await using var connection = new Npgsql.NpgsqlConnection(postgres.GetConnectionString());
-        await connection.OpenAsync();
-        await using var adminTransaction = await connection.BeginTransactionAsync();
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var adminTransaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
         await using (var update = new Npgsql.NpgsqlCommand("""update schedule.weeks set "State" = @locked where "Id" = @id""", connection, adminTransaction))
         {
             update.Parameters.AddWithValue("locked", (int)WeekState.Locked);
             update.Parameters.AddWithValue("id", weekId.Value);
-            Assert.Equal(1, await update.ExecuteNonQueryAsync());
+            Assert.Equal(1, await update.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
         }
 
         var save = Run(service => service.SaveAsync(coachA, new SavePicks(weekId.Value, 0, [T(1).Value], [])));
-        var finishedEarly = await Task.WhenAny(save, Task.Delay(TimeSpan.FromSeconds(2))) == save;
-        await adminTransaction.CommitAsync();
+        var finishedEarly = await Task.WhenAny(save, Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken)) == save;
+        await adminTransaction.CommitAsync(TestContext.Current.CancellationToken);
         var result = await save;
 
         Assert.False(finishedEarly, "The save must wait for the week row instead of reading the old Open state.");
@@ -368,13 +368,13 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
     {
         await SeedAsync();
         await using var database = CreateDatabase();
-        var membership = await database.Memberships.FirstAsync(item => item.UserId == coachA);
+        var membership = await database.Memberships.FirstAsync(item => item.UserId == coachA, cancellationToken: TestContext.Current.CancellationToken);
         database.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), membership.Id, weekId));
-        await database.SaveChangesAsync();
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
         await using var second = CreateDatabase();
         second.Ballots.Add(new Ballot(new BallotId(Guid.NewGuid()), membership.Id, weekId));
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => second.SaveChangesAsync());
+        await Assert.ThrowsAsync<DbUpdateException>(() => second.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -383,7 +383,7 @@ public sealed class CoachPickServiceTests : IAsyncLifetime
         await SeedAsync();
 
         await using var database = CreateDatabase();
-        var roster = await database.Rosters.AsNoTracking().ToListAsync();
+        var roster = await database.Rosters.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal([9, 9], roster.Select(item => item.Teams.Count));
     }

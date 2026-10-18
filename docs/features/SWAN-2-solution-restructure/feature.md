@@ -14,6 +14,7 @@ Intent: Reorganize the solution layout to match the architecture described in th
 ## User decisions (2026-10-12)
 
 - **AppHost:** Keep single-file apphost.cs at repo root. Do NOT create Swan.AppHost project. Add Swan.ServiceDefaults project.
+  - Superseded by Issue #4: the AppHost is now a standard `src/Swan.AppHost` project so Aspire's distributed-application testing APIs can run the full stack in CI.
 - **CI:** Deferred — no workflow file in this feature.
 - **PWA:** Scaffold manifest + service worker (vite-plugin-pwa). Web push deferred to Phase 4.
 

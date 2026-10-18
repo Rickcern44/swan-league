@@ -39,7 +39,7 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     {
         using var client = CreateClient("Coach", new FakeWeekService());
 
-        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), $"/api/admin/weeks/{WeekGuid}{suffix}") { Content = method != "GET" ? JsonContent.Create(new { spread = 1, teamIds = new Guid[0] }) : null });
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), $"/api/admin/weeks/{WeekGuid}{suffix}") { Content = method != "GET" ? JsonContent.Create(new { spread = 1, teamIds = new Guid[0] }) : null }, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -53,12 +53,12 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         using var missing = CreateClient("Admin", new FakeWeekService { SeasonFailure = new Error("season.missing", "Season does not exist.") });
         var url = $"/api/admin/seasons/{SeasonGuid}/weeks/recompute";
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await coach.PostAsync(url, null)).StatusCode);
-        var ok = await admin.PostAsync(url, null);
-        var notFound = await missing.PostAsync(url, null);
+        Assert.Equal(HttpStatusCode.Forbidden, (await coach.PostAsync(url, null, TestContext.Current.CancellationToken)).StatusCode);
+        var ok = await admin.PostAsync(url, null, TestContext.Current.CancellationToken);
+        var notFound = await missing.PostAsync(url, null, TestContext.Current.CancellationToken);
 
         ok.EnsureSuccessStatusCode();
-        using var payload = System.Text.Json.JsonDocument.Parse(await ok.Content.ReadAsStringAsync());
+        using var payload = System.Text.Json.JsonDocument.Parse(await ok.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal(2, payload.RootElement.GetProperty("recomputed").GetArrayLength());
         Assert.Equal(0, payload.RootElement.GetProperty("failed").GetArrayLength());
         Assert.Equal([$"season:{SeasonGuid}"], service.Calls);
@@ -73,7 +73,7 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         var service = new FakeWeekService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        var response = await client.PutAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(service.Calls);
@@ -84,8 +84,8 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     {
         using var client = CreateClient("Admin", new FakeWeekService());
 
-        var found = await client.GetAsync($"/api/admin/weeks/{WeekGuid}");
-        var missing = await client.GetAsync($"/api/admin/weeks/{Guid.NewGuid()}");
+        var found = await client.GetAsync($"/api/admin/weeks/{WeekGuid}", TestContext.Current.CancellationToken);
+        var missing = await client.GetAsync($"/api/admin/weeks/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
 
         found.EnsureSuccessStatusCode();
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
@@ -96,12 +96,12 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     {
         using var client = CreateClient("Admin", new FakeWeekService());
 
-        var read = await client.GetAsync($"/api/admin/weeks/{WeekGuid}");
-        var acted = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null);
+        var read = await client.GetAsync($"/api/admin/weeks/{WeekGuid}", TestContext.Current.CancellationToken);
+        var acted = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null, TestContext.Current.CancellationToken);
 
         foreach (var response in new[] { read, acted })
         {
-            using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
             var root = json.RootElement;
             Assert.Equal(WeekGuid, root.GetProperty("id").GetGuid());
             Assert.Equal(("Regular", "Draft", 1), (root.GetProperty("kind").GetString(), root.GetProperty("state").GetString(), root.GetProperty("number").GetInt32()));
@@ -124,10 +124,10 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         using var client = CreateClient("Admin", new FakeWeekService { Failure = new Error(code, "Out of range.") });
         var url = target == "lines" ? $"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines" : $"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result";
 
-        var response = await client.PostAsJsonAsync(url, new { spread = 35, approve = false, homeScore = 101, awayScore = 0 });
+        var response = await client.PostAsJsonAsync(url, new { spread = 35, approve = false, homeScore = 101, awayScore = 0 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(code, (await response.Content.ReadFromJsonAsync<Error>())!.Code);
+        Assert.Equal(code, (await response.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken))!.Code);
     }
 
     [Fact]
@@ -136,16 +136,16 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         var service = new FakeWeekService();
         using var client = CreateClient("Admin", service);
 
-        var line = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines", new { spread = -3.5m, approve = true });
-        var latest = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null);
-        var approve = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lines/approve", null);
-        var publish = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null);
-        var @lock = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lock", null);
-        var result = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result", new { homeScore = 21, awayScore = 21 });
-        var finalize = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null);
-        var recompute = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null);
-        var generate = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null);
-        var replace = await client.PutAsJsonAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new { teamIds = new[] { TeamGuid } });
+        var line = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines", new { spread = -3.5m, approve = true }, cancellationToken: TestContext.Current.CancellationToken);
+        var latest = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null, TestContext.Current.CancellationToken);
+        var approve = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lines/approve", null, TestContext.Current.CancellationToken);
+        var publish = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null, TestContext.Current.CancellationToken);
+        var @lock = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lock", null, TestContext.Current.CancellationToken);
+        var result = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result", new { homeScore = 21, awayScore = 21 }, cancellationToken: TestContext.Current.CancellationToken);
+        var finalize = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null, TestContext.Current.CancellationToken);
+        var recompute = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null, TestContext.Current.CancellationToken);
+        var generate = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null, TestContext.Current.CancellationToken);
+        var replace = await client.PutAsJsonAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new { teamIds = new[] { TeamGuid } }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(new[] { line, latest, approve, publish, @lock, result, finalize, recompute, generate, replace }, response => response.EnsureSuccessStatusCode());
         Assert.Equal([$"line:{GameGuid}:-3.5:True", $"latest:{GameGuid}", "approve", "publish", "lock", $"result:{GameGuid}:21:21", "finalize", "recompute", "generate", $"replace:{TeamGuid}"], service.Calls);
@@ -158,23 +158,23 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         using var client = CreateClient("Admin", new FakeWeekService { Failure = new Error("week.state", "Lines must be approved.") });
         using var missingGame = CreateClient("Admin", new FakeWeekService { Failure = new Error("game.missing", "Game does not exist.") });
 
-        var conflict = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null);
-        var notFound = await missingGame.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines", new { spread = 1 });
+        var conflict = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null, TestContext.Current.CancellationToken);
+        var notFound = await missingGame.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines", new { spread = 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
-        Assert.Contains("week.state", await conflict.Content.ReadAsStringAsync());
+        Assert.Contains("week.state", await conflict.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
         using var noHistory = CreateClient("Admin", new FakeWeekService { Failure = new Error("game.line", "A line is required and must not be frozen.") });
-        Assert.Equal(HttpStatusCode.Conflict, (await noHistory.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await missingGame.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await missingGame.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result", new { homeScore = 1, awayScore = 0 })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await noHistory.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await missingGame.PostAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/lines/approve-latest", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await missingGame.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result", new { homeScore = 1, awayScore = 0 }, cancellationToken: TestContext.Current.CancellationToken)).StatusCode);
         using var notLocked = CreateClient("Admin", new FakeWeekService { Failure = new Error("week.results", "Every included game needs a result.") });
-        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PutAsJsonAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new { teamIds = new[] { TeamGuid } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await notLocked.PutAsJsonAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new { teamIds = new[] { TeamGuid } }, cancellationToken: TestContext.Current.CancellationToken)).StatusCode);
         using var missingWeek = CreateClient("Admin", new FakeWeekService { Failure = new Error("week.missing", "Week does not exist.") });
-        Assert.Equal(HttpStatusCode.NotFound, (await missingWeek.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await missingWeek.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null, TestContext.Current.CancellationToken)).StatusCode);
     }
 
     private HttpClient CreateClient(string role, FakeWeekService service) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
