@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { StateChip, kindLabels } from "./Swan";
+import { kindLabels, StateChip } from "./Swan";
 
 type Attention = {
   kind: string;

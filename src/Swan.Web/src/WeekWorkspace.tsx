@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { StateChip, kindLabels, stageLabelsInOrder } from "./Swan";
+import { kindLabels, StateChip, stageLabelsInOrder } from "./Swan";
 
 type Game = {
   id: string;

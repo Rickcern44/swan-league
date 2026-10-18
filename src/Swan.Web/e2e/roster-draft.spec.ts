@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { signIn } from "./signin";
 
 // A season is started and drafted from scratch, so this needs a DEDICATED database and three commands (see e2e/sql):
