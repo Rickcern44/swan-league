@@ -1,6 +1,12 @@
 # Swan League Tracker
 
-Runnable baseline for the Swan League Tracker: an ASP.NET Core API and React/Vite UI managed by .NET Aspire.
+Swan League Tracker is an ASP.NET Core API and React/Vite application managed by .NET Aspire.
+
+## Documentation
+
+- [Product requirements](docs/reference/Swan%20League%20App%20%E2%80%94%20Product%20Requirements.md) define product scope and delivery phases.
+- [Project status](docs/project.md) summarizes implemented work, evidence, and the next milestone.
+- [Feature history](docs/features/README.md) records the implementation work that led here.
 
 ## Prerequisites
 

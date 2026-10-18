@@ -19,9 +19,9 @@ Stack:
 
 ## Tasks
 
-- [[SWAN-1.1-agent-rules]] — Agent working rules
-- [[SWAN-1.2-api-service]] — API service + AppHost
-- [[SWAN-1.3-ui-app]] — UI app + AppHost
-- [[SWAN-1.4-e2e-tests]] — Playwright E2E baseline
-- [[SWAN-1.5-readme]] — Developer README
-- [[SWAN-1.6-gitignore]] — Ignore build artifacts
+- [SWAN-1.1](tasks/SWAN-1.1-agent-rules.md) — Agent working rules
+- [SWAN-1.2](tasks/SWAN-1.2-api-service.md) — API service + AppHost
+- [SWAN-1.3](tasks/SWAN-1.3-ui-app.md) — UI app + AppHost
+- [SWAN-1.4](tasks/SWAN-1.4-e2e-tests.md) — Playwright E2E baseline
+- [SWAN-1.5](tasks/SWAN-1.5-readme.md) — Developer README
+- [SWAN-1.6](tasks/SWAN-1.6-gitignore.md) — Ignore build artifacts

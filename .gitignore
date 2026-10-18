@@ -1,9 +1,13 @@
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
 
-# Local agent notes and abandoned worktree copies
+# Local workflow and agent configuration
+.agents/
+.mcp.json
+.openrig/
 .work/
 .worktrees/
+CLAUDE.md
 
 # Build, test, and dependency output
 bin/

@@ -7,7 +7,7 @@ parent: SWAN-1
 
 # SWAN-1.1: Agent working rules in AGENTS.md
 
-Intent: Add project rules OUTSIDE the OpenRig managed blocks in AGENTS.md (do not duplicate rig norms already there: no-push/publish, docs flow).
+Intent: Add project rules to AGENTS.md that define the repository's development workflow.
 
 Rules to add:
 - Always format before commit (dotnet format; Prettier/ESLint for UI)
@@ -28,4 +28,4 @@ Rules to add:
 
 ## Notes
 
-Do not touch CLAUDE.md — it is OpenRig-managed.
+Local workflow configuration is intentionally not tracked.

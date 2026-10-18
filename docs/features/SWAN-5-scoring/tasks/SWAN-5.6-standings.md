@@ -7,7 +7,7 @@ parent: SWAN-5
 
 # SWAN-5.6: Standings read models
 
-Intent: Standings queries for Main, Dog, Regular Season, Playoff pools (PRD C10): rank, points, wins, current week and season-to-date, from stored WeekScores. Tied coaches share a rank (competition ranking, see [[SWAN-5.7-tiebreak]]) and are marked "unbroken".
+Intent: Standings queries for Main, Dog, Regular Season, Playoff pools (PRD C10): rank, points, wins, current week and season-to-date, from stored WeekScores. Tied coaches share a rank (competition ranking, see [SWAN-5.7](SWAN-5.7-tiebreak.md)) and are marked "unbroken".
 
 ## Pools
 

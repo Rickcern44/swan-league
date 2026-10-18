@@ -19,12 +19,12 @@ Intent: Reorganize the solution layout to match the architecture described in th
 
 ## Tasks
 
-- [[SWAN-2.1-rename-projects]] — Rename existing projects
-- [[SWAN-2.2-skeletons]] — Core, Data, Services, ServiceDefaults
-- [[SWAN-2.3-worker]] — Worker host skeleton
-- [[SWAN-2.4-apphost]] — AppHost resources (Postgres, Mailpit, wiring)
-- [[SWAN-2.5-tests]] — Test project baselines
-- [[SWAN-2.6-pwa]] — Swan.Web PWA shell
+- [SWAN-2.1](tasks/SWAN-2.1-rename-projects.md) — Rename existing projects
+- [SWAN-2.2](tasks/SWAN-2.2-skeletons.md) — Core, Data, Services, ServiceDefaults
+- [SWAN-2.3](tasks/SWAN-2.3-worker.md) — Worker host skeleton
+- [SWAN-2.4](tasks/SWAN-2.4-apphost.md) — AppHost resources (Postgres, Mailpit, wiring)
+- [SWAN-2.5](tasks/SWAN-2.5-tests.md) — Test project baselines
+- [SWAN-2.6](tasks/SWAN-2.6-pwa.md) — Swan.Web PWA shell
 
 ## Out of scope
 
