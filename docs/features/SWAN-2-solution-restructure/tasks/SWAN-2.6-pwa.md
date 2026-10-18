@@ -25,10 +25,6 @@ Intent: Add PWA scaffolding with vite-plugin-pwa. Create manifest (name "Swan Le
 - `src/Swan.Web/public/` (add manifest.json, placeholder icons)
 - `src/Swan.Web/src/` (add SW registration)
 
-## Skills
-
-- `.agents/skills/aspire-orchestration` (for PWA integration with Aspire)
-
 ## Notes
 
 No web push code yet — that belongs to Phase 4.

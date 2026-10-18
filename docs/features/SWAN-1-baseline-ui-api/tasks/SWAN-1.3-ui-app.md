@@ -21,7 +21,3 @@ Intent: React+Vite+TS app that calls the API sample endpoint and renders the res
 
 - `apphost.cs`
 - new `src/web`
-
-## Skills
-
-- `.agents/skills/aspire-orchestration`

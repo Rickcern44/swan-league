@@ -35,11 +35,11 @@ Intent: Implement all aggregates with structural invariants enforced and persist
 
 ## Tasks
 
-- [[SWAN-3.1-kernel]] — Shared kernel + value objects
-- [[SWAN-3.2-identity-league-platform]] — Identity, League, Platform aggregates
-- [[SWAN-3.3-schedule]] — Schedule aggregates
-- [[SWAN-3.4-picks-scoring]] — Picks and Scoring aggregates
-- [[SWAN-3.5-money-communication]] — Money and Communication aggregates
-- [[SWAN-3.6-arch-test]] — Context boundary architecture test
-- [[SWAN-3.7-ef-migration]] — EF configuration + initial migration
-- [[SWAN-3.8-test-coverage]] — Invariant test coverage + child round-trips
+- [SWAN-3.1](tasks/SWAN-3.1-kernel.md) — Shared kernel + value objects
+- [SWAN-3.2](tasks/SWAN-3.2-identity-league-platform.md) — Identity, League, Platform aggregates
+- [SWAN-3.3](tasks/SWAN-3.3-schedule.md) — Schedule aggregates
+- [SWAN-3.4](tasks/SWAN-3.4-picks-scoring.md) — Picks and Scoring aggregates
+- [SWAN-3.5](tasks/SWAN-3.5-money-communication.md) — Money and Communication aggregates
+- [SWAN-3.6](tasks/SWAN-3.6-arch-test.md) — Context boundary architecture test
+- [SWAN-3.7](tasks/SWAN-3.7-ef-migration.md) — EF configuration + initial migration
+- [SWAN-3.8](tasks/SWAN-3.8-test-coverage.md) — Invariant test coverage + child round-trips

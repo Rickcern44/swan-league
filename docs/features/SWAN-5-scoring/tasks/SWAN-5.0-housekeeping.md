@@ -15,4 +15,4 @@ Delete stray folder `src/Swan.Data/bin\Debug/` (Roslyn BuildHost output with lit
 
 - [x] Folder deleted
 - [x] .gitignore pattern added (covers `bin\` and similar spurious build folders)
-- [ ] `git status` clean — pre-existing untracked `.openrig/` and `CLAUDE.md` were preserved.
+- [ ] `git status` clean — local workflow configuration is excluded from version control.

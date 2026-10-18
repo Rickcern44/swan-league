@@ -21,13 +21,13 @@ Intent: Complete Phase 0 with authentication (magic-link sign-in), authorization
 
 ## Tasks
 
-- [[SWAN-4.1-ef-hardening]] — EF design-time hardening
-- [[SWAN-4.2-seed]] — Seed and reset
-- [[SWAN-4.3-email]] — Email sender via Mailpit
-- [[SWAN-4.4-magic-link]] — Magic-link sign-in API
-- [[SWAN-4.5-roles]] — Roles and authorization
-- [[SWAN-4.6-audit]] — Audit log
-- [[SWAN-4.7-web-signin]] — Web sign-in flow + E2E
+- [SWAN-4.1](tasks/SWAN-4.1-ef-hardening.md) — EF design-time hardening
+- [SWAN-4.2](tasks/SWAN-4.2-seed.md) — Seed and reset
+- [SWAN-4.3](tasks/SWAN-4.3-email.md) — Email sender via Mailpit
+- [SWAN-4.4](tasks/SWAN-4.4-magic-link.md) — Magic-link sign-in API
+- [SWAN-4.5](tasks/SWAN-4.5-roles.md) — Roles and authorization
+- [SWAN-4.6](tasks/SWAN-4.6-audit.md) — Audit log
+- [SWAN-4.7](tasks/SWAN-4.7-web-signin.md) — Web sign-in flow + E2E
 
 ## Status
 
