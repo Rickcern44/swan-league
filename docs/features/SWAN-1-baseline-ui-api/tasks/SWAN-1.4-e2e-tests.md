@@ -19,10 +19,6 @@ Intent: Playwright test project proving the UI renders data from the API end to 
 
 - new `tests/e2e` (or `src/web/e2e`)
 
-## Skills
-
-- `.agents/skills/playwright-cli`
-
 ## Command
 
 With `aspire run` active, run `E2E_BASE_URL=<web URL from aspire describe> npm run test:e2e` from `src/web`.

@@ -1,6 +1,10 @@
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
 
+# Local agent notes and abandoned worktree copies
+.work/
+.worktrees/
+
 # Build, test, and dependency output
 bin/
 **/bin\\*/

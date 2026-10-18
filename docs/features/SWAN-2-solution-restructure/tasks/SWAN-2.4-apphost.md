@@ -20,10 +20,6 @@ Intent: Update apphost.cs to add Postgres container + database, Mailpit, and wir
 
 - `apphost.cs`
 
-## Skills
-
-- `.agents/skills/aspire-orchestration`
-
 ## Notes
 
 Reference PRD §10.3 for the exact wiring diagram. Use Aspire Postgres + Mailpit container specs.

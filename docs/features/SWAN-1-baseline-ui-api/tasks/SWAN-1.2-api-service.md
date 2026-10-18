@@ -22,7 +22,3 @@ Intent: Minimal API project with /health and one sample GET endpoint (e.g. /api/
 - `aspire.config.json`
 - new `src/Api`
 - new `tests/Api.Tests`
-
-## Skills
-
-- `.agents/skills/aspireify`
