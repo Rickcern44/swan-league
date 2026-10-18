@@ -1,13 +1,17 @@
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
 
-# Local workflow and agent configuration. The shared Aspire guidance below is
-# intentionally versioned; all other agent configuration stays local.
+# Local workflow and agent configuration. The shared development guidance below
+# is intentionally versioned; all other agent configuration stays local.
 .agents/*
 !.agents/skills/
 .agents/skills/*
 !.agents/skills/aspire*/
 !.agents/skills/aspire*/**
+!.agents/skills/dotnet-inspect/
+!.agents/skills/dotnet-inspect/**
+!.agents/skills/playwright-cli/
+!.agents/skills/playwright-cli/**
 .mcp.json
 .openrig/
 .work/
