@@ -146,6 +146,33 @@ test("after the deadline the same view says the draft closed and what needs corr
   expect(rows()[0]).toHaveTextContent("needs your correction");
 });
 
+test("a commissioner can open a draft that was intentionally started later", async () => {
+  open(
+    draft([coach(1, "Coach A", "missing")], {
+      deadline: null,
+      draftOpen: false,
+    }),
+  );
+  replies["POST /api/commissioner/roster-draft/start"] = () => {
+    current = draft([coach(1, "Coach A", "missing")]);
+    return { status: 200, body: current };
+  };
+  await ready();
+
+  expect(await screen.findByText(/No draft deadline was set/)).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Draft deadline (Eastern Time)"), {
+    target: { value: "2026-10-20T18:00" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Open draft" }));
+
+  await screen.findByText("The roster draft is open.");
+  expect(calls).toContainEqual({
+    method: "POST",
+    url: "/api/commissioner/roster-draft/start",
+    body: { seasonId: SEASON, rosterDraftDeadlineEastern: "2026-10-20T18:00" },
+  });
+});
+
 test("a correction replaces one team for a reason and shows the coach's updated roster", async () => {
   open();
   replies["POST /api/commissioner/roster-draft/corrections"] = () => {

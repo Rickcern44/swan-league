@@ -1903,8 +1903,7 @@ const deadlineText = (value: string) =>
     minute: "2-digit",
   }).format(new Date(`${value}:00Z`))} Eastern Time`;
 
-// Everything here is read from saved data. Opening the roster draft finishes setup if it is not finished yet, then starts the season.
-// The commissioner's final decision: the roster draft deadline (Eastern Time), then a confirmation. The server checks the caller really is its commissioner.
+// Everything here is read from saved data. Starting the season may open the roster draft now or leave it for the commissioner to open later.
 function ReviewStep({
   season,
   onSeason,
@@ -1920,6 +1919,7 @@ function ReviewStep({
   const [review, setReview] = useState<Review>();
   const [notice, setNotice] = useState<Notice>();
   const [deadline, setDeadline] = useState("");
+  const [launchMode, setLaunchMode] = useState<"season" | "draft">("season");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
@@ -1957,8 +1957,10 @@ function ReviewStep({
     setProblem("");
   }
 
-  function ask() {
-    if (!deadline) return setProblem("Choose the draft deadline first.");
+  function ask(mode: "season" | "draft") {
+    if (mode === "draft" && !deadline)
+      return setProblem("Choose the draft deadline first.");
+    setLaunchMode(mode);
     setProblem("");
     setConfirming(true);
   }
@@ -1979,15 +1981,17 @@ function ReviewStep({
       setReview(finished.value);
       onSeason({ ...season, setupStep: 10 });
     }
-    const result = await send<{ rosterDraftDeadline: string }>(
+    const result = await send<{ rosterDraftDeadline: string | null }>(
       "POST",
       "/api/admin/seasons/setup/activate",
-      { rosterDraftDeadlineEastern: deadline },
+      launchMode === "draft" ? { rosterDraftDeadlineEastern: deadline } : {},
     );
     setBusy(false);
     if (!("value" in result)) return setProblem(result.error);
     setConfirming(false);
-    setStarted(formatDeadline(result.value.rosterDraftDeadline));
+    if (launchMode === "draft" && result.value.rosterDraftDeadline)
+      setStarted(formatDeadline(result.value.rosterDraftDeadline));
+    else void refreshAccess().then(() => goTo("/draft"));
   }
 
   const issue = (entry: ReviewIssue, kind: "blocker" | "warning") => {
@@ -2026,7 +2030,7 @@ function ReviewStep({
       wide
       notice={notice}
       onBack={onBack}
-      onSubmit={() => (confirming || blocked ? undefined : ask())}
+      onSubmit={() => (confirming || blocked ? undefined : ask("season"))}
     >
       {!review && !notice && <span>Loading the review…</span>}
       {review && started && (
@@ -2053,7 +2057,8 @@ function ReviewStep({
           )}
           {review.completed && !blocked && (
             <span role="status" className="done">
-              Setup is finished. Choose the draft deadline to open it.
+              Setup is finished. Start the season now, with or without opening
+              the draft.
             </span>
           )}
           {review.blockers.length > 0 && (
@@ -2062,7 +2067,9 @@ function ReviewStep({
               <ul className="issues">
                 {review.blockers.map((entry) => issue(entry, "blocker"))}
               </ul>
-              <span className="hint">Fix these to open the draft.</span>
+              <span className="hint">
+                Fix these before starting the season.
+              </span>
             </fieldset>
           )}
           {review.warnings.length > 0 && (
@@ -2159,11 +2166,11 @@ function ReviewStep({
               <span>{`${review.activeCoaches} active ${review.activeCoaches === 1 ? "coach" : "coaches"}`}</span>
             </fieldset>
           </details>
-          <fieldset className="division launch" aria-label="Open the draft">
-            <legend>Open the draft</legend>
+          <fieldset className="division launch" aria-label="Start the season">
+            <legend>Start the season</legend>
             <span className="hint">
-              This is the last step. It starts the season and cannot be undone.
-              Times are Eastern Time.
+              Starting is permanent. You can open the roster draft now, or start
+              it later from Draft.
             </span>
             <label>
               Draft deadline (Eastern Time)
@@ -2179,20 +2186,29 @@ function ReviewStep({
                   // This form has no submit button, so Enter is handled here.
                   if (event.key !== "Enter") return;
                   event.preventDefault();
-                  if (!blocked && !confirming) ask();
+                  if (!blocked && !confirming) ask("draft");
                 }}
               />
             </label>
             {!confirming && problem && <span role="alert">{problem}</span>}
             {!confirming && (
-              <button
-                type="button"
-                ref={openButton}
-                disabled={blocked}
-                onClick={ask}
-              >
-                Open draft
-              </button>
+              <div className="actions">
+                <button
+                  type="button"
+                  disabled={blocked}
+                  onClick={() => ask("season")}
+                >
+                  Start season
+                </button>
+                <button
+                  type="button"
+                  ref={openButton}
+                  disabled={blocked}
+                  onClick={() => ask("draft")}
+                >
+                  Start season and open draft
+                </button>
+              </div>
             )}
             {confirming && (
               <div
@@ -2208,10 +2224,14 @@ function ReviewStep({
                   tabIndex={-1}
                   ref={confirmHeading}
                 >
-                  Open the draft?
+                  {launchMode === "draft"
+                    ? "Start the season and open the draft?"
+                    : "Start the season?"}
                 </h3>
                 <p>
-                  {`Coaches choose and lock their nine teams until ${deadlineText(deadline)}. After that only you, the commissioner, can correct a roster.`}
+                  {launchMode === "draft"
+                    ? `Coaches choose and lock their nine teams until ${deadlineText(deadline)}. After that only you, the commissioner, can correct a roster.`
+                    : "The season will be live, but coaches cannot choose rosters until you open the draft later."}
                 </p>
                 {problem && <span role="alert">{problem}</span>}
                 <div className="actions">
@@ -2228,7 +2248,9 @@ function ReviewStep({
                     disabled={busy}
                     onClick={() => void launch()}
                   >
-                    Confirm and open
+                    {launchMode === "draft"
+                      ? "Confirm and open draft"
+                      : "Confirm and start season"}
                   </button>
                 </div>
               </div>

@@ -94,6 +94,21 @@ public sealed class RosterDraftTests
     }
 
     [Fact]
+    public void AFinishedSeasonCanStartWithoutOpeningTheDraftAndItsCommissionerCanOpenItLater()
+    {
+        var season = FinishedSetupSeason();
+
+        Assert.True(season.Start(hasActiveCommissioner: true).IsSuccess);
+        Assert.Equal((SeasonState.Live, null), (season.State, season.RosterDraftDeadline));
+        Assert.False(season.RosterDraftOpen(Now));
+
+        Assert.True(season.OpenRosterDraft(Deadline, Now, hasActiveCommissioner: true).IsSuccess);
+        Assert.Equal(Deadline, season.RosterDraftDeadline);
+        Assert.True(season.RosterDraftOpen(Now));
+        Assert.Equal("season.invalid", season.OpenRosterDraft(Deadline.AddDays(1), Now, true).Error!.Code);
+    }
+
+    [Fact]
     public void ACoachSavesExactlyNineDistinctSeasonTeamsAndMayReviseWhileTheDraftIsOpen()
     {
         var roster = NewRoster();

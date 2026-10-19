@@ -27,6 +27,7 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
     [InlineData("PUT", "/api/coach/roster")]
     [InlineData("POST", "/api/coach/roster/lock")]
     [InlineData("GET", "/api/commissioner/roster-draft")]
+    [InlineData("POST", "/api/commissioner/roster-draft/start")]
     [InlineData("POST", "/api/commissioner/roster-draft/corrections")]
     public async Task AnonymousIsNotLetIn(string method, string url)
     {
@@ -152,6 +153,32 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         Assert.Equal([$"get:{Actor}", $"correct:{Actor}:{MembershipGuid}:4:{TeamGuid}:00000000-0000-0000-0000-0000000000aa:Picked the wrong team"], service.Calls);
     }
 
+    [Fact]
+    public async Task TheCommissionerCanOpenAnUnopenedDraftWithAnEasternDeadline()
+    {
+        var service = new FakeCommissionerRoster();
+        using var client = CreateClient("Admin", new FakeCoachRoster(), service);
+
+        var response = await client.PostAsJsonAsync("/api/commissioner/roster-draft/start", new { seasonId = SeasonGuid, rosterDraftDeadlineEastern = "2026-10-20T18:00" }, cancellationToken: TestContext.Current.CancellationToken);
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal([$"start:{Actor}:{SeasonGuid}:2026-10-20T18:00:00"], service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"seasonId\":\"00000000-0000-0000-0000-000000000001\",\"rosterDraftDeadlineEastern\":\"tomorrow\"}")]
+    public async Task StartingADraftNeedsASeasonAndEasternDeadline(string body)
+    {
+        var service = new FakeCommissionerRoster();
+        using var client = CreateClient("Admin", new FakeCoachRoster(), service);
+
+        var response = await client.PostAsync("/api/commissioner/roster-draft/start", new StringContent(body, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
+    }
+
     [Theory]
     [InlineData("commissioner.required", HttpStatusCode.Forbidden)]
     [InlineData("season.missing", HttpStatusCode.NotFound)]
@@ -251,6 +278,12 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         public Task<Result<CommissionerDraft>> GetAsync(UserId actor, CancellationToken cancellationToken = default)
         {
             Calls.Add($"get:{actor.Value}");
+            return Task.FromResult(Answer());
+        }
+
+        public Task<Result<CommissionerDraft>> StartAsync(UserId actor, StartRosterDraft request, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"start:{actor.Value}:{request.SeasonId}:{request.RosterDraftDeadlineEastern:yyyy-MM-ddTHH:mm:ss}");
             return Task.FromResult(Answer());
         }
 

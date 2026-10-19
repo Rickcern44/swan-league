@@ -300,6 +300,22 @@ test("after the deadline an incomplete roster says so and nothing can be changed
   ).toHaveLength(3);
 });
 
+test("before the commissioner opens the draft a coach sees when to return", async () => {
+  open(desk({ state: "unopened", deadline: null, complete: false }));
+
+  expect(
+    await screen.findByRole("heading", {
+      name: "The draft has not opened yet",
+    }),
+  ).toBeVisible();
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "will open the roster draft when it is ready",
+  );
+  expect(
+    screen.queryByRole("button", { name: /Choose|Save|Lock/ }),
+  ).not.toBeInTheDocument();
+});
+
 test("after the deadline a complete roster is shown as final for the coach", async () => {
   open(
     desk(

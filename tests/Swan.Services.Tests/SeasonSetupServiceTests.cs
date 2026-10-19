@@ -1452,6 +1452,20 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ACommissionerCanStartAFinishedSeasonWithoutOpeningTheRosterDraft()
+    {
+        await ReadyToFinish();
+        await Run(service => service.FinishSetupAsync(Admin));
+
+        var started = await Run(service => service.ActivateSeasonAsync(Admin, null));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+        Assert.Equal((SeasonState.Live, null), (started.Value!.State, started.Value.RosterDraftDeadline));
+        var audit = Assert.Single(await Run((service, database) => database.AuditEntries.Where(entry => entry.Action == "season.activated").ToListAsync()));
+        Assert.Contains("DraftOpened\":false", audit.Details);
+    }
+
+    [Fact]
     public async Task ADeadlineThatHasPassedOrNeverExistsIsRefusedAndTheSeasonStaysInSetup()
     {
         await ReadyToFinish();

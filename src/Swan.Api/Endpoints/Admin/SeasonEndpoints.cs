@@ -189,12 +189,17 @@ public static class SeasonEndpoints
             !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                 ? Results.Unauthorized()
                 : ReviewResult(await service.FinishSetupAsync(new UserId(actor), cancellationToken)));
-        // Starting the season is the commissioner's decision: the service checks the caller's own Commissioner membership of the Setup season, not just the Admin role.
+        // Starting the season is the commissioner's decision: the service checks the caller's own Commissioner membership of the Setup season, not just the Admin role. A deadline is optional and opens the draft immediately when supplied.
         seasons.MapPost("/setup/activate", async (ActivateSeasonRequest? request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
         {
             if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)) return Results.Unauthorized();
-            if (!TryParseEastern(request?.RosterDraftDeadlineEastern, out var deadline))
-                return Results.BadRequest(new Error("season.draft-deadline", "Send the roster draft deadline as an Eastern time like 2026-10-20T18:00."));
+            DateTime? deadline = null;
+            if (request?.RosterDraftDeadlineEastern is { } text)
+            {
+                if (!TryParseEastern(text, out var parsed))
+                    return Results.BadRequest(new Error("season.draft-deadline", "Send the roster draft deadline as an Eastern time like 2026-10-20T18:00."));
+                deadline = parsed;
+            }
             return ActivationResult(await service.ActivateSeasonAsync(new UserId(actor), deadline, cancellationToken));
         });
         return endpoints;

@@ -11,7 +11,7 @@ namespace Swan.Services.Picks;
 
 public sealed record DraftTeam(Guid TeamId, string Name, string Division, int PointValue, bool Selected);
 
-// State is "no-membership" (no active coach membership in a live season), "open" (the coach may still choose), "locked" (the coach locked it before the deadline) or "closed" (the deadline has passed or none was set).
+// State is "no-membership" (no active coach membership in a live season), "unopened" (the commissioner has not opened the draft), "open" (the coach may still choose), "locked" (the coach locked it before the deadline) or "closed" (the deadline has passed).
 public sealed record RosterDesk(string State, Guid? SeasonId, string? SeasonName, DateTimeOffset? Deadline, string? DeadlineEastern, DateTimeOffset ServerTime, bool IsLocked, DateTimeOffset? LockedAt, bool Complete, int Revision, IReadOnlyList<DraftTeam> Teams);
 
 public sealed record SaveRoster(Guid SeasonId, int ExpectedRevision, IReadOnlyList<Guid> TeamIds);
@@ -109,7 +109,7 @@ public sealed class CoachRosterService(SwanDbContext database, IClock clock, IAu
         var teams = await SeasonCatalog.ListAsync(database, season.Id, cancellationToken);
         var open = season.RosterDraftOpen(now);
         var locked = context.Roster?.IsLocked ?? false;
-        var state = !open ? "closed" : locked ? "locked" : "open";
+        var state = season.RosterDraftDeadline is null ? "unopened" : !open ? "closed" : locked ? "locked" : "open";
         return new(state, season.Id.Value, season.Name, season.RosterDraftDeadline, season.RosterDraftDeadline is { } deadline ? EasternTime.ToLocalText(deadline) : null, now, locked, context.Roster?.LockedAt,
             context.Roster?.IsComplete ?? false, context.Roster?.Revision ?? 0,
             teams.Select(team => new DraftTeam(team.TeamId.Value, team.Name, team.Division, team.PointValue, chosen.Contains(team.TeamId))).ToList());
@@ -137,10 +137,12 @@ public sealed record CommissionerCoach(Guid MembershipId, string Name, string Em
 public sealed record CatalogEntry(Guid TeamId, string Name, string Division);
 public sealed record CommissionerDraft(Guid SeasonId, string SeasonName, DateTimeOffset? Deadline, string? DeadlineEastern, bool DraftOpen, DateTimeOffset ServerTime, IReadOnlyList<CatalogEntry> Teams, IReadOnlyList<CommissionerCoach> Coaches, int PicksRemoved = 0);
 public sealed record CorrectRoster(Guid SeasonId, Guid MembershipId, int ExpectedRevision, Guid? RemoveTeamId, Guid AddTeamId, string Reason);
+public sealed record StartRosterDraft(Guid SeasonId, DateTime RosterDraftDeadlineEastern);
 
 public interface ICommissionerRosterService
 {
     Task<Result<CommissionerDraft>> GetAsync(UserId actor, CancellationToken cancellationToken = default);
+    Task<Result<CommissionerDraft>> StartAsync(UserId actor, StartRosterDraft request, CancellationToken cancellationToken = default);
     Task<Result<CommissionerDraft>> CorrectAsync(UserId actor, CorrectRoster request, CancellationToken cancellationToken = default);
 }
 
@@ -151,6 +153,30 @@ public sealed class CommissionerRosterService(SwanDbContext database, IClock clo
     {
         var season = await CommissionedSeasonAsync(actor, cancellationToken);
         return season.IsSuccess ? Result<CommissionerDraft>.Success(await BuildAsync(season.Value!, cancellationToken)) : Result<CommissionerDraft>.Failure(season.Error!.Code, season.Error.Message);
+    }
+
+    public async Task<Result<CommissionerDraft>> StartAsync(UserId actor, StartRosterDraft request, CancellationToken cancellationToken = default)
+    {
+        var deadline = EasternTime.ToInstant(request.RosterDraftDeadlineEastern);
+        if (!deadline.IsSuccess) return Result<CommissionerDraft>.Failure(deadline.Error!.Code, deadline.Error.Message);
+        return await database.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            database.ChangeTracker.Clear();
+            await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+            var found = await CommissionedSeasonAsync(actor, cancellationToken);
+            if (!found.IsSuccess) return Result<CommissionerDraft>.Failure(found.Error!.Code, found.Error.Message);
+            if (found.Value!.Id.Value != request.SeasonId) return Result<CommissionerDraft>.Failure("season.stale", "That is no longer the current season. Reload to see it.");
+            var locked = await database.Seasons.FromSqlInterpolated($"""select * from league.seasons where "Id" = {request.SeasonId} and "State" = {(int)SeasonState.Live} for update""").ToListAsync(cancellationToken);
+            if (locked.Count == 0) return Result<CommissionerDraft>.Failure("season.stale", "That is no longer the current season. Reload to see it.");
+            var season = locked[0];
+            var opened = season.OpenRosterDraft(deadline.Value, clock.UtcNow, hasActiveCommissioner: true);
+            if (!opened.IsSuccess) return Result<CommissionerDraft>.Failure(opened.Error!.Code, opened.Error.Message);
+            await database.SaveChangesAsync(cancellationToken);
+            await audit.AppendAsync(actor, "roster-draft.started", season.Id.Value.ToString(), before: new { DraftOpen = false, RosterDraftDeadlineUtc = (DateTimeOffset?)null }, after: new { DraftOpen = true, RosterDraftDeadlineUtc = deadline.Value, RosterDraftDeadlineEastern = EasternTime.ToLocalText(deadline.Value), Commissioner = actor.Value }, cancellationToken: cancellationToken);
+            var draft = await BuildAsync(season, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return Result<CommissionerDraft>.Success(draft);
+        });
     }
 
     public async Task<Result<CommissionerDraft>> CorrectAsync(UserId actor, CorrectRoster request, CancellationToken cancellationToken = default)
