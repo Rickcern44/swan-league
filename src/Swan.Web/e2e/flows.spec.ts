@@ -121,7 +121,9 @@ test("admin runs a week, coach revises picks, and commissioner opens a roster dr
         coach.getByRole("button", { name: /^Starting / }),
       ).toHaveCount(2);
 
-      const dashboard = (await (await admin.request.get("/api/admin/dashboard")).json()) as {
+      const dashboard = (await (
+        await admin.request.get("/api/admin/dashboard")
+      ).json()) as {
         currentWeek: { id: string; state: string } | null;
       };
       expect(dashboard.currentWeek?.state).toBe("Open");
