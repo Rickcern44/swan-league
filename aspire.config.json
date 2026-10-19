@@ -1,6 +1,6 @@
 {
   "appHost": {
-    "path": "apphost.cs",
+    "path": "src/Swan.AppHost/Swan.AppHost.csproj",
     "language": "csharp"
   },
   "profiles": {

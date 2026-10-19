@@ -48,3 +48,32 @@ jobs:
         run: >-
           dotnet test --solution Swan.slnx --configuration Release --no-build
           -- --max-threads 1
+
+  e2e:
+    name: Playwright flows
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/Swan.Web/package-lock.json
+      - run: dotnet tool install --global Aspire.Cli --version 13.6.1
+      - run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+      - run: npm ci
+        working-directory: src/Swan.Web
+      - run: npx playwright install --with-deps chromium
+        working-directory: src/Swan.Web
+      - run: npm run test:e2e:stack
+        working-directory: src/Swan.Web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: src/Swan.Web/test-results/
+          if-no-files-found: ignore

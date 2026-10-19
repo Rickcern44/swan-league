@@ -12,7 +12,8 @@
     "format": "biome check --write .",
     "format:check": "biome check .",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:stack": "node e2e/run-stack.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "4.7.0",
