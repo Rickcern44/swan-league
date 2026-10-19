@@ -19,6 +19,10 @@ Swan.Services integration tests require a Docker-compatible container runtime.
 
 ## Run locally
 
+The default Aspire stack uses a disposable Postgres container. This prevents stale local
+volumes from retaining an old generated password and blocking startup. If you intentionally
+need the database to persist across restarts, start Aspire with `UseVolumes=true`.
+
 Install the UI dependencies once:
 
 ```sh

@@ -1,7 +1,10 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 var postgres = builder.AddPostgres("postgres");
-var useVolumes = !bool.TryParse(builder.Configuration["UseVolumes"], out var configuredUseVolumes) || configuredUseVolumes;
+// An Aspire-generated password changes when the AppHost state is recreated. Keep development
+// databases disposable by default so an old volume can never reject that new credential. Set
+// UseVolumes=true explicitly only when local database persistence is intentional.
+var useVolumes = bool.TryParse(builder.Configuration["UseVolumes"], out var configuredUseVolumes) && configuredUseVolumes;
 if (useVolumes)
 {
     postgres.WithDataVolume();

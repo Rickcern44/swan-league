@@ -129,6 +129,16 @@ public static class SeasonEndpoints
                         { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
                         var rejected => Results.Conflict(rejected.Error)
                     });
+        seasons.MapPost("/setup/teams/previous-standings", async (ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
+            !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
+                ? Results.Unauthorized()
+                : await service.PopulatePreviousStandingsAsync(new UserId(actor), cancellationToken) switch
+                {
+                    { IsSuccess: true } updated => Results.Ok(updated.Value),
+                    { Error.Code: "standings.invalid" or "standings.ambiguous" } invalid => Results.BadRequest(invalid.Error),
+                    { Error.Code: "season.missing" } missing => Results.NotFound(missing.Error),
+                    var rejected => Results.Conflict(rejected.Error)
+                });
         seasons.MapGet("/setup/schedule", async (ISeasonSetupService service, CancellationToken cancellationToken) =>
             ScheduleResult(await service.GetSetupScheduleAsync(cancellationToken)));
         // Previewing calls the schedule provider but saves nothing; it is a POST so that nothing fetches it by loading a page.

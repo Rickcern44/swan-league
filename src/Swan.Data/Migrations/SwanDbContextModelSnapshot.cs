@@ -17,7 +17,7 @@ namespace Swan.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.4")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -200,6 +200,36 @@ namespace Swan.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("sessions", "identity");
+                });
+
+            modelBuilder.Entity("Swan.Core.Integrations.NflStandingsSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DataJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("FetchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Season")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Season")
+                        .IsUnique()
+                        .HasDatabaseName("ux_nfl_standings_snapshots_season");
+
+                    b.ToTable("nfl_standings_snapshots", "integrations");
                 });
 
             modelBuilder.Entity("Swan.Core.League.Membership", b =>

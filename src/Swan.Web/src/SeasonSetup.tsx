@@ -517,6 +517,25 @@ function SetupCards({
     goTo(4);
   }
 
+  async function populatePreviousStandings() {
+    const result = await send<TeamList>(
+      "POST",
+      "/api/admin/seasons/setup/teams/previous-standings",
+    );
+    if (!("value" in result)) {
+      setNotices({ 3: { kind: "error", text: result.error } });
+      return;
+    }
+    setTeams(result.value.teams);
+    setPicks(pickMap(result.value.teams));
+    setNotices({
+      3: {
+        kind: "saved",
+        text: "Previous NFL standings loaded. Review or adjust them before saving.",
+      },
+    });
+  }
+
   const poolTotal = stakeNames.reduce(
     (sum, pool) => sum + toCents(stakes[pool]),
     0,
@@ -707,6 +726,15 @@ function SetupCards({
             Set each team's prior-season division finish. Point values derive
             automatically.
           </span>
+          {teams && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void populatePreviousStandings()}
+            >
+              Load previous NFL standings
+            </button>
+          )}
           {!teams && !teamsError && <span>Loading teams…</span>}
           {teams &&
             [...new Set(teams.map((team) => team.division))].map((division) => (
