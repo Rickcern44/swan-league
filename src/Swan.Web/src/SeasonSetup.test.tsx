@@ -554,6 +554,7 @@ test("the browser Back button returns to the previous page without saving", asyn
   const before = putCalls().length;
 
   window.history.back();
+  fireEvent.popState(window, { state: { setupView: 0 } });
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
   expect(putCalls()).toHaveLength(before);
