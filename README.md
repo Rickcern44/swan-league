@@ -83,20 +83,15 @@ npm test
 npm run build
 ```
 
-With the Aspire stack running, install Playwright's Chromium browser once and run the E2E test against the `web` URL reported by `aspire describe`:
+Install Playwright's Chromium browser once. The E2E runner starts an isolated Aspire stack with a disposable Postgres database, waits for the app, discovers the web and Mailpit URLs, runs the browser flow, and stops the stack:
 
 ```sh
+cd src/Swan.Web
 npx playwright install chromium
-E2E_BASE_URL=http://localhost:<web-port> npm run test:e2e
+ASPIRE_CONTAINER_RUNTIME=podman npm run test:e2e:stack
 ```
 
-The E2E test edits the Setup season and puts it back, so run it only against a dedicated test database, never your development data (all `aspire run --isolated` stacks share one Postgres volume unless the AppHost names its own). There is no delete endpoint: if the test has to create the Setup season it removes it with `E2E_RESET_SETUP_SEASON_CMD`, and if it fills in teams on a season that had none it clears them with `E2E_RESET_SETUP_TEAMS_CMD`; without those commands the run fails rather than leave data behind. For example (the generated Postgres password contains parentheses, so keep `$POSTGRES_PASSWORD` inside the single-quoted `sh -c`):
-
-```sh
-export E2E_RESET_SETUP_TEAMS_CMD="podman exec <postgres container> sh -c 'PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -U postgres -d swan -c \"delete from schedule.season_teams where \\\"SeasonId\\\" in (select \\\"Id\\\" from league.seasons where \\\"State\\\" = 0)\"'"
-```
-
-If the test saves fines and payouts on a season that had none configured, `E2E_RESET_SETUP_PAYOUTS_CMD` puts that back (for example `update league.seasons set "PayoutPlans" = (chr(91) || chr(93)), "MissedPickFine" = 5.00 where "State" = 0`; `chr(91) || chr(93)` is `[]` and avoids nested shell quotes). The Coaches part of the test adds a person (`e2e-new-coach@example.com`) and memberships to the Setup season, which deleting the season does not remove, so `E2E_RESET_SETUP_COACHES_CMD` removes them first: `delete from league.memberships where "SeasonId" in (select "Id" from league.seasons where "State" = 0); delete from identity.users where "Email" like (chr(101) || chr(50) || chr(101) || chr(37))` (that is `e2e%`; it assumes the Setup season had no coaches, otherwise the Coaches part is skipped). `E2E_RESET_SETUP_SEASON_CMD` is the same with `...; delete from league.seasons where "State" = 0` appended. Sign-in links are limited to one per address per minute, so wait a minute between runs.
+The runner refuses to start while another AppHost is running, so it cannot accidentally test against your development database. In CI it uses Docker; locally set `ASPIRE_CONTAINER_RUNTIME=podman` as above. Each run gets fresh seeded data, so no SQL reset commands are needed.
 
 ## Schedule provider key
 
