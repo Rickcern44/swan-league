@@ -27,6 +27,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     [InlineData("PUT", "/api/admin/seasons/setup/step")]
     [InlineData("GET", "/api/admin/seasons/setup/teams")]
     [InlineData("PUT", "/api/admin/seasons/setup/teams")]
+    [InlineData("POST", "/api/admin/seasons/setup/teams/previous-standings")]
     [InlineData("GET", "/api/admin/seasons/setup/schedule")]
     [InlineData("POST", "/api/admin/seasons/setup/schedule/preview")]
     [InlineData("POST", "/api/admin/seasons/setup/schedule/import")]
@@ -965,6 +966,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         {
             Calls.Add($"teams:put:{actor.Value}:{string.Join(",", finishes.Select(entry => $"{entry.TeamId.Value}={entry.Finish}"))}");
             return Task.FromResult(Failure is { } error ? Result<SetupTeams>.Failure(error.Code, error.Message) : OkTeams(finishes.Select(entry => new SetupTeam(entry.TeamId.Value, "Bills", "AFC East", entry.Finish, entry.Finish)).ToArray()));
+        }
+
+        public Task<Result<SetupTeams>> PopulatePreviousStandingsAsync(UserId actor, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"teams:previous:{actor.Value}");
+            return Task.FromResult(Failure is { } error ? Result<SetupTeams>.Failure(error.Code, error.Message) : OkTeams());
         }
 
         public Task<Result<SchedulePlan>> GetSetupScheduleAsync(CancellationToken cancellationToken = default)

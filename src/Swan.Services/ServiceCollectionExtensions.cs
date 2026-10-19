@@ -39,11 +39,14 @@ public static class ServiceCollectionExtensions
         builder.Services.AddScoped<ISeasonSetupService, SeasonSetupService>();
         // The key is read only from configuration (a .NET user secret in development); the typed client sends it in a header and never logs it.
         builder.Services.Configure<BallDontLieOptions>(builder.Configuration.GetSection(BallDontLieOptions.Section));
-        builder.Services.AddHttpClient<IScheduleProvider, BallDontLieScheduleProvider>(client =>
+        builder.Services.AddHttpClient<BallDontLieScheduleProvider>(client =>
         {
             client.BaseAddress = new Uri("https://api.balldontlie.io/nfl/v1/");
             client.Timeout = TimeSpan.FromSeconds(20);
         });
+        builder.Services.AddScoped<IScheduleProvider>(serviceProvider => serviceProvider.GetRequiredService<BallDontLieScheduleProvider>());
+        builder.Services.AddScoped<IStandingsProvider>(serviceProvider => serviceProvider.GetRequiredService<BallDontLieScheduleProvider>());
+        builder.Services.AddScoped<IPreviousStandingsService, PreviousStandingsService>();
         builder.Services.AddScoped<StandingsService>();
         return builder;
     }

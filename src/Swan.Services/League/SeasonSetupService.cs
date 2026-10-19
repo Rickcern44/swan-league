@@ -9,6 +9,7 @@ using Swan.Core.League;
 using Swan.Core.Schedule;
 using Swan.Data;
 using Swan.Services.Platform;
+using Swan.Services.Integrations;
 
 namespace Swan.Services.League;
 
@@ -91,6 +92,7 @@ public interface ISeasonSetupService
     Task<Result<SeasonSummary>> UpdateSetupStepAsync(UserId actor, SetupStep step, CancellationToken cancellationToken = default);
     Task<Result<SetupTeams>> GetSetupTeamsAsync(CancellationToken cancellationToken = default);
     Task<Result<SetupTeams>> UpdateSetupTeamsAsync(UserId actor, IReadOnlyList<TeamFinish> finishes, CancellationToken cancellationToken = default);
+    Task<Result<SetupTeams>> PopulatePreviousStandingsAsync(UserId actor, CancellationToken cancellationToken = default);
     Task<Result<SchedulePlan>> GetSetupScheduleAsync(CancellationToken cancellationToken = default);
     Task<Result<SchedulePlan>> PreviewScheduleAsync(CancellationToken cancellationToken = default);
     Task<Result<SchedulePlan>> ImportScheduleAsync(UserId actor, string fingerprint, CancellationToken cancellationToken = default);
@@ -107,7 +109,7 @@ public interface ISeasonSetupService
     Task<Result<FinesAndPayoutsPlan>> UpdateSetupFinesAndPayoutsAsync(UserId actor, Money missedPickFine, IReadOnlyList<PayoutPlan> plans, CancellationToken cancellationToken = default);
 }
 
-public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit, IScheduleProvider scheduleProvider, IMemoryCache previews, IClock clock) : ISeasonSetupService
+public sealed class SeasonSetupService(SwanDbContext database, IAuditService audit, IScheduleProvider scheduleProvider, IMemoryCache previews, IClock clock, IPreviousStandingsService? previousStandings = null) : ISeasonSetupService
 {
     // Only one Setup season may exist; Live and Completed seasons are never touched. Stakes and settings are PRD defaults, not caller input.
     // Creating a season is for a global administrator or an active commissioner of any season. That is decided here from the database, under share locks on the rows it reads, in the
@@ -196,6 +198,21 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
             await database.SeasonTeams.Where(team => team.SeasonId == season.Id).ExecuteDeleteAsync(cancellationToken);
             database.SeasonTeams.AddRange(built.Value!);
             await audit.AppendAsync(actor, "season.setup.teams.updated", season.Id.Value.ToString(), before: beforeFinishes.OrderBy(entry => entry.Key).ToDictionary(), after: afterFinishes.OrderBy(entry => entry.Key).ToDictionary(), cancellationToken: cancellationToken);
+            return Result<SetupTeams>.Success(await ListTeamsAsync(season.Id, cancellationToken));
+        }, cancellationToken);
+
+    public Task<Result<SetupTeams>> PopulatePreviousStandingsAsync(UserId actor, CancellationToken cancellationToken = default) =>
+        InSetupAsync(async season =>
+        {
+            if (previousStandings is null) return Result<SetupTeams>.Failure("standings.config", "The standings provider is not configured.");
+            var catalog = await database.Teams.AsNoTracking().ToListAsync(cancellationToken);
+            var fetched = await previousStandings.GetAsync(season.Year - 1, catalog, cancellationToken);
+            if (!fetched.IsSuccess) return Result<SetupTeams>.Failure(fetched.Error!.Code, fetched.Error.Message);
+            var built = SetupTeamFinishes.Create(season.Id, catalog, fetched.Value!);
+            if (!built.IsSuccess) return Result<SetupTeams>.Failure(built.Error!.Code, built.Error.Message);
+            await database.SeasonTeams.Where(team => team.SeasonId == season.Id).ExecuteDeleteAsync(cancellationToken);
+            database.SeasonTeams.AddRange(built.Value!);
+            await audit.AppendAsync(actor, "season.setup.teams.populated", season.Id.Value.ToString(), after: new Dictionary<string, object?> { ["sourceSeason"] = season.Year - 1 }, cancellationToken: cancellationToken);
             return Result<SetupTeams>.Success(await ListTeamsAsync(season.Id, cancellationToken));
         }, cancellationToken);
 

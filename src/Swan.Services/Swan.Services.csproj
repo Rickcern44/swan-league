@@ -14,4 +14,8 @@
     <ProjectReference Include="../Swan.Core/Swan.Core.csproj" />
     <ProjectReference Include="../Swan.Data/Swan.Data.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="../Swan.Data/Seed/nfl-*-finishes.json" Link="Seed/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

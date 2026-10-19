@@ -12,3 +12,14 @@ public interface IScheduleProvider
     // Errors: "schedule.config" (not configured) and "schedule.provider" (unreachable or unusable response); an unpublished season is a successful empty schedule.
     Task<Result<ProviderSchedule>> FetchRegularSeasonAsync(int season, CancellationToken cancellationToken = default);
 }
+
+// Standings remain separate from the schedule contract: the schedule feed is imported for a new
+// season, whereas these are the completed regular-season results used to establish point values.
+public sealed record ProviderStanding(string TeamName, string Conference, string Division, int Wins, int Losses, int Ties);
+
+public sealed record ProviderStandings(DateTimeOffset FetchedAt, IReadOnlyList<ProviderStanding> Teams);
+
+public interface IStandingsProvider
+{
+    Task<Result<ProviderStandings>> FetchRegularSeasonStandingsAsync(int season, CancellationToken cancellationToken = default);
+}

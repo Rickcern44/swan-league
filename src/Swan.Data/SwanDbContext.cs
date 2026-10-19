@@ -6,6 +6,7 @@ using Swan.Core.Communication;
 using Swan.Core.Common;
 using Swan.Core.Finance;
 using Swan.Core.Identity;
+using Swan.Core.Integrations;
 using Swan.Core.League;
 using Swan.Core.Picks;
 using Swan.Core.Platform;
@@ -34,6 +35,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
+    public DbSet<NflStandingsSnapshot> NflStandingsSnapshots => Set<NflStandingsSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +48,21 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
         ConfigureFinance(modelBuilder);
         ConfigureCommunication(modelBuilder);
         ConfigurePlatform(modelBuilder);
+        ConfigureIntegrations(modelBuilder);
+    }
+
+    private static void ConfigureIntegrations(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<NflStandingsSnapshot>(entity =>
+        {
+            entity.ToTable("nfl_standings_snapshots", "integrations");
+            entity.HasKey(snapshot => snapshot.Id);
+            entity.Property(snapshot => snapshot.Season);
+            entity.Property(snapshot => snapshot.Source).HasMaxLength(64);
+            entity.Property(snapshot => snapshot.FetchedAt);
+            entity.Property(snapshot => snapshot.DataJson).HasColumnType("jsonb");
+            entity.HasIndex(snapshot => snapshot.Season).IsUnique().HasDatabaseName("ux_nfl_standings_snapshots_season");
+        });
     }
 
     private static void ConfigureIdentity(ModelBuilder modelBuilder)
