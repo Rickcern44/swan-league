@@ -3,6 +3,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -68,7 +69,9 @@ test("a coach who commissions the Setup season gets Season setup in the navigati
   expect(
     within(nav()).queryByRole("link", { name: "Draft" }),
   ).not.toBeInTheDocument();
-  expect(calls.some((c) => c.url === "/api/admin/seasons/setup")).toBe(true);
+  await waitFor(() =>
+    expect(calls.some((c) => c.url === "/api/admin/seasons/setup")).toBe(true),
+  );
   expect(calls.some((c) => c.url.includes("/api/coach/picks"))).toBe(false);
 });
 
