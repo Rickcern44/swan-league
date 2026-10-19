@@ -10,7 +10,7 @@ type DraftTeam = {
 };
 
 type Desk = {
-  state: "no-membership" | "open" | "locked" | "closed";
+  state: "no-membership" | "unopened" | "open" | "locked" | "closed";
   seasonId: string | null;
   seasonName: string | null;
   deadline: string | null;
@@ -219,6 +219,15 @@ export default function RosterDraft() {
                 them now.
                 {desk.deadline &&
                   ` The draft closes ${formatDeadline(desk.deadline)}.`}
+              </p>
+            </>
+          )}
+          {desk.state === "unopened" && (
+            <>
+              <h2>The draft has not opened yet</h2>
+              <p role="status">
+                The commissioner has started the season and will open the roster
+                draft when it is ready.
               </p>
             </>
           )}

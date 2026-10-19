@@ -36,7 +36,7 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
     private Guid[] Nine(int from = 0) => teams.Skip(from).Take(9).Select(team => team.Id.Value).ToArray();
 
     // A live season in its roster draft: a commissioner, two coaches, 32 teams, and an older live season with its own commissioner (the "unrelated admin").
-    private async Task SeedAsync(bool coachBMembershipActive = true)
+    private async Task SeedAsync(bool coachBMembershipActive = true, bool openDraft = true)
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
@@ -48,7 +48,7 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
         season.SaveDoubleDogWeeks([2, 12, 17]);
         season.CompleteSetup();
         deadline = clock.UtcNow.AddDays(3);
-        Assert.True(season.StartRosterDraft(deadline, clock.UtcNow, true).IsSuccess);
+        Assert.True((openDraft ? season.StartRosterDraft(deadline, clock.UtcNow, true) : season.Start(true)).IsSuccess);
         seasonId = season.Id;
         database.Seasons.Add(season);
         database.SeasonTeams.AddRange(teams.Select((team, index) => new SeasonTeam(new SeasonTeamId(Guid.NewGuid()), season.Id, team.Id, team.Division, index % 4 + 1, 0)));
@@ -81,6 +81,23 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
         Assert.Equal("2026-10-18T08:00", desk.DeadlineEastern);
         Assert.Equal(clock.UtcNow, desk.ServerTime);
         Assert.Equal(0, await Coach((service, database) => database.Rosters.CountAsync()));
+    }
+
+    [Fact]
+    public async Task ACommissionerOpensAnUnopenedLiveSeasonsDraftAndItIsAudited()
+    {
+        await SeedAsync(openDraft: false);
+
+        var before = (await Coach(service => service.GetAsync(coachA))).Value!;
+        var started = await Commissioner(service => service.StartAsync(commissioner, new StartRosterDraft(seasonId.Value, new DateTime(2026, 10, 18, 18, 0, 0))));
+        var after = (await Coach(service => service.GetAsync(coachA))).Value!;
+
+        Assert.Equal(("unopened", null), (before.State, before.Deadline));
+        Assert.True(started.IsSuccess, started.Error?.Message);
+        Assert.Equal("open", after.State);
+        Assert.Equal(EasternTime.ToInstant(new DateTime(2026, 10, 18, 18, 0, 0)).Value, after.Deadline);
+        await using var database = CreateDatabase();
+        Assert.Equal(["roster-draft.started"], await database.AuditEntries.Select(entry => entry.Action).ToListAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]

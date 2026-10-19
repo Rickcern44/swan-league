@@ -47,7 +47,7 @@ jobs:
       - name: Run tests
         run: >-
           dotnet test --solution Swan.slnx --configuration Release --no-build
-          -- --max-threads 1
+          -- --max-threads 2
 
   e2e:
     name: Playwright flows

@@ -143,19 +143,46 @@ public sealed class Season(SeasonId id, SeasonSettings initialSettings, IReadOnl
         ? Result<bool>.Failure("season.invalid", "Season settings cannot activate.")
         : ActivateInternal();
     private Result<bool> ActivateInternal() { State = SeasonState.Live; Raise(new SeasonActivated(Id)); return Result<bool>.Success(true); }
-    // Starting a season is the commissioner's decision: it needs a finished Setup, an active commissioner and a deadline still in the future, and it opens the roster draft until then.
-    public Result<bool> StartRosterDraft(DateTimeOffset deadline, DateTimeOffset now, bool hasActiveCommissioner)
+    // Starting a season is the commissioner's decision. Opening the draft is optional and can happen later.
+    public Result<bool> Start(bool hasActiveCommissioner)
     {
         if (State != SeasonState.Setup) return Result<bool>.Failure("season.invalid", "Only a season in Setup can be started.");
         if (SetupStep != SetupStep.Completed) return Result<bool>.Failure("season.setup", "Finish Setup before starting the season.");
         if (!hasActiveCommissioner) return Result<bool>.Failure("season.commissioner", "The season needs an active commissioner before it can start.");
-        if (deadline <= now) return Result<bool>.Failure("season.draft-deadline", "The roster draft deadline must be in the future.");
-        if (deadline > now.AddDays(366)) return Result<bool>.Failure("season.draft-deadline", "The roster draft deadline must be within a year.");
-        var activated = Activate();
-        if (!activated.IsSuccess) return activated;
+        return Activate();
+    }
+
+    // The setup shortcut activates the season and opens its draft in one operation.
+    public Result<bool> StartRosterDraft(DateTimeOffset deadline, DateTimeOffset now, bool hasActiveCommissioner)
+    {
+        var deadlineValid = ValidateRosterDraftDeadline(deadline, now);
+        if (!deadlineValid.IsSuccess) return deadlineValid;
+        var started = Start(hasActiveCommissioner);
+        if (!started.IsSuccess) return started;
+        var opened = OpenRosterDraft(deadline, now, hasActiveCommissioner, validateDeadline: false);
+        if (!opened.IsSuccess) return opened;
+        return Result<bool>.Success(true);
+    }
+
+    public Result<bool> OpenRosterDraft(DateTimeOffset deadline, DateTimeOffset now, bool hasActiveCommissioner) => OpenRosterDraft(deadline, now, hasActiveCommissioner, validateDeadline: true);
+
+    private Result<bool> OpenRosterDraft(DateTimeOffset deadline, DateTimeOffset now, bool hasActiveCommissioner, bool validateDeadline)
+    {
+        if (State != SeasonState.Live || RosterDraftDeadline is not null) return Result<bool>.Failure("season.invalid", "The roster draft cannot be opened for this season.");
+        if (!hasActiveCommissioner) return Result<bool>.Failure("season.commissioner", "The season needs an active commissioner before its roster draft can open.");
+        if (validateDeadline)
+        {
+            var deadlineValid = ValidateRosterDraftDeadline(deadline, now);
+            if (!deadlineValid.IsSuccess) return deadlineValid;
+        }
         RosterDraftDeadline = deadline;
         return Result<bool>.Success(true);
     }
+
+    private static Result<bool> ValidateRosterDraftDeadline(DateTimeOffset deadline, DateTimeOffset now) =>
+        deadline <= now ? Result<bool>.Failure("season.draft-deadline", "The roster draft deadline must be in the future.")
+        : deadline > now.AddDays(366) ? Result<bool>.Failure("season.draft-deadline", "The roster draft deadline must be within a year.")
+        : Result<bool>.Success(true);
 
     // Server time decides: the draft is open only in a live season, strictly before its deadline.
     public bool RosterDraftOpen(DateTimeOffset now) => State == SeasonState.Live && RosterDraftDeadline is { } deadline && now < deadline;

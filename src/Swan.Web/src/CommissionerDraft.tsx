@@ -53,6 +53,9 @@ export default function CommissionerDraft() {
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
   const [editing, setEditing] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [startProblem, setStartProblem] = useState("");
+  const [starting, setStarting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -147,6 +150,31 @@ export default function CommissionerDraft() {
     missing: draft.coaches.filter((c) => c.status === "missing").length,
   };
 
+  async function startDraft(event: FormEvent) {
+    event.preventDefault();
+    if (!deadline) return setStartProblem("Choose the draft deadline first.");
+    setStarting(true);
+    setStartProblem("");
+    try {
+      const response = await fetch("/api/commissioner/roster-draft/start", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seasonId: draft.seasonId,
+          rosterDraftDeadlineEastern: deadline,
+        }),
+      });
+      if (!response.ok) return setStartProblem(await problemOf(response));
+      setLoaded({ status: "ready", draft: await response.json() });
+      setNotice("The roster draft is open.");
+    } catch {
+      setStartProblem("Could not reach the server. The draft was not opened.");
+    } finally {
+      setStarting(false);
+    }
+  }
+
   return (
     <section aria-labelledby="draft-title">
       <p className="eyebrow">{draft.seasonName}</p>
@@ -158,6 +186,34 @@ export default function CommissionerDraft() {
             : `The draft closed ${formatDeadline(draft.deadline)}. Only you can change a roster now.`
           : "No draft deadline was set for this season. Only you can change a roster."}
       </p>
+      {!draft.deadline && (
+        <form
+          className="editor"
+          onSubmit={(event) => void startDraft(event)}
+          noValidate
+        >
+          <h2>Open the roster draft</h2>
+          <p>
+            Choose when coaches must lock their rosters. Times are Eastern Time.
+          </p>
+          <label>
+            Draft deadline (Eastern Time)
+            <input
+              type="datetime-local"
+              value={deadline}
+              disabled={starting}
+              onChange={(event) => {
+                setDeadline(event.target.value);
+                setStartProblem("");
+              }}
+            />
+          </label>
+          {startProblem && <p role="alert">{startProblem}</p>}
+          <button type="submit" disabled={starting}>
+            Open draft
+          </button>
+        </form>
+      )}
       <p role="status" className="notice-line">
         {notice}
       </p>

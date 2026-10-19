@@ -5,6 +5,7 @@ using Swan.Services.Picks;
 namespace Swan.Api.Endpoints.Coach;
 
 public sealed record CorrectRosterRequest(Guid? SeasonId, Guid? MembershipId, int? ExpectedRevision, Guid? RemoveTeamId, Guid? AddTeamId, string? Reason);
+public sealed record StartRosterDraftRequest(Guid? SeasonId, string? RosterDraftDeadlineEastern);
 
 public static class CommissionerRosterEndpoints
 {
@@ -16,6 +17,13 @@ public static class CommissionerRosterEndpoints
             Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                 ? ToResult(await service.GetAsync(new UserId(actor), cancellationToken))
                 : Results.Unauthorized());
+        draft.MapPost("/start", async (StartRosterDraftRequest request, ClaimsPrincipal principal, ICommissionerRosterService service, CancellationToken cancellationToken) =>
+        {
+            if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)) return Results.Unauthorized();
+            if (request.SeasonId is not { } seasonId || !TryParseEastern(request.RosterDraftDeadlineEastern, out var deadline))
+                return Results.BadRequest(new Error("season.draft-deadline", "seasonId and a roster draft deadline in Eastern Time are required."));
+            return ToResult(await service.StartAsync(new UserId(actor), new StartRosterDraft(seasonId, deadline), cancellationToken));
+        });
         draft.MapPost("/corrections", async (CorrectRosterRequest request, ClaimsPrincipal principal, ICommissionerRosterService service, CancellationToken cancellationToken) =>
         {
             if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)) return Results.Unauthorized();
@@ -32,7 +40,14 @@ public static class CommissionerRosterEndpoints
         { IsSuccess: true } => Results.Ok(result.Value),
         { Error.Code: "commissioner.required" } => Results.Json(result.Error, statusCode: StatusCodes.Status403Forbidden),
         { Error.Code: "season.missing" or "coach.missing" } => Results.NotFound(result.Error),
-        { Error.Code: "roster.reason" or "roster.team" or "roster.correction.invalid" or "roster.duplicate" or "roster.count" } => Results.BadRequest(result.Error),
+        { Error.Code: "season.draft-deadline" or "roster.reason" or "roster.team" or "roster.correction.invalid" or "roster.duplicate" or "roster.count" } => Results.BadRequest(result.Error),
         _ => Results.Conflict(result.Error)
     };
+
+    private static bool TryParseEastern(string? text, out DateTime value)
+    {
+        value = default;
+        return !string.IsNullOrWhiteSpace(text)
+            && DateTime.TryParseExact(text.Trim(), ["yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd'T'HH:mm:ss"], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out value);
+    }
 }

@@ -99,7 +99,7 @@ public interface ISeasonSetupService
     Task<Result<FinesAndPayoutsPlan>> GetSetupFinesAndPayoutsAsync(CancellationToken cancellationToken = default);
     Task<Result<SetupReview>> GetSetupReviewAsync(CancellationToken cancellationToken = default);
     Task<Result<SetupReview>> FinishSetupAsync(UserId actor, CancellationToken cancellationToken = default);
-    Task<Result<SeasonSummary>> ActivateSeasonAsync(UserId actor, DateTime rosterDraftDeadlineEastern, CancellationToken cancellationToken = default);
+    Task<Result<SeasonSummary>> ActivateSeasonAsync(UserId actor, DateTime? rosterDraftDeadlineEastern, CancellationToken cancellationToken = default);
     Task<Result<CoachesPlan>> GetSetupCoachesAsync(CancellationToken cancellationToken = default);
     Task<Result<CoachesPlan>> UpdateSetupCoachesAsync(UserId actor, IReadOnlyList<CoachEntry> coaches, CancellationToken cancellationToken = default);
     Task<Result<LeagueSettingsPlan>> GetSetupLeagueSettingsAsync(CancellationToken cancellationToken = default);
@@ -317,23 +317,29 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
             return Result<SetupReview>.Success(review with { Completed = true });
         }, cancellationToken);
 
-    // Starting the season is irreversible, so it needs the same readiness as finishing, a finished Setup, the season's own commissioner and a future deadline typed as Eastern Time.
-    // It opens the roster draft: coaches may choose their nine teams until the deadline. Nothing is sent and no roster, pick or week is created.
-    public Task<Result<SeasonSummary>> ActivateSeasonAsync(UserId actor, DateTime rosterDraftDeadlineEastern, CancellationToken cancellationToken = default) =>
+    // Starting the season is irreversible, so it needs the same readiness as finishing, a finished Setup and the season's own commissioner. The draft may open now or later.
+    public Task<Result<SeasonSummary>> ActivateSeasonAsync(UserId actor, DateTime? rosterDraftDeadlineEastern, CancellationToken cancellationToken = default) =>
         InSetupAsync(async season =>
         {
             var commissioners = await database.Memberships.Where(item => item.SeasonId == season.Id && item.Role == MembershipRole.Commissioner && item.IsActive).Select(item => item.UserId).ToListAsync(cancellationToken);
             if (commissioners.Count == 0) return Result<SeasonSummary>.Failure("season.commissioner", "The season has no active commissioner, so it cannot start.");
             if (!commissioners.Contains(actor)) return Result<SeasonSummary>.Failure("commissioner.required", "Only the season's commissioner can start the season.");
-            var deadline = EasternTime.ToInstant(rosterDraftDeadlineEastern);
-            if (!deadline.IsSuccess) return Result<SeasonSummary>.Failure(deadline.Error!.Code, deadline.Error.Message);
+            DateTimeOffset? deadline = null;
+            if (rosterDraftDeadlineEastern is { } eastern)
+            {
+                var parsed = EasternTime.ToInstant(eastern);
+                if (!parsed.IsSuccess) return Result<SeasonSummary>.Failure(parsed.Error!.Code, parsed.Error.Message);
+                deadline = parsed.Value;
+            }
             var before = ToSummary(season);
             var review = await ReviewAsync(season, cancellationToken);
             if (season.SetupStep == SetupStep.Completed && !review.Ready) return Result<SeasonSummary>.Failure("setup.incomplete", $"The season cannot start yet: {string.Join(" ", review.Blockers.Select(issue => issue.Message))}");
-            var started = season.StartRosterDraft(deadline.Value, clock.UtcNow, hasActiveCommissioner: true);
+            var started = deadline is { } value
+                ? season.StartRosterDraft(value, clock.UtcNow, hasActiveCommissioner: true)
+                : season.Start(hasActiveCommissioner: true);
             if (!started.IsSuccess) return Result<SeasonSummary>.Failure(started.Error!.Code, started.Error.Message);
             var after = ToSummary(season);
-            await audit.AppendAsync(actor, "season.activated", season.Id.Value.ToString(), before: new { before.State }, after: new { after.State, RosterDraftDeadlineUtc = deadline.Value, RosterDraftDeadlineEastern = EasternTime.ToLocalText(deadline.Value), Commissioner = actor.Value }, cancellationToken: cancellationToken);
+            await audit.AppendAsync(actor, "season.activated", season.Id.Value.ToString(), before: new { before.State }, after: new { after.State, DraftOpened = deadline is not null, RosterDraftDeadlineUtc = deadline, RosterDraftDeadlineEastern = deadline is { } local ? EasternTime.ToLocalText(local) : null, Commissioner = actor.Value }, cancellationToken: cancellationToken);
             return Result<SeasonSummary>.Success(after);
         }, cancellationToken);
 

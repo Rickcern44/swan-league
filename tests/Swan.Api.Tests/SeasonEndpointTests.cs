@@ -814,14 +814,12 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
     }
 
     [Theory]
-    [InlineData("{}")]
-    [InlineData("{\"rosterDraftDeadlineEastern\":null}")]
     [InlineData("{\"rosterDraftDeadlineEastern\":\"\"}")]
     [InlineData("{\"rosterDraftDeadlineEastern\":\"tomorrow\"}")]
     [InlineData("{\"rosterDraftDeadlineEastern\":\"2026-10-20T18:00:00Z\"}")]
     [InlineData("{\"rosterDraftDeadlineEastern\":\"2026-10-20T18:00:00-04:00\"}")]
     [InlineData("{\"rosterDraftDeadlineEastern\":\"2026-10-20\"}")]
-    public async Task AMissingOrNonEasternDeadlineIsABadRequestAndNothingIsActivated(string body)
+    public async Task ANonEasternDeadlineIsABadRequestAndNothingIsActivated(string body)
     {
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
@@ -831,6 +829,20 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("season.draft-deadline", (await response.Content.ReadFromJsonAsync<Error>(cancellationToken: TestContext.Current.CancellationToken))!.Code);
         Assert.Empty(service.Calls);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"rosterDraftDeadlineEastern\":null}")]
+    public async Task ActivatingWithoutADraftDeadlineStartsOnlyTheSeason(string body)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PostAsync("/api/admin/seasons/setup/activate", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal([$"activate:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:"], service.Calls);
     }
 
     [Theory]
@@ -1035,9 +1047,9 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
             return Task.FromResult(Failure is { } error ? Result<SetupReview>.Failure(error.Code, error.Message) : Result<SetupReview>.Success(ReviewView()));
         }
 
-        public Task<Result<SeasonSummary>> ActivateSeasonAsync(UserId actor, DateTime rosterDraftDeadlineEastern, CancellationToken cancellationToken = default)
+        public Task<Result<SeasonSummary>> ActivateSeasonAsync(UserId actor, DateTime? rosterDraftDeadlineEastern, CancellationToken cancellationToken = default)
         {
-            Calls.Add($"activate:{actor.Value}:{rosterDraftDeadlineEastern:yyyy-MM-ddTHH:mm:ss}:{rosterDraftDeadlineEastern.Kind}");
+            Calls.Add(rosterDraftDeadlineEastern is { } deadline ? $"activate:{actor.Value}:{deadline:yyyy-MM-ddTHH:mm:ss}:{deadline.Kind}" : $"activate:{actor.Value}:");
             var summary = new SeasonSummary(new SeasonId(Guid.Parse("33333333-3333-3333-3333-333333333333")), 2026, "2026 Season", false, SeasonState.Live, new SeasonSettings(new Money(100m, "USD"), 3), [], SetupStep.Completed, new DateTimeOffset(2026, 10, 20, 22, 0, 0, TimeSpan.Zero));
             return Task.FromResult(Failure is { } error ? Result<SeasonSummary>.Failure(error.Code, error.Message) : Result<SeasonSummary>.Success(summary));
         }
