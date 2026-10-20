@@ -481,8 +481,8 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         await Migrate();
         await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
 
-        var first = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.WeeklyDeadline));
-        var replay = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.WeeklyDeadline));
+        var first = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.LeagueRules));
+        var replay = await Run(service => service.UpdateSetupStepAsync(Admin, SetupStep.LeagueRules));
 
         Assert.True(first.IsSuccess && replay.IsSuccess);
         Assert.Equal(1, await Run((service, database) => database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.step.updated")));
@@ -704,6 +704,53 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
 
         Assert.Contains("unique season teams", failure.ToString());
         Assert.Equal(2, await upgrading.SeasonTeams.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task UpgradingRegroupsEveryStoredSetupStepWithoutChangingTheSeasonConfiguration()
+    {
+        var expected = new Dictionary<int, SetupStep>
+        {
+            [0] = SetupStep.Basics,
+            [1] = SetupStep.Schedule,
+            [2] = SetupStep.Schedule,
+            [3] = SetupStep.Schedule,
+            [4] = SetupStep.Schedule,
+            [5] = SetupStep.Schedule,
+            [6] = SetupStep.Money,
+            [7] = SetupStep.LeagueRules,
+            [8] = SetupStep.Coaches,
+            [9] = SetupStep.Review,
+            [10] = SetupStep.Completed,
+        };
+
+        await using (var database = CreateDatabase())
+        {
+            await database.GetService<IMigrator>().MigrateAsync("20261019221153_AddNflStandingsSnapshots", TestContext.Current.CancellationToken);
+            foreach (var oldStep in expected.Keys)
+            {
+                var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026 + oldStep, $"Season {oldStep}", isSimulation: oldStep % 2 == 0).Value!;
+                Assert.True(season.ActivateWithDogs().IsSuccess);
+                database.Seasons.Add(season);
+                await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+                await database.Database.ExecuteSqlInterpolatedAsync($"""update league.seasons set "SetupStep" = {oldStep} where "Id" = {season.Id.Value}""", cancellationToken: TestContext.Current.CancellationToken);
+            }
+
+            await database.Database.MigrateAsync(cancellationToken: TestContext.Current.CancellationToken);
+        }
+
+        await using var upgraded = CreateDatabase();
+        var seasons = await upgraded.Seasons.OrderBy(season => season.Year).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(expected.Count, seasons.Count);
+        foreach (var (oldStep, newStep) in expected)
+        {
+            var season = Assert.Single(seasons, season => season.Year == 2026 + oldStep);
+            Assert.Equal(newStep, season.SetupStep);
+            Assert.Equal(($"Season {oldStep}", oldStep % 2 == 0, SeasonState.Live), (season.Name, season.IsSimulation, season.State));
+            Assert.Equal(new Money(100m, "USD"), season.Settings.BuyIn);
+            Assert.Equal(new TimeOnly(13, 0), season.Settings.TeamPickDeadlineEastern);
+            Assert.Equal([("Main", 60m), ("Dog", 20m), ("Regular Season", 10m), ("Playoff", 10m)], season.Pools.Select(pool => (pool.Name, pool.Stake.Amount)));
+        }
     }
 
     // A Setup season with teams and a full imported schedule whose Week 12 holds Thanksgiving (Thu Nov 26) and Week 17 holds Christmas (Fri Dec 25).
@@ -1686,7 +1733,7 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
         Assert.True(review.IsSuccess);
         Assert.Equal((false, false), (review.Value!.Completed, review.Value.Ready));
         Assert.Equal(["teams", "schedule", "double-dogs", "payouts"], review.Value.Blockers.Select(issue => issue.Code));
-        Assert.Equal(["TeamsAndPoints", "ScheduleImport", "WeeksAndDogs", "FinesAndPayouts"], review.Value.Blockers.Select(issue => issue.Step));
+        Assert.Equal(["PointValues", "Schedule", "Schedule", "Money"], review.Value.Blockers.Select(issue => issue.Step));
         Assert.Equal(["no-coaches"], review.Value.Warnings.Select(issue => issue.Code));
         Assert.Equal(("2026 Season", 2026, true), (review.Value.Basics.Name, review.Value.Basics.Year, review.Value.Basics.IsSimulation));
         Assert.Equal(100m, review.Value.Money.BuyIn);

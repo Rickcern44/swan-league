@@ -232,11 +232,44 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var service = new FakeSeasonService();
         using var client = CreateClient("Admin", service);
 
-        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step = 1, ignored = true }, cancellationToken: TestContext.Current.CancellationToken);
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step = 3, ignored = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(["step:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:Money"], service.Calls);
         Assert.Contains("\"setupStep\":0", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(0, "Basics")]
+    [InlineData(1, "Schedule")]
+    [InlineData(2, "PointValues")]
+    [InlineData(3, "Money")]
+    [InlineData(4, "LeagueRules")]
+    [InlineData(5, "Coaches")]
+    [InlineData(6, "Review")]
+    public async Task AdminCanSaveEveryRedesignedSetupStep(int step, string name)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step }, cancellationToken: TestContext.Current.CancellationToken);
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal([$"step:9c9b2c10-a312-4b77-a26a-ef546e87f3c9:{name}"], service.Calls);
+    }
+
+    [Theory]
+    [InlineData(7)]
+    [InlineData(8)]
+    public async Task CompletedAndOutOfRangeStepsAreRejectedBeforeReachingTheService(int step)
+    {
+        var service = new FakeSeasonService();
+        using var client = CreateClient("Admin", service);
+
+        var response = await client.PutAsJsonAsync("/api/admin/seasons/setup/step", new { step }, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(service.Calls);
     }
 
     [Fact]
@@ -754,7 +787,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         var body = await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"ready\":false", body);
         Assert.Contains("\"code\":\"teams\"", body);
-        Assert.Contains("\"step\":\"TeamsAndPoints\"", body);
+        Assert.Contains("\"step\":\"PointValues\"", body);
         Assert.Contains("\"warnings\":[", body);
     }
 
@@ -1062,7 +1095,7 @@ public sealed class SeasonEndpointTests(WebApplicationFactory<Program> factory)
         }
 
         private static SetupReview ReviewView() => new(false, false,
-            [new ReviewIssue("teams", "Teams and point values are incomplete: 0 of 32 teams have a division finish.", "TeamsAndPoints")],
+            [new ReviewIssue("teams", "Teams and point values are incomplete: 0 of 32 teams have a division finish.", "PointValues")],
             [new ReviewIssue("no-coaches", "No coaches have been added yet.", "Coaches")],
             new ReviewBasics(2026, "2026 Season", false), new ReviewMoney(100m, [new ReviewPool("Main", 60m)]), PayoutsPlan(), new TimeOnly(13, 0),
             new ReviewTeams(0, 32, []), new ReviewSchedule(0, 0, false, null, null), [], RulesPlan(LeagueRules.Default), 0);

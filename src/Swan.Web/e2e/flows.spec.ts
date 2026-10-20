@@ -215,7 +215,7 @@ test("admin runs a week, coach revises picks, and commissioner opens the draft",
       expect(
         (
           await request.put("/api/admin/seasons/setup/step", {
-            data: { step: 9 },
+            data: { step: 6 },
           })
         ).ok(),
       ).toBe(true);
