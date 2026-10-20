@@ -41,7 +41,7 @@ public sealed class SetupReadinessTests
 
         Assert.False(readiness.Ready);
         Assert.Equal(["teams", "schedule", "double-dogs", "payouts"], Codes(readiness.Blockers));
-        Assert.Equal([SetupStep.TeamsAndPoints, SetupStep.ScheduleImport, SetupStep.WeeksAndDogs, SetupStep.FinesAndPayouts], readiness.Blockers.Select(issue => issue.Step));
+        Assert.Equal([SetupStep.PointValues, SetupStep.Schedule, SetupStep.Schedule, SetupStep.Money], readiness.Blockers.Select(issue => issue.Step));
         Assert.All(readiness.Blockers, issue => Assert.False(string.IsNullOrWhiteSpace(issue.Message)));
         Assert.Contains("0 of 32", readiness.Blockers[0].Message);
         Assert.Contains("0 of 18", readiness.Blockers[1].Message);
@@ -53,7 +53,7 @@ public sealed class SetupReadinessTests
         var readiness = SetupReadiness.Evaluate(Ready(), Complete with { TeamsEntered = 31, TeamsComplete = false });
 
         var blocker = Assert.Single(readiness.Blockers);
-        Assert.Equal(("teams", SetupStep.TeamsAndPoints), (blocker.Code, blocker.Step));
+        Assert.Equal(("teams", SetupStep.PointValues), (blocker.Code, blocker.Step));
         Assert.Contains("31 of 32", blocker.Message);
     }
 
@@ -63,7 +63,7 @@ public sealed class SetupReadinessTests
         var readiness = SetupReadiness.Evaluate(Ready(), Complete with { ScheduleWeeks = 17, ScheduleComplete = false });
 
         var blocker = Assert.Single(readiness.Blockers);
-        Assert.Equal(("schedule", SetupStep.ScheduleImport), (blocker.Code, blocker.Step));
+        Assert.Equal(("schedule", SetupStep.Schedule), (blocker.Code, blocker.Step));
         Assert.Contains("17 of 18", blocker.Message);
     }
 
@@ -89,7 +89,7 @@ public sealed class SetupReadinessTests
 
         // A season built with the raw constructor has no name or year either, so basics blocks as well.
         Assert.Equal(["basics", "payouts"], Codes(readiness.Blockers));
-        Assert.Equal(SetupStep.FinesAndPayouts, readiness.Blockers.Single(issue => issue.Code == "payouts").Step);
+        Assert.Equal(SetupStep.Money, readiness.Blockers.Single(issue => issue.Code == "payouts").Step);
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public sealed class SetupReadinessTests
 
         Assert.True(readiness.Ready);
         var warning = Assert.Single(readiness.Warnings);
-        Assert.Equal(("holiday-weeks", SetupStep.WeeksAndDogs), (warning.Code, warning.Step));
+        Assert.Equal(("holiday-weeks", SetupStep.Schedule), (warning.Code, warning.Step));
         Assert.Contains("Week 13", warning.Message);
     }
 
@@ -171,7 +171,7 @@ public sealed class SetupReadinessTests
         Assert.True(season.CompleteSetup().IsSuccess);
 
         Assert.True(season.SaveSetupStep(SetupStep.Money).IsSuccess);
-        Assert.True(season.SaveSetupStep(SetupStep.ReviewAndCreate).IsSuccess);
+        Assert.True(season.SaveSetupStep(SetupStep.Review).IsSuccess);
         Assert.True(season.SaveSetupStep(SetupStep.Basics).IsSuccess);
 
         Assert.Equal(SetupStep.Completed, season.SetupStep);
@@ -205,6 +205,6 @@ public sealed class SetupReadinessTests
 
         Assert.Equal("season.step", saved.Error!.Code);
         Assert.NotEqual(SetupStep.Completed, season.SetupStep);
-        Assert.True(season.SaveSetupStep(SetupStep.ReviewAndCreate).IsSuccess);
+        Assert.True(season.SaveSetupStep(SetupStep.Review).IsSuccess);
     }
 }
