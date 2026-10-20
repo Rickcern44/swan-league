@@ -10,8 +10,19 @@ public static class DevelopmentEndpoints
     public static IEndpointRouteBuilder MapDevelopmentEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/api/admin/development/reset-season-data", ResetSeasonData).RequireAuthorization("Admin");
+        endpoints.MapGet("/api/admin/development/clock", GetClock).RequireAuthorization("Admin");
+        endpoints.MapPost("/api/admin/development/clock/advance", AdvanceClock).RequireAuthorization("Admin");
         return endpoints;
     }
+
+    private sealed record AdvanceClockRequest(int Minutes);
+
+    private static IResult GetClock(DevelopmentClock clock) => Results.Ok(new { utcNow = clock.UtcNow });
+
+    private static IResult AdvanceClock(AdvanceClockRequest request, DevelopmentClock clock) =>
+        request.Minutes is < 0 or > 60 * 24 * 14
+            ? Results.BadRequest(new Error("development.clock", "Advance between 0 and 20,160 minutes."))
+            : Results.Ok(new { utcNow = clock.Advance(TimeSpan.FromMinutes(request.Minutes)) });
 
     private static async Task<IResult> ResetSeasonData(ClaimsPrincipal principal, DevelopmentResetService reset, CancellationToken cancellationToken)
     {
