@@ -1,5 +1,7 @@
 import { FormEvent, useContext, useEffect, useRef, useState } from "react";
 import { DevelopmentTools, RefreshAccess } from "./AccessContext";
+import { Alert, AlertDescription, AlertTitle } from "./components/ui/alert";
+import { Button } from "./components/ui/button";
 import { formatDeadline, goTo } from "./draftTime";
 
 type Money = { amount: number; currency: string };
@@ -165,17 +167,27 @@ function Card({
       <h2>{title}</h2>
       {children}
       <div className="actions">
-        {notice?.kind === "error" && <span role="alert">{notice.text}</span>}
-        {notice?.kind === "saved" && <span role="status">{notice.text}</span>}
+        {notice?.kind === "error" && (
+          <Alert variant="destructive">
+            <AlertTitle>Could not save changes</AlertTitle>
+            <AlertDescription>{notice.text}</AlertDescription>
+          </Alert>
+        )}
+        {notice?.kind === "saved" && (
+          <Alert role="status">
+            <AlertTitle>Saved</AlertTitle>
+            <AlertDescription>{notice.text}</AlertDescription>
+          </Alert>
+        )}
         {onBack && (
-          <button type="button" className="secondary" onClick={onBack}>
+          <Button type="button" variant="outline" onClick={onBack}>
             Back
-          </button>
+          </Button>
         )}
         {action && (
-          <button type="submit" disabled={actionDisabled}>
+          <Button type="submit" disabled={actionDisabled}>
             {action}
-          </button>
+          </Button>
         )}
       </div>
     </form>
@@ -345,12 +357,39 @@ const stepSlugs = [
   "coaches",
   "review",
 ];
-// Four milestones group the ten saved sub-steps. The server's saved step only ever moves forward, so each milestone is a contiguous run of sub-steps.
+// Five commissioner-facing phases group the existing saved sub-steps. The persisted step order
+// remains untouched so existing seasons can resume safely.
 const milestones = [
-  { name: "League foundation", first: 0, last: 2 },
-  { name: "Schedule and scoring", first: 3, last: 5 },
-  { name: "People and payouts", first: 6, last: 8 },
-  { name: "Ready to launch", first: 9, last: 9 },
+  {
+    name: "League details",
+    description: "Name, season year, and money",
+    first: 0,
+    last: 1,
+  },
+  {
+    name: "Competition rules",
+    description: "Deadline and team point values",
+    first: 2,
+    last: 3,
+  },
+  {
+    name: "Schedule",
+    description: "Games and double-dog weeks",
+    first: 4,
+    last: 5,
+  },
+  {
+    name: "People & payouts",
+    description: "Payouts, rules, and coaches",
+    first: 6,
+    last: 8,
+  },
+  {
+    name: "Review & launch",
+    description: "Resolve checks and open the draft",
+    first: 9,
+    last: 9,
+  },
 ] as const;
 const milestoneOf = (step: number) =>
   milestones.findIndex((m) => step >= m.first && step <= m.last);
@@ -378,6 +417,7 @@ function SetupCards({
   const [teams, setTeams] = useState<TeamRow[]>();
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [teamsError, setTeamsError] = useState<string>();
+  const [editingDivision, setEditingDivision] = useState<string>();
   // A fresh load opens at the saved resume point; the step after the last built one still shows the last page.
   const [view, setView] = useState(() => Math.min(season.setupStep, lastStep));
   const available = useRef(Math.min(season.setupStep, lastStep));
@@ -558,18 +598,24 @@ function SetupCards({
 
   return (
     <>
-      <p className="lead">Set up {season.name}</p>
-      <p>
-        <span>{`Milestone ${current + 1} of ${milestones.length}: ${milestones[current].name}`}</span>
+      <header className="setup-heading">
+        <div>
+          <p className="eyebrow">Create a season</p>
+          <h2>Set up {season.name}</h2>
+          <p>Your progress is saved with this season.</p>
+        </div>
+        <span className="saved-state">● Changes save as you go</span>
+      </header>
+      <p className="phase-progress">
+        <span>{`Phase ${current + 1} of ${milestones.length}: ${milestones[current].name}`}</span>
         {parts > 1 && (
           <>
             {" · "}
-            <span>{`Part ${part} of ${parts}: ${wizardSteps[view]}`}</span>
+            <span>{`Step ${part} of ${parts}: ${wizardSteps[view]}`}</span>
           </>
         )}
-        {" · Your progress is saved with this season."}
       </p>
-      <nav aria-label="Setup milestones">
+      <nav aria-label="Setup phases">
         <ol className="progress milestones">
           {milestones.map((m, index) => {
             const done = season.setupStep > m.last;
@@ -586,13 +632,13 @@ function SetupCards({
                     className="link"
                     onClick={() => openMilestone(index)}
                   >
-                    {mark}
-                    {m.name}
+                    <strong>{`${mark}${m.name}`}</strong>
+                    <span>{m.description}</span>
                   </button>
                 ) : (
                   <span>
-                    {mark}
-                    {m.name}
+                    <strong>{`${mark}${m.name}`}</strong>
+                    <span>{m.description}</span>
                   </span>
                 )}
               </li>
@@ -727,43 +773,71 @@ function SetupCards({
             automatically.
           </span>
           {teams && (
-            <button
+            <Button
               type="button"
-              className="secondary"
+              variant="outline"
               onClick={() => void populatePreviousStandings()}
             >
               Load previous NFL standings
-            </button>
+            </Button>
           )}
           {!teams && !teamsError && <span>Loading teams…</span>}
           {teams &&
             [...new Set(teams.map((team) => team.division))].map((division) => (
-              <fieldset key={division} className="division">
-                <legend>{division}</legend>
+              <fieldset
+                key={division}
+                className="division"
+                aria-labelledby={`division-${division.replaceAll(" ", "-")}`}
+              >
+                <legend className="division-heading">
+                  <span id={`division-${division.replaceAll(" ", "-")}`}>
+                    {division}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setEditingDivision((current) =>
+                        current === division ? undefined : division,
+                      )
+                    }
+                  >
+                    {editingDivision === division
+                      ? `Done editing ${division}`
+                      : `Edit ${division}`}
+                  </Button>
+                </legend>
                 {teams
                   .filter((team) => team.division === division)
                   .map((team) => (
                     <div key={team.teamId} className="team-row">
-                      <span>{team.name}</span>
-                      <select
-                        aria-label={team.name}
-                        value={picks[team.teamId] ?? ""}
-                        onChange={(event) => {
-                          const { value } = event.target;
-                          setPicks((current) => ({
-                            ...current,
-                            [team.teamId]: value,
-                          }));
-                        }}
-                      >
-                        <option value="">Finish…</option>
-                        {finishLabels.map((label, index) => (
-                          <option key={label} value={String(index + 1)}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                      <span>{`Point value ${picks[team.teamId] || "–"}`}</span>
+                      {editingDivision === division ? (
+                        <>
+                          <span>{team.name}</span>
+                          <select
+                            aria-label={team.name}
+                            value={picks[team.teamId] ?? ""}
+                            onChange={(event) => {
+                              const { value } = event.target;
+                              setPicks((current) => ({
+                                ...current,
+                                [team.teamId]: value,
+                              }));
+                            }}
+                          >
+                            <option value="">Finish…</option>
+                            {finishLabels.map((label, index) => (
+                              <option key={label} value={String(index + 1)}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                          <span>{`Point value ${picks[team.teamId] || "–"}`}</span>
+                        </>
+                      ) : (
+                        <span className="team-summary">{`${team.name} · ${finishLabels[Number(picks[team.teamId]) - 1] ?? "Not set"} · ${picks[team.teamId] || "–"} points`}</span>
+                      )}
                     </div>
                   ))}
               </fieldset>
@@ -2110,19 +2184,25 @@ function ReviewStep({
           )}
           <ul className="summary-cards" aria-label="Setup summary">
             <li>
-              <strong>League foundation</strong>
+              <strong>League details</strong>
               <span>{`${review.basics.name} (${review.basics.year})${review.basics.isSimulation ? " · simulation" : ""}`}</span>
               <span>{`Buy-in ${dollars(Math.round(review.money.buyIn * 100))} · picks lock Sundays at ${clock(review.teamPickDeadlineEastern)} Eastern`}</span>
-              {edit("League foundation", 0)}
+              {edit("League details", 0)}
             </li>
             <li>
-              <strong>Schedule and scoring</strong>
+              <strong>Competition rules</strong>
+              <span>{`Picks lock Sundays at ${clock(review.teamPickDeadlineEastern)} Eastern`}</span>
+              <span>{`${review.teams.entered} of ${review.teams.total} teams have a division finish`}</span>
+              {edit("Competition rules", 2)}
+            </li>
+            <li>
+              <strong>Schedule</strong>
               <span>{`${review.schedule.weeks} weeks, ${review.schedule.games} games imported`}</span>
-              <span>{`${review.teams.entered} of ${review.teams.total} teams have a division finish · double-dog weeks: ${review.doubleDogWeeks.length > 0 ? review.doubleDogWeeks.join(", ") : "none chosen"}`}</span>
-              {edit("Schedule and scoring", 3)}
+              <span>{`Double-dog weeks: ${review.doubleDogWeeks.length > 0 ? review.doubleDogWeeks.join(", ") : "none chosen"}`}</span>
+              {edit("Schedule", 4)}
             </li>
             <li>
-              <strong>People and payouts</strong>
+              <strong>People &amp; payouts</strong>
               <span>{`${review.activeCoaches} active ${review.activeCoaches === 1 ? "coach" : "coaches"}`}</span>
               <span>{`Missed team-pick fine ${review.payouts.missedPickFine === null ? "not set" : dollars(Math.round(review.payouts.missedPickFine * 100))}`}</span>
               {edit("People and payouts", 6)}

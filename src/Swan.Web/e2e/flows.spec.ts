@@ -151,8 +151,26 @@ test("admin runs a week, coach revises picks, and commissioner opens a roster dr
       await start.getByLabel("Season year").fill("2027");
       await start.getByLabel("Season name").fill(seasonName);
       await start.getByRole("button", { name: "Create season" }).click();
+      const basics = commissioner.getByRole("form", { name: "Basics" });
+      await expect(basics).toBeVisible();
       await expect(
-        commissioner.getByRole("form", { name: "Basics" }),
+        commissioner.getByText("Phase 1 of 5: League details"),
+      ).toBeVisible();
+      await basics.getByRole("button", { name: "Save & continue" }).click();
+      const money = commissioner.getByRole("form", { name: "Money" });
+      await expect(money).toBeVisible();
+      await expect(commissioner.getByText("Step 2 of 2: Money")).toBeVisible();
+      await money.getByRole("button", { name: "Save & continue" }).click();
+      const deadline = commissioner.getByRole("form", {
+        name: "Weekly deadline",
+      });
+      await expect(deadline).toBeVisible();
+      await expect(
+        commissioner.getByText("Phase 2 of 5: Competition rules"),
+      ).toBeVisible();
+      await deadline.getByRole("button", { name: "Save & continue" }).click();
+      await expect(
+        commissioner.getByRole("form", { name: "Teams and point values" }),
       ).toBeVisible();
       sql("prepare-draft-season.sql"); // Supply a deterministic schedule without an external API key.
       const request = commissioner.request;

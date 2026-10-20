@@ -177,6 +177,41 @@ button {
   font-weight: 600;
 }
 
+.setup-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.setup-heading h2 {
+  margin: 0;
+}
+
+.setup-heading p {
+  margin: 0.2rem 0 0;
+}
+
+.eyebrow {
+  color: var(--brass, #8a641d);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.saved-state {
+  color: #26734d;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.phase-progress {
+  margin: 1rem 0;
+}
+
 .progress {
   display: flex;
   flex-wrap: wrap;
@@ -232,6 +267,11 @@ button.secondary {
 .team-row span:last-child {
   min-width: 6.5rem;
   color: #486581;
+}
+
+.team-row .team-summary {
+  grid-column: 1 / -1;
+  color: var(--ink-muted);
 }
 
 .games {
@@ -1131,16 +1171,17 @@ li.game.coach-locked .status strong {
 }
 
 .milestones li {
-  border-top: 0.25rem solid #d9e2ec;
-  padding-top: 0.4rem;
+  border-left: 0.25rem solid #d9e2ec;
+  padding: 0.6rem 0.75rem;
 }
 
 .milestones li[aria-current="step"] {
-  border-top-color: var(--brass, #b8862b);
+  border-left-color: var(--brass, #b8862b);
+  background: #fffaf0;
 }
 
 .milestones button.link {
-  min-height: 2.75rem;
+  min-height: 3.5rem;
   border: 0;
   padding: 0;
   background: none;
@@ -1151,8 +1192,20 @@ li.game.coach-locked .status strong {
 }
 
 .milestones li > span {
-  display: inline-block;
-  padding: 0.6rem 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.milestones strong,
+.milestones button.link strong {
+  display: block;
+}
+
+.milestones span span,
+.milestones button.link span {
+  color: #52606d;
+  font-size: 0.8rem;
+  font-weight: 400;
 }
 
 .resume {

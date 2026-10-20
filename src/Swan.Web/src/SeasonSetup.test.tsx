@@ -338,8 +338,8 @@ test("an admin with no Setup season can start one and lands on Basics", async ()
   fireEvent.click(within(card).getByRole("button", { name: "Create season" }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
-  expect(screen.getByText("Milestone 1 of 4: League foundation")).toBeVisible();
-  expect(screen.getByText("Part 1 of 3: Basics")).toBeVisible();
+  expect(screen.getByText("Phase 1 of 5: League details")).toBeVisible();
+  expect(screen.getByText("Step 1 of 2: Basics")).toBeVisible();
   expect(screen.getByLabelText("Season name")).toHaveValue("2027 Swan League");
   expect(calls.find((call) => call.method === "POST")).toMatchObject({
     body: { year: 2027, name: "2027 Swan League", isSimulation: true },
@@ -372,20 +372,18 @@ test.each([
     expect(await screen.findByRole("form", { name: form })).toBeVisible();
     expect(screen.getAllByRole("form")).toHaveLength(1);
     const [milestone, name, part] = {
-      1: ["1", "League foundation", "Part 1 of 3: Basics"],
-      2: ["1", "League foundation", "Part 2 of 3: Money"],
-      3: ["1", "League foundation", "Part 3 of 3: Weekly deadline"],
-      4: ["2", "Schedule and scoring", "Part 1 of 3: Teams and point values"],
-      5: ["2", "Schedule and scoring", "Part 2 of 3: Schedule import"],
-      6: ["2", "Schedule and scoring", "Part 3 of 3: Weeks and dogs"],
-      7: ["3", "People and payouts", "Part 1 of 3: Fines and payouts"],
-      8: ["3", "People and payouts", "Part 2 of 3: League settings"],
-      9: ["3", "People and payouts", "Part 3 of 3: Coaches"],
-      10: ["4", "Ready to launch", ""],
+      1: ["1", "League details", "Step 1 of 2: Basics"],
+      2: ["1", "League details", "Step 2 of 2: Money"],
+      3: ["2", "Competition rules", "Step 1 of 2: Weekly deadline"],
+      4: ["2", "Competition rules", "Step 2 of 2: Teams and point values"],
+      5: ["3", "Schedule", "Step 1 of 2: Schedule import"],
+      6: ["3", "Schedule", "Step 2 of 2: Weeks and dogs"],
+      7: ["4", "People & payouts", "Step 1 of 3: Fines and payouts"],
+      8: ["4", "People & payouts", "Step 2 of 3: League settings"],
+      9: ["4", "People & payouts", "Step 3 of 3: Coaches"],
+      10: ["5", "Review & launch", ""],
     }[stepNumber] as [string, string, string];
-    expect(
-      screen.getByText(`Milestone ${milestone} of 4: ${name}`),
-    ).toBeVisible();
+    expect(screen.getByText(`Phase ${milestone} of 5: ${name}`)).toBeVisible();
     if (part) expect(screen.getByText(part)).toBeVisible();
     expect(putCalls()).toEqual([]);
   },
@@ -423,8 +421,8 @@ test("Save & continue on Basics saves it, records Money as the resume point and 
   fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
 
   expect(await screen.findByRole("form", { name: "Money" })).toBeVisible();
-  expect(screen.getByText("Milestone 1 of 4: League foundation")).toBeVisible();
-  expect(screen.getByText("Part 2 of 3: Money")).toBeVisible();
+  expect(screen.getByText("Phase 1 of 5: League details")).toBeVisible();
+  expect(screen.getByText("Step 2 of 2: Money")).toBeVisible();
   expect(putCalls()).toEqual(["/", "/step"]);
   expect(
     calls.find(
@@ -1691,6 +1689,11 @@ test("the review opens with a compact summary of the saved choices and the launc
   const summary = within(
     within(form).getByRole("list", { name: "Setup summary" }),
   );
+  expect(summary.getAllByRole("listitem")).toHaveLength(4);
+  expect(summary.getByText("League details")).toBeVisible();
+  expect(summary.getByText("Competition rules")).toBeVisible();
+  expect(summary.getByText("Schedule")).toBeVisible();
+  expect(summary.getByText("People & payouts")).toBeVisible();
   expect(summary.getByText(/2027 Swan League \(2027\)/)).toBeVisible();
   expect(summary.getByText(/simulation/)).toBeVisible();
   expect(summary.getByText(/Buy-in \$100\.00/)).toBeVisible();
@@ -1701,7 +1704,7 @@ test("the review opens with a compact summary of the saved choices and the launc
     summary.getByText(/32 of 32 teams have a division finish/),
   ).toBeVisible();
   expect(summary.getByText(/18 weeks, 272 games/)).toBeVisible();
-  expect(summary.getByText(/double-dog weeks: 2, 12, 17/)).toBeVisible();
+  expect(summary.getByText(/Double-dog weeks: 2, 12, 17/)).toBeVisible();
   expect(summary.getByText(/6 active coaches/)).toBeVisible();
   expect(summary.getByText(/Missed team-pick fine \$5\.00/)).toBeVisible();
   expect(
@@ -1736,15 +1739,15 @@ test("an Edit button on each summary card goes back to that milestone", async ()
   const form = await openReview();
 
   fireEvent.click(
-    within(form).getByRole("button", { name: "Edit Schedule and scoring" }),
+    within(form).getByRole("button", {
+      name: "Edit Competition rules",
+    }),
   );
 
   expect(
-    await screen.findByRole("form", { name: "Teams and point values" }),
+    await screen.findByRole("form", { name: "Weekly deadline" }),
   ).toBeVisible();
-  expect(
-    screen.getByText("Milestone 2 of 4: Schedule and scoring"),
-  ).toBeVisible();
+  expect(screen.getByText("Phase 2 of 5: Competition rules")).toBeVisible();
 });
 
 test("a team without a finish is shown as not set in its division line", async () => {
@@ -1939,7 +1942,7 @@ test("a finished setup is shown as finished after a reload and resumes on the re
   const form = await screen.findByRole("form", { name: "Ready to launch" });
 
   expect(await within(form).findByText(/Setup is finished/)).toBeVisible();
-  expect(screen.getByText("Milestone 4 of 4: Ready to launch")).toBeVisible();
+  expect(screen.getByText("Phase 5 of 5: Review & launch")).toBeVisible();
   expect(
     within(form).getByRole("button", { name: "Start season and open draft" }),
   ).toBeEnabled();
@@ -2031,7 +2034,7 @@ test("a failed create shows its error in the start card", async () => {
   );
 });
 
-test("the Teams page lists every team by division with its derived point value", async () => {
+test("the Teams page reviews standings by division and edits only the selected division", async () => {
   stubApi("Admin");
   replies[SETUP] = { status: 200, body: season({ setupStep: 3 }) };
   replies[TEAMS] = { status: 200, body: catalog(true) };
@@ -2042,9 +2045,21 @@ test("the Teams page lists every team by division with its derived point value",
   });
   expect(await within(form).findAllByRole("group")).toHaveLength(8);
   const east = within(form).getByRole("group", { name: "AFC East" });
+  expect(within(east).queryAllByRole("combobox")).toHaveLength(0);
+  expect(
+    within(east).getByText("AFC East Team 3 · 3rd · 3 points"),
+  ).toBeVisible();
+  expect(
+    within(east).getByRole("button", { name: "Edit AFC East" }),
+  ).toBeVisible();
+
+  fireEvent.click(within(east).getByRole("button", { name: "Edit AFC East" }));
+
   expect(within(east).getAllByRole("combobox")).toHaveLength(4);
   expect(within(east).getByLabelText("AFC East Team 3")).toHaveValue("3");
   expect(within(east).getByText("Point value 3")).toBeVisible();
+  const north = within(form).getByRole("group", { name: "AFC North" });
+  expect(within(north).queryAllByRole("combobox")).toHaveLength(0);
   fireEvent.change(within(east).getByLabelText("AFC East Team 3"), {
     target: { value: "1" },
   });
@@ -2058,6 +2073,7 @@ test("an unfinished division is explained without a request and keeps the select
   render(<App />);
 
   const east = within(await screen.findByRole("group", { name: "AFC East" }));
+  fireEvent.click(east.getByRole("button", { name: "Edit AFC East" }));
   fireEvent.change(east.getByLabelText("AFC East Team 2"), {
     target: { value: "1" },
   });
@@ -2375,26 +2391,22 @@ test("the page keeps a sound heading order: one h1, then an h2 for the current p
   expect(screen.queryAllByRole("heading", { level: 3 })).toHaveLength(0);
 });
 
-test("four milestones are listed; reached ones are buttons, later ones are plain text", async () => {
+test("five setup phases are listed; reached ones are buttons, later ones are plain text", async () => {
   stubApi("Admin");
   replies[SETUP] = { status: 200, body: season({ setupStep: 4 }) };
   render(<App />);
   await screen.findByRole("form", { name: "Schedule import" });
 
-  const nav = within(
-    screen.getByRole("navigation", { name: "Setup milestones" }),
-  );
-  expect(nav.getAllByRole("listitem")).toHaveLength(4);
-  expect(nav.getByRole("button", { name: /League foundation/ })).toBeVisible();
+  const nav = within(screen.getByRole("navigation", { name: "Setup phases" }));
+  expect(nav.getAllByRole("listitem")).toHaveLength(5);
+  expect(nav.getByRole("button", { name: /League details/ })).toBeVisible();
+  expect(nav.getByRole("button", { name: /Competition rules/ })).toBeVisible();
   expect(
-    nav.getByRole("button", { name: /Schedule and scoring/ }),
-  ).toBeVisible();
-  expect(
-    nav.queryByRole("button", { name: /People and payouts/ }),
+    nav.queryByRole("button", { name: /People & payouts/ }),
   ).not.toBeInTheDocument();
-  expect(nav.getByText(/Ready to launch/)).toBeVisible();
+  expect(nav.getByText(/Review & launch/)).toBeVisible();
   expect(nav.getByRole("listitem", { current: "step" })).toHaveTextContent(
-    "Schedule and scoring",
+    "Schedule",
   );
 });
 
@@ -2405,7 +2417,7 @@ test("going back to an earlier milestone offers a clear way to resume, and nothi
   await screen.findByRole("form", { name: "Weeks and dogs" });
   expect(screen.queryByText(/Next up:/)).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: /League foundation/ }));
+  fireEvent.click(screen.getByRole("button", { name: /League details/ }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
   expect(screen.getByText("Next up: Weeks and dogs")).toBeVisible();
