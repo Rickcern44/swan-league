@@ -200,16 +200,21 @@ public sealed class SeasonSetupTests
         Assert.Equal(SetupStep.Basics, Blank().SetupStep);
     }
 
+    [Fact]
+    public void SetupStepContractUsesTheSevenRedesignedStepsFollowedByCompleted()
+    {
+        Assert.Equal(
+            [SetupStep.Basics, SetupStep.Schedule, SetupStep.PointValues, SetupStep.Money, SetupStep.LeagueRules, SetupStep.Coaches, SetupStep.Review, SetupStep.Completed],
+            Enum.GetValues<SetupStep>());
+    }
+
     [Theory]
+    [InlineData(SetupStep.Schedule)]
+    [InlineData(SetupStep.PointValues)]
     [InlineData(SetupStep.Money)]
-    [InlineData(SetupStep.WeeklyDeadline)]
-    [InlineData(SetupStep.TeamsAndPoints)]
-    [InlineData(SetupStep.ScheduleImport)]
-    [InlineData(SetupStep.WeeksAndDogs)]
-    [InlineData(SetupStep.FinesAndPayouts)]
-    [InlineData(SetupStep.LeagueSettings)]
+    [InlineData(SetupStep.LeagueRules)]
     [InlineData(SetupStep.Coaches)]
-    [InlineData(SetupStep.ReviewAndCreate)]
+    [InlineData(SetupStep.Review)]
     [InlineData(SetupStep.Basics)]
     public void SetupResumeStepCanBeSavedAndOnlyItChanges(SetupStep step)
     {
@@ -225,7 +230,7 @@ public sealed class SeasonSetupTests
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(11)]
+    [InlineData(8)]
     [InlineData(99)]
     public void UnknownSetupStepIsRejectedAndLeavesTheStep(int value)
     {

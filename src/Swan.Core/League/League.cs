@@ -4,7 +4,7 @@ namespace Swan.Core.League;
 
 public enum SeasonState { Setup, Live, Completed }
 // Where the Setup wizard resumes; Completed means the administrator finished the wizard (reached only through CompleteSetup), so it means every implemented step is done.
-public enum SetupStep { Basics, Money, WeeklyDeadline, TeamsAndPoints, ScheduleImport, WeeksAndDogs, FinesAndPayouts, LeagueSettings, Coaches, ReviewAndCreate, Completed }
+public enum SetupStep { Basics, Schedule, PointValues, Money, LeagueRules, Coaches, Review, Completed }
 public enum MembershipRole { Commissioner, Administrator, Coach }
 public sealed record SeasonSettings(Money BuyIn, int DoubleDogWeeks, TimeOnly? TeamPickDeadlineEastern = null) : ITeamPickLockSettings
 {

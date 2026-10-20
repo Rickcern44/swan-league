@@ -100,7 +100,7 @@ public static class SeasonEndpoints
                         var rejected => Results.Conflict(rejected.Error)
                     });
         seasons.MapPut("/setup/step", async (UpdateSeasonStepRequest request, ClaimsPrincipal principal, ISeasonSetupService service, CancellationToken cancellationToken) =>
-            request.Step is not { } step
+            request.Step is not { } step || !Enum.IsDefined(step) || step == SetupStep.Completed
                 ? Results.BadRequest(new Error("season.step", "A setup step is required."))
                 : !Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
                     ? Results.Unauthorized()
