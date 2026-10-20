@@ -16,7 +16,9 @@ builder.AddSwanServices();
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.RemoveAll<IClock>();
-    builder.Services.AddSingleton(new DevelopmentClock(new DateTimeOffset(2026, 9, 10, 20, 0, 0, TimeSpan.Zero)));
+    // Start from real time so browser session-cookie expiry remains valid; a simulation can then
+    // deliberately advance this clock through its rehearsal timeline.
+    builder.Services.AddSingleton(new DevelopmentClock(DateTimeOffset.UtcNow));
     builder.Services.AddSingleton<IClock>(serviceProvider => serviceProvider.GetRequiredService<DevelopmentClock>());
 }
 builder.Services.AddAuthentication("SwanSession")
