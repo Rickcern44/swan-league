@@ -122,7 +122,7 @@ export default function SeasonSetup({
       {developmentTools && loaded.status !== "loading" && (
         <ResetTools
           onReset={() => {
-            window.history.replaceState({}, "", "/setup");
+            window.history.replaceState({}, "", "/commish/setup");
             setResetDone(true);
             setLoaded({ status: "none" });
             void refreshAccess();
@@ -1931,7 +1931,7 @@ const deadlineText = (value: string) =>
     minute: "2-digit",
   }).format(new Date(`${value}:00Z`))} Eastern Time`;
 
-// Everything here is read from saved data. Starting the season may open the roster draft now or leave it for the commissioner to open later.
+// Everything here is read from saved data. Starting the season may open the draft now or leave it for the commissioner to open later.
 function ReviewStep({
   season,
   onSeason,
@@ -2019,7 +2019,7 @@ function ReviewStep({
     setConfirming(false);
     if (launchMode === "draft" && result.value.rosterDraftDeadline)
       setStarted(formatDeadline(result.value.rosterDraftDeadline));
-    else void refreshAccess().then(() => goTo("/draft"));
+    else void refreshAccess().then(() => goTo("/commish/draft"));
   }
 
   const issue = (entry: ReviewIssue, kind: "blocker" | "warning") => {
@@ -2065,11 +2065,11 @@ function ReviewStep({
         <div role="status" className="done">
           <span>{`The season is live. The draft is open until ${started}.`}</span>{" "}
           <a
-            href="/draft"
+            href="/commish/draft"
             onClick={(event) => {
               event.preventDefault();
-              // Starting ends this person's Setup access and opens the roster draft, so read what they can reach now, then go there.
-              void refreshAccess().then(() => goTo("/draft"));
+              // Starting ends this person's Setup access and opens the draft, so read what they can reach now, then go there.
+              void refreshAccess().then(() => goTo("/commish/draft"));
             }}
           >
             Open the draft
@@ -2197,8 +2197,8 @@ function ReviewStep({
           <fieldset className="division launch" aria-label="Start the season">
             <legend>Start the season</legend>
             <span className="hint">
-              Starting is permanent. You can open the roster draft now, or start
-              it later from Draft.
+              Starting is permanent. You can open the draft now, or start it
+              later from Draft.
             </span>
             <label>
               Draft deadline (Eastern Time)

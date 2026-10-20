@@ -135,7 +135,7 @@ export default function CommissionerDraft() {
         <div className="band">
           <h2>No season is live yet</h2>
           <p>The draft starts when the season is started from Season setup.</p>
-          <button type="button" onClick={() => goTo("/setup")}>
+          <button type="button" onClick={() => goTo("/commish/setup")}>
             Go to Season setup
           </button>
         </div>
@@ -167,7 +167,7 @@ export default function CommissionerDraft() {
       });
       if (!response.ok) return setStartProblem(await problemOf(response));
       setLoaded({ status: "ready", draft: await response.json() });
-      setNotice("The roster draft is open.");
+      setNotice("The draft is open.");
     } catch {
       setStartProblem("Could not reach the server. The draft was not opened.");
     } finally {
@@ -192,7 +192,7 @@ export default function CommissionerDraft() {
           onSubmit={(event) => void startDraft(event)}
           noValidate
         >
-          <h2>Open the roster draft</h2>
+          <h2>Open the draft</h2>
           <p>
             Choose when coaches must lock their rosters. Times are Eastern Time.
           </p>

@@ -84,7 +84,7 @@ beforeEach(() => {
     status: 200,
     body: { season: null, currentWeek: null, attention: [], caughtUp: false },
   };
-  window.history.replaceState({}, "", "/");
+  window.history.replaceState({}, "", "/commish");
 });
 afterEach(cleanup);
 
@@ -158,30 +158,33 @@ test("keyboard order follows the page: skip link, header, navigation, then the c
   const names = focusable
     .filter((element) => element.tabIndex >= 0)
     .map((element) => element.textContent?.replace(/\s+/g, " ").trim());
-  expect(names).toHaveLength(8);
-  expect(names.slice(0, 5)).toEqual([
+  expect(names).toHaveLength(10);
+  expect(names.slice(0, 7)).toEqual([
     "Skip to main content",
+    "Coach",
+    "Commish",
     "Sign out",
-    "Home",
+    "Today",
     "Draft",
     "Season setup",
   ]);
-  expect(names[5]).toContain("Lines need approval");
-  expect(names.slice(6)).toEqual(["Refresh", "Open Week 4"]);
+  expect(names[7]).toContain("Lines need approval");
+  expect(names.slice(8)).toEqual(["Refresh", "Open Week 4"]);
 });
 
-test("destinations that do not exist yet are labelled text, never links", async () => {
+test("only destinations that exist are listed, with Today marked current", async () => {
   stubApi("Admin");
   render(<App />);
   await screen.findByRole("heading", { level: 1 });
 
   const nav = screen.getByRole("navigation", { name: "Primary" });
   expect(
-    within(nav).queryByRole("link", { name: /Week|Standings/ }),
-  ).not.toBeInTheDocument();
-  expect(nav).toHaveTextContent("WeekComing soon");
-  expect(nav).toHaveTextContent("StandingsComing soon");
-  expect(within(nav).getByRole("link", { name: "Home" })).toHaveAttribute(
+    within(nav)
+      .getAllByRole("link")
+      .map((link) => link.textContent),
+  ).toEqual(["Today", "Draft", "Season setup"]);
+  expect(nav).not.toHaveTextContent(/coming soon/i);
+  expect(within(nav).getByRole("link", { name: "Today" })).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -198,7 +201,7 @@ test("with no live season it says so and points at Season setup", async () => {
     screen.queryByRole("region", { name: "Needs your decision" }),
   ).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Go to Season setup" }));
-  expect(window.location.pathname).toBe("/setup");
+  expect(window.location.pathname).toBe("/commish/setup");
   expect(screen.getByRole("link", { name: "Season setup" })).toHaveAttribute(
     "aria-current",
     "page",
@@ -330,18 +333,18 @@ test("a coach gets their own pick desk and the app never calls an admin endpoint
   expect(calls.some((url) => url.includes("/api/admin"))).toBe(false);
 });
 
-test("Season setup is reached from the navigation and Home returns to the dashboard", async () => {
+test("Season setup is reached from the navigation and Today returns to the dashboard", async () => {
   stubApi("Admin");
   render(<App />);
   await screen.findByRole("heading", { level: 1 });
 
   fireEvent.click(screen.getByRole("link", { name: "Season setup" }));
-  expect(window.location.pathname).toBe("/setup");
+  expect(window.location.pathname).toBe("/commish/setup");
   expect(
     await screen.findByRole("heading", { name: "Season setup" }),
   ).toBeVisible();
-  fireEvent.click(screen.getByRole("link", { name: "Home" }));
-  expect(window.location.pathname).toBe("/");
+  fireEvent.click(screen.getByRole("link", { name: "Today" }));
+  expect(window.location.pathname).toBe("/commish");
   expect(
     await screen.findByRole("heading", { name: "No season is live" }),
   ).toBeVisible();
@@ -393,11 +396,11 @@ test("a decision row and the current week both open that exact week's workspace"
     await screen.findByRole("region", { name: "Needs your decision" }),
   ).findAllByRole("link");
   expect(rows.map((row) => row.getAttribute("href"))).toEqual([
-    "/weeks/w3",
-    "/weeks/w4",
+    "/commish/weeks/w3",
+    "/commish/weeks/w4",
   ]);
   expect(screen.getByRole("link", { name: "Open Week 4" })).toHaveAttribute(
     "href",
-    "/weeks/w4",
+    "/commish/weeks/w4",
   );
 });

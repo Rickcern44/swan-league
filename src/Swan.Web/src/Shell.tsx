@@ -1,46 +1,104 @@
+import {
+  CalendarCheck,
+  LayoutGrid,
+  ListChecks,
+  type LucideIcon,
+  Settings2,
+  Users,
+} from "lucide-react";
 import { ReactNode } from "react";
+import { type Access, commishHome, hasCommish, type Route } from "./routes";
 import { SwanMark } from "./Swan";
 
-type Destination = { label: string; path: string; soon?: boolean };
+type Destination = {
+  label: string;
+  path: string;
+  icon: LucideIcon;
+  current: boolean;
+};
 
-// Destinations that do not exist yet are shown as plain labelled text, not links, so nothing leads nowhere.
-function destinations(
-  role: "Admin" | "Coach",
-  canDraft: boolean,
-  canSetup: boolean,
-): Destination[] {
+// Only destinations that exist are listed, so nothing in the navigation leads nowhere.
+function destinations(access: Access, route: Route): Destination[] {
+  if (route.mode === "coach")
+    return [
+      {
+        label: "Picks",
+        path: "/",
+        icon: ListChecks,
+        current: route.page === "picks",
+      },
+      {
+        label: "Draft",
+        path: "/roster",
+        icon: LayoutGrid,
+        current: route.page === "draft",
+      },
+    ];
   return [
-    { label: "Home", path: "/" },
-    { label: "Week", path: "", soon: true },
-    { label: "Standings", path: "", soon: true },
-    ...(role === "Admin" ? [] : [{ label: "Roster", path: "/roster" }]),
-    ...(canDraft ? [{ label: "Draft", path: "/draft" }] : []),
-    ...(canSetup ? [{ label: "Season setup", path: "/setup" }] : []),
+    ...(access.isAdmin
+      ? [
+          {
+            label: "Today",
+            path: "/commish",
+            icon: CalendarCheck,
+            // A week is opened from Today, so Today stays marked while one is open.
+            current: route.page === "today" || route.page === "week",
+          },
+        ]
+      : []),
+    ...(access.canDraft
+      ? [
+          {
+            label: "Draft",
+            path: "/commish/draft",
+            icon: Users,
+            current: route.page === "draft",
+          },
+        ]
+      : []),
+    ...(access.canSetup
+      ? [
+          {
+            label: "Season setup",
+            path: "/commish/setup",
+            icon: Settings2,
+            current: route.page === "setup",
+          },
+        ]
+      : []),
   ];
 }
 
 export default function Shell({
   name,
   role,
-  canSetup,
-  canDraft,
-  path,
+  access,
+  route,
   onNavigate,
   onSignOut,
   children,
 }: {
   name: string;
   role: "Admin" | "Coach";
-  canSetup: boolean;
-  canDraft: boolean;
-  path: string;
+  access: Access;
+  route: Route;
   onNavigate: (to: string) => void;
   onSignOut: () => void;
   children: ReactNode;
 }) {
-  const inSetup = path === "/setup" || path.startsWith("/setup/");
+  const go = (to: string) => (event: React.MouseEvent) => {
+    event.preventDefault();
+    onNavigate(to);
+  };
+  const modes = hasCommish(access)
+    ? [
+        { mode: "coach", label: "Coach", path: "/" },
+        { mode: "commish", label: "Commish", path: commishHome(access) },
+      ]
+    : [];
+
   return (
-    <div className="shell">
+    <div className="shell" data-mode={route.mode}>
       <a className="skip" href="#content">
         Skip to main content
       </a>
@@ -49,6 +107,20 @@ export default function Shell({
           <SwanMark />
           Swan League
         </span>
+        {modes.length > 0 && (
+          <div className="mode-switch" role="group" aria-label="Mode">
+            {modes.map((item) => (
+              <a
+                key={item.mode}
+                href={item.path}
+                aria-current={route.mode === item.mode ? "page" : undefined}
+                onClick={go(item.path)}
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
+        )}
         <p className="who">
           Signed in as {name} · {role}
         </p>
@@ -58,35 +130,18 @@ export default function Shell({
       </header>
       <nav className="shell-nav" aria-label="Primary">
         <ul>
-          {destinations(role, canDraft, canSetup).map((item) => {
-            const current =
-              item.path === "/setup"
-                ? inSetup
-                : item.path === "/"
-                  ? !inSetup && path !== "/draft" && path !== "/roster"
-                  : path === item.path;
-            return (
-              <li key={item.label}>
-                {item.soon ? (
-                  <span className="soon">
-                    {item.label}
-                    <small>Coming soon</small>
-                  </span>
-                ) : (
-                  <a
-                    href={item.path}
-                    aria-current={current ? "page" : undefined}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      onNavigate(item.path);
-                    }}
-                  >
-                    {item.label}
-                  </a>
-                )}
-              </li>
-            );
-          })}
+          {destinations(access, route).map((item) => (
+            <li key={item.path}>
+              <a
+                href={item.path}
+                aria-current={item.current ? "page" : undefined}
+                onClick={go(item.path)}
+              >
+                <item.icon aria-hidden="true" size={20} strokeWidth={2} />
+                {item.label}
+              </a>
+            </li>
+          ))}
         </ul>
       </nav>
       <main id="content" tabIndex={-1} className="shell-main">

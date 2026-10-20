@@ -444,8 +444,9 @@ button:disabled {
 
 .shell-top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem 0.75rem;
   background: var(--ink);
   color: #fff;
   padding: 0.7rem 1rem;
@@ -466,10 +467,51 @@ button:disabled {
   flex: none;
 }
 
+/* On a phone the header keeps the mark, Sign out and the mode switch; who is signed in is still read out. */
 .shell-top .who {
-  margin: 0 0 0 auto;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
   font-size: 0.85rem;
   color: #c4d3e3;
+}
+
+.shell .shell-top button.quiet {
+  margin-left: auto;
+}
+
+/* Coach | Commish: a segmented pair of links, shown only to people who have both modes. */
+.mode-switch {
+  order: 3;
+  flex-basis: 100%;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 0.6rem;
+  background: var(--ink-2);
+}
+
+.mode-switch a {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0 0.9rem;
+  border-radius: 0.45rem;
+  color: #dbe6f1;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.mode-switch a[aria-current="page"] {
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .shell-top button {
@@ -498,12 +540,12 @@ button:disabled {
   flex: 1;
 }
 
-.shell-nav a,
-.shell-nav .soon {
+.shell-nav a {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.2rem;
   min-height: 3.5rem;
   padding: 0.25rem;
   text-align: center;
@@ -518,12 +560,18 @@ button:disabled {
   box-shadow: inset 0 3px 0 var(--brass);
 }
 
-.shell-nav .soon {
-  color: #8fa5bc;
+/* Coach mode uses a light bar so the two modes are told apart at a glance; Commish keeps the dark one. */
+.shell[data-mode="coach"] .shell-nav {
+  background: #fff;
+  border-top: 1px solid var(--rule);
 }
 
-.shell-nav small {
-  font-size: 0.72rem;
+.shell[data-mode="coach"] .shell-nav a {
+  color: var(--ink-muted);
+}
+
+.shell[data-mode="coach"] .shell-nav a[aria-current="page"] {
+  color: var(--ink);
 }
 
 main.shell-main,
@@ -954,11 +1002,41 @@ main.shell-main > * + * {
     padding: 0.75rem 0;
   }
 
-  .shell-nav a,
-  .shell-nav .soon {
-    align-items: flex-start;
+  .shell-nav a {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.6rem;
     padding: 0.6rem 1rem;
-    min-height: 0;
+    min-height: 2.75rem;
+  }
+
+  .shell[data-mode="coach"] .shell-nav {
+    border-top: 0;
+    border-right: 1px solid var(--rule);
+  }
+
+  .shell-top .who {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    margin: 0 0 0 auto;
+  }
+
+  .shell .shell-top button.quiet {
+    margin-left: 0;
+  }
+
+  .mode-switch {
+    order: 0;
+    flex-basis: auto;
+    margin-left: 1rem;
+  }
+
+  .mode-switch a {
+    min-height: 2.25rem;
   }
 
   .shell-nav a[aria-current="page"] {

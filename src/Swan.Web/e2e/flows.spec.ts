@@ -20,7 +20,7 @@ async function chooseNine(page: Page) {
   await expect(page.getByText("9 of 9 chosen · ready to save")).toBeVisible();
 }
 
-test("admin runs a week, coach revises picks, and commissioner opens a roster draft", async ({
+test("admin runs a week, coach revises picks, and commissioner opens the draft", async ({
   browser,
 }) => {
   test.setTimeout(240_000);
@@ -44,6 +44,11 @@ test("admin runs a week, coach revises picks, and commissioner opens a roster dr
         currentWeek: { id: string; state: string } | null;
       };
       expect(dashboard.currentWeek?.state).toBe("Draft");
+      // Everyone starts in Coach mode; the week is run from Commish.
+      await admin
+        .getByRole("group", { name: "Mode" })
+        .getByRole("link", { name: "Commish" })
+        .click();
       await admin.getByRole("link", { name: /Lines need approval/ }).click();
       const dock = admin.getByRole("region", { name: "Next action" });
       await admin
@@ -144,6 +149,10 @@ test("admin runs a week, coach revises picks, and commissioner opens a roster dr
       sql("prepare-draft-season.sql"); // Add test administrators before sign-in.
       const commissioner = await commissionerContext.newPage();
       await signIn(commissioner, "commish@swan.local");
+      await commissioner
+        .getByRole("group", { name: "Mode" })
+        .getByRole("link", { name: "Commish" })
+        .click();
       await commissioner.getByRole("link", { name: "Season setup" }).click();
       const start = commissioner.getByRole("form", {
         name: "Start a new season",
@@ -231,7 +240,10 @@ test("admin runs a week, coach revises picks, and commissioner opens a roster dr
 
       const draftCoach = await draftCoachContext.newPage();
       await signIn(draftCoach, "coach2@swan.local");
-      await draftCoach.getByRole("link", { name: "Roster" }).click();
+      await draftCoach
+        .getByRole("navigation", { name: "Primary" })
+        .getByRole("link", { name: "Draft" })
+        .click();
       await expect(
         draftCoach.getByRole("heading", { name: "Choose your nine" }),
       ).toBeVisible();

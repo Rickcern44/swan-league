@@ -371,11 +371,10 @@ test("a coach reaches the roster from the navigation and never calls an admin or
   open();
   await ready();
 
-  expect(screen.getByRole("link", { name: "Roster" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  expect(screen.queryByRole("link", { name: "Draft" })).not.toBeInTheDocument();
+  const draft = screen.getByRole("link", { name: "Draft" });
+  expect(draft).toHaveAttribute("aria-current", "page");
+  expect(draft).toHaveAttribute("href", "/roster");
+  expect(screen.queryByRole("group", { name: "Mode" })).not.toBeInTheDocument();
   expect(
     calls.some(
       (c) =>

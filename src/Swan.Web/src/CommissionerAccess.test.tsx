@@ -122,9 +122,12 @@ test("a coach with no commissioner role sees no Season setup, and /setup is just
   expect(
     within(nav()).queryByRole("link", { name: "Season setup" }),
   ).not.toBeInTheDocument();
-  expect(
-    within(nav()).queryByRole("link", { name: "Draft" }),
-  ).not.toBeInTheDocument();
+  // Their only Draft link is their own draft, and there is no Commish area to switch to.
+  expect(within(nav()).getByRole("link", { name: "Draft" })).toHaveAttribute(
+    "href",
+    "/roster",
+  );
+  expect(screen.queryByRole("group", { name: "Mode" })).not.toBeInTheDocument();
   expect(
     screen.queryByRole("heading", { name: "Season setup" }),
   ).not.toBeInTheDocument();
@@ -136,7 +139,7 @@ test("a coach with no commissioner role sees no Season setup, and /setup is just
   ).toBe(false);
 });
 
-test("a coach who commissions the live season reaches the commissioner roster view and nothing else of the admin area", async () => {
+test("a coach who commissions the live season reaches the commish Draft view and nothing else of the admin area", async () => {
   replies["GET /api/commissioner/roster-draft"] = {
     status: 200,
     body: {
@@ -164,7 +167,14 @@ test("a coach who commissions the live season reaches the commissioner roster vi
     "aria-current",
     "page",
   );
-  expect(within(nav()).getByRole("link", { name: "Roster" })).toBeVisible();
+  expect(
+    within(screen.getByRole("group", { name: "Mode" })).getByRole("link", {
+      name: "Coach",
+    }),
+  ).toHaveAttribute("href", "/");
+  expect(
+    within(nav()).queryByRole("link", { name: "Today" }),
+  ).not.toBeInTheDocument();
   expect(
     within(nav()).queryByRole("link", { name: "Season setup" }),
   ).not.toBeInTheDocument();

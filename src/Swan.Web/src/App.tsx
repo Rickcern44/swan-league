@@ -1,9 +1,17 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { DevelopmentTools, RefreshAccess } from "./AccessContext";
 import CommissionerDraft from "./CommissionerDraft";
 import Dashboard from "./Dashboard";
 import PickDesk from "./PickDesk";
 import RosterDraft from "./RosterDraft";
+import {
+  type Access,
+  commishHome,
+  hasCommish,
+  rememberedMode,
+  rememberMode,
+  resolve,
+} from "./routes";
 import SeasonSetup from "./SeasonSetup";
 import Shell from "./Shell";
 import WeekWorkspace from "./WeekWorkspace";
@@ -42,10 +50,48 @@ export default function App() {
     }
   }, []);
 
-  function navigate(to: string) {
-    window.history.pushState({}, "", to);
+  function navigate(to: string, replace = false) {
+    if (replace) window.history.replaceState({}, "", to);
+    else window.history.pushState({}, "", to);
     setPath(to);
   }
+
+  const access: Access | null = user
+    ? {
+        isAdmin: user.role === "Admin",
+        // An administrator keeps both areas; a commissioner gets Setup for the season that is theirs and the draft view for the live season they commission.
+        canSetup:
+          user.role === "Admin" || (user.setupAccess ?? "none") !== "none",
+        canDraft: user.role === "Admin" || user.commissionsLiveSeason === true,
+      }
+    : null;
+  const resolved = access ? resolve(path, access) : null;
+  const landed = useRef(false);
+
+  // Old addresses and pages this person may not open are replaced by where they actually lead.
+  useEffect(() => {
+    if (resolved && resolved.path !== path) {
+      window.history.replaceState({}, "", resolved.path);
+      setPath(resolved.path);
+    }
+  });
+
+  // Opening the app at its home address returns a commissioner to Commish if that is where they were last.
+  useEffect(() => {
+    if (!access || landed.current) return;
+    landed.current = true;
+    if (
+      window.location.pathname === "/" &&
+      rememberedMode() === "commish" &&
+      hasCommish(access)
+    )
+      navigate(commishHome(access), true);
+  });
+
+  const mode = resolved?.route.mode;
+  useEffect(() => {
+    if (mode && landed.current) rememberMode(mode);
+  }, [mode]);
 
   useEffect(() => {
     async function loadSession() {
@@ -87,47 +133,41 @@ export default function App() {
     setState("sign-in");
   }
 
-  if (user) {
-    const inSetup = path === "/setup" || path.startsWith("/setup/");
-    const isAdmin = user.role === "Admin";
-    // An administrator keeps both areas; a commissioner gets Setup for the season that is theirs and the roster view for the live season they commission.
-    const canSetup = isAdmin || (user.setupAccess ?? "none") !== "none";
-    const canDraft = isAdmin || user.commissionsLiveSeason === true;
-    const workspaceWeek = /^\/weeks\/([0-9a-f-]{36})\/?$/i.exec(path)?.[1];
+  if (user && access && resolved) {
+    const { route } = resolved;
     return (
       <RefreshAccess.Provider value={refreshAccess}>
         <DevelopmentTools.Provider value={user.developmentTools === true}>
           <Shell
             name={user.name}
             role={user.role}
-            canSetup={canSetup}
-            canDraft={canDraft}
-            path={path}
-            onNavigate={navigate}
+            access={access}
+            route={route}
+            onNavigate={(to) => navigate(to)}
             onSignOut={() => void signOut()}
           >
-            {path === "/draft" && canDraft ? (
-              <CommissionerDraft />
-            ) : inSetup && canSetup ? (
-              <SeasonSetup
-                createOnly={!isAdmin && user.setupAccess === "create"}
-              />
-            ) : !isAdmin ? (
-              path === "/roster" ? (
+            {route.mode === "coach" ? (
+              route.page === "draft" ? (
                 <RosterDraft />
               ) : (
                 <PickDesk />
               )
-            ) : workspaceWeek ? (
+            ) : route.page === "draft" ? (
+              <CommissionerDraft />
+            ) : route.page === "setup" ? (
+              <SeasonSetup
+                createOnly={!access.isAdmin && user.setupAccess === "create"}
+              />
+            ) : route.page === "week" ? (
               <WeekWorkspace
-                key={workspaceWeek}
-                weekId={workspaceWeek}
-                onBack={() => navigate("/")}
+                key={route.weekId}
+                weekId={route.weekId}
+                onBack={() => navigate("/commish")}
               />
             ) : (
               <Dashboard
-                onSeasonSetup={() => navigate("/setup")}
-                onOpenWeek={(id) => navigate(`/weeks/${id}`)}
+                onSeasonSetup={() => navigate("/commish/setup")}
+                onOpenWeek={(id) => navigate(`/commish/weeks/${id}`)}
               />
             )}
           </Shell>

@@ -209,7 +209,7 @@ export default function Dashboard({
             </dl>
             <a
               className="open-week"
-              href={`/weeks/${currentWeek.id}`}
+              href={`/commish/weeks/${currentWeek.id}`}
               onClick={(event) => {
                 event.preventDefault();
                 onOpenWeek(currentWeek.id);
@@ -234,7 +234,7 @@ function AttentionRow({
   return (
     <li className={item.needsDecision ? "decision" : "info"}>
       <a
-        href={`/weeks/${item.weekId}`}
+        href={`/commish/weeks/${item.weekId}`}
         onClick={(event) => {
           event.preventDefault();
           onOpenWeek(item.weekId);
