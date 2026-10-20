@@ -5,11 +5,20 @@ using Swan.Api.Endpoints;
 using Swan.Api.Endpoints.Admin;
 using Swan.Api.Endpoints.Coach;
 using Swan.Core.Identity;
+using Swan.Core;
+using Swan.Services.Development;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddSwanServices();
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.RemoveAll<IClock>();
+    builder.Services.AddSingleton(new DevelopmentClock(new DateTimeOffset(2026, 9, 10, 20, 0, 0, TimeSpan.Zero)));
+    builder.Services.AddSingleton<IClock>(serviceProvider => serviceProvider.GetRequiredService<DevelopmentClock>());
+}
 builder.Services.AddAuthentication("SwanSession")
     .AddScheme<AuthenticationSchemeOptions, SwanSessionAuthenticationHandler>("SwanSession", _ => { });
 builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, SetupManagerHandler>();
