@@ -165,7 +165,7 @@ test("a commissioner can open a draft that was intentionally started later", asy
   });
   fireEvent.click(screen.getByRole("button", { name: "Open draft" }));
 
-  await screen.findByText("The roster draft is open.");
+  await screen.findByText("The draft is open.");
   expect(calls).toContainEqual({
     method: "POST",
     url: "/api/commissioner/roster-draft/start",
@@ -391,7 +391,7 @@ test("before any season is live the page points at Season setup", async () => {
     await screen.findByRole("heading", { name: "No season is live yet" }),
   ).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Go to Season setup" }));
-  expect(window.location.pathname).toBe("/setup");
+  expect(window.location.pathname).toBe("/commish/setup");
 });
 
 test("a failed load can be retried and the page has one h1", async () => {
@@ -412,7 +412,7 @@ test("a failed load can be retried and the page has one h1", async () => {
   expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
 });
 
-test("the admin navigation links to the roster draft and marks it current", async () => {
+test("the admin navigation links to the draft and marks it current", async () => {
   open();
   await ready();
 
@@ -420,7 +420,7 @@ test("the admin navigation links to the roster draft and marks it current", asyn
     "aria-current",
     "page",
   );
-  expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute(
+  expect(screen.getByRole("link", { name: "Today" })).not.toHaveAttribute(
     "aria-current",
   );
 });

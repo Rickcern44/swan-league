@@ -428,7 +428,7 @@ test("a failed load can be retried", async () => {
   expect(await ready()).toBeVisible();
 });
 
-test("a coach never calls an admin endpoint and an admin never calls the coach desk", async () => {
+test("a coach never calls an admin endpoint and the Commish area never calls the coach desk", async () => {
   open();
   await ready();
   expect(calls.some((c) => c.url.includes("/api/admin"))).toBe(false);
@@ -440,7 +440,7 @@ test("a coach never calls an admin endpoint and an admin never calls the coach d
     body: { season: null, currentWeek: null, attention: [], caughtUp: false },
   };
   stubApi("Admin");
-  window.history.replaceState({}, "", "/");
+  window.history.replaceState({}, "", "/commish");
   render(<App />);
   await screen.findByRole("heading", { name: "No season is live" });
   expect(calls.some((c) => c.url.includes("/api/coach"))).toBe(false);

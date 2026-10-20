@@ -2232,7 +2232,9 @@ test("an already finished setup skips the finish call and goes straight to openi
   expect(screen.getByText(/open until Tue, Oct 20, 6:00 PM ET/)).toBeVisible();
   expect(calls.some((call) => call.url.endsWith("/review/finish"))).toBe(false);
   fireEvent.click(screen.getByRole("link", { name: "Open the draft" }));
-  await vi.waitFor(() => expect(window.location.pathname).toBe("/draft"));
+  await vi.waitFor(() =>
+    expect(window.location.pathname).toBe("/commish/draft"),
+  );
 });
 
 test.each([
@@ -2455,7 +2457,7 @@ test("resetting local season data needs a confirmation, then shows the fresh-sea
   expect(calls.filter((call) => call.url.includes("development"))).toHaveLength(
     1,
   );
-  expect(window.location.pathname).toBe("/setup");
+  expect(window.location.pathname).toBe("/commish/setup");
 });
 
 test("a failed reset says why and leaves the season in place", async () => {

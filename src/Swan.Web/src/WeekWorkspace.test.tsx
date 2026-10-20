@@ -507,7 +507,7 @@ test("a missing week is said plainly and leads back to the league desk", async (
   fireEvent.click(
     screen.getByRole("button", { name: "Back to the league desk" }),
   );
-  expect(window.location.pathname).toBe("/");
+  expect(window.location.pathname).toBe("/commish");
 });
 
 test("a failed load or an unreachable server can be retried", async () => {
