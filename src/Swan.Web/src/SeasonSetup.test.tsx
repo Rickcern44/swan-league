@@ -2377,45 +2377,189 @@ test("the page keeps a sound heading order: one h1, then an h2 for the current p
   expect(screen.queryAllByRole("heading", { level: 3 })).toHaveLength(0);
 });
 
-test("four milestones are listed; reached ones are buttons, later ones are plain text", async () => {
+const rail = () =>
+  within(screen.getByRole("navigation", { name: "Setup steps" }));
+const readiness = () =>
+  screen.queryByRole("complementary", { name: "Ready to start?" });
+
+test("the step rail lists all ten steps under their milestones; reached steps are buttons and the current one is marked", async () => {
   stubApi("Admin");
   replies[SETUP] = { status: 200, body: season({ setupStep: 4 }) };
   render(<App />);
   await screen.findByRole("form", { name: "Schedule import" });
 
-  const nav = within(
-    screen.getByRole("navigation", { name: "Setup milestones" }),
-  );
-  expect(nav.getAllByRole("listitem")).toHaveLength(4);
-  expect(nav.getByRole("button", { name: /League foundation/ })).toBeVisible();
-  expect(
-    nav.getByRole("button", { name: /Schedule and scoring/ }),
-  ).toBeVisible();
-  expect(
-    nav.queryByRole("button", { name: /People and payouts/ }),
-  ).not.toBeInTheDocument();
-  expect(nav.getByText(/Ready to launch/)).toBeVisible();
-  expect(nav.getByRole("listitem", { current: "step" })).toHaveTextContent(
+  const steps = rail();
+  for (const group of [
+    "League foundation",
     "Schedule and scoring",
-  );
+    "People and payouts",
+    "Ready to launch",
+  ])
+    expect(steps.getByRole("list", { name: group })).toBeVisible();
+  expect(
+    steps.getAllByRole("listitem").filter((item) => !item.querySelector("ol")),
+  ).toHaveLength(10);
+  for (const name of [
+    "Basics",
+    "Money",
+    "Weekly deadline",
+    "Teams and point values",
+  ])
+    expect(
+      steps.getByRole("button", { name: new RegExp(`^${name}.*Done`) }),
+    ).toBeVisible();
+  expect(
+    steps.getByRole("button", { name: /^Schedule import/ }),
+  ).toHaveAttribute("aria-current", "step");
+  expect(
+    steps.queryByRole("button", { name: /Weeks and dogs/ }),
+  ).not.toBeInTheDocument();
+  expect(steps.getByText("Weeks and dogs")).toBeVisible();
+  expect(putCalls()).toEqual([]);
 });
 
-test("going back to an earlier milestone offers a clear way to resume, and nothing is saved by moving", async () => {
+test("going back to an earlier step marks where to resume, and nothing is saved by moving", async () => {
   stubApi("Admin");
   replies[SETUP] = { status: 200, body: season({ setupStep: 5 }) };
   render(<App />);
   await screen.findByRole("form", { name: "Weeks and dogs" });
   expect(screen.queryByText(/Next up:/)).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: /League foundation/ }));
+  fireEvent.click(rail().getByRole("button", { name: /^Basics/ }));
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
+  expect(
+    rail().getByRole("button", { name: /^Weeks and dogs.*Next/ }),
+  ).toBeVisible();
   expect(screen.getByText("Next up: Weeks and dogs")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
   expect(
     await screen.findByRole("form", { name: "Weeks and dogs" }),
   ).toBeVisible();
   expect(putCalls()).toEqual([]);
+});
+
+test("the readiness panel shows progress and what needs fixing, and Fix opens that step", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 4 }) };
+  replies[REVIEW] = {
+    status: 200,
+    body: reviewData({
+      ready: false,
+      blockers: [
+        {
+          code: "money.pools",
+          message: "The pools do not add up to the buy-in.",
+          step: "Money",
+        },
+      ],
+      warnings: [
+        {
+          code: "coaches.none",
+          message: "No coaches are on the list yet.",
+          step: "Coaches",
+        },
+      ],
+    }),
+  };
+  render(<App />);
+  await screen.findByRole("form", { name: "Schedule import" });
+
+  const panel = within(
+    await screen.findByRole("complementary", { name: "Ready to start?" }),
+  );
+  expect(panel.getByText("4 of 10 steps done")).toBeVisible();
+  expect(
+    within(panel.getByRole("list", { name: "Needs fixing" })).getByText(
+      "The pools do not add up to the buy-in.",
+    ),
+  ).toBeVisible();
+  expect(
+    within(panel.getByRole("list", { name: "Worth a look" })).getByText(
+      "No coaches are on the list yet.",
+    ),
+  ).toBeVisible();
+  expect(
+    await rail().findByRole("button", { name: /^Money.*Needs fixing/ }),
+  ).toBeVisible();
+  // Coaches is not reached yet, so the rail lists it as not started; its warning stays in the panel.
+  expect(rail().getByText("Coaches").parentElement).toHaveTextContent(
+    "CoachesNot started",
+  );
+
+  fireEvent.click(panel.getByRole("button", { name: "Fix: Money" }));
+  expect(await screen.findByRole("form", { name: "Money" })).toBeVisible();
+  expect(putCalls()).toEqual([]);
+});
+
+test("with nothing to fix the readiness panel says so", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 2 }) };
+  render(<App />);
+  await screen.findByRole("form", { name: "Weekly deadline" });
+
+  const panel = within(
+    await screen.findByRole("complementary", { name: "Ready to start?" }),
+  );
+  expect(await panel.findByText("Nothing needs fixing.")).toBeVisible();
+  expect(panel.getByText("2 of 10 steps done")).toBeVisible();
+});
+
+test("the readiness panel reads readiness again after a save", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season() };
+  replies["PUT /api/admin/seasons/setup"] = { status: 200, body: season() };
+  replies[STEP] = stepReply();
+  render(<App />);
+  await screen.findByRole("form", { name: "Basics" });
+  await waitFor(() =>
+    expect(calls.filter((call) => call.url.endsWith("/review"))).toHaveLength(
+      1,
+    ),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Save & continue" }));
+
+  await screen.findByRole("form", { name: "Money" });
+  await waitFor(() =>
+    expect(calls.filter((call) => call.url.endsWith("/review"))).toHaveLength(
+      2,
+    ),
+  );
+});
+
+test("the Ready to launch step does not repeat the readiness panel", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 9 }) };
+  render(<App />);
+  await screen.findByRole("form", { name: "Ready to launch" });
+
+  expect(readiness()).not.toBeInTheDocument();
+});
+
+test("each step has its own address under the Commish area", async () => {
+  stubApi("Admin");
+  replies[SETUP] = { status: 200, body: season({ setupStep: 1 }) };
+  render(<App />);
+  await screen.findByRole("form", { name: "Money" });
+
+  expect(window.location.pathname).toBe("/commish/setup/money");
+  fireEvent.click(rail().getByRole("button", { name: /^Basics/ }));
+  expect(window.location.pathname).toBe("/commish/setup/basics");
+});
+
+test("the Coaches page shows what the selected coaches bring in buy-ins", async () => {
+  const form = await openCoaches(
+    coachesPlan(
+      [],
+      [
+        { name: "Lee", email: "lee@example.com", selected: true },
+        { name: "Pat", email: "pat@example.com", selected: true },
+      ],
+    ),
+  );
+
+  expect(within(form).getByText("$200.00 in buy-ins")).toBeVisible();
 });
 
 test("Development tools are not offered unless the server says so", async () => {

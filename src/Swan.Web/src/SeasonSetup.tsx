@@ -382,13 +382,34 @@ function SetupCards({
   const [view, setView] = useState(() => Math.min(season.setupStep, lastStep));
   const available = useRef(Math.min(season.setupStep, lastStep));
   available.current = Math.min(season.setupStep, lastStep);
+  const [readiness, setReadiness] = useState<Readiness>({ status: "loading" });
+  const onReview = view === lastStep;
+
+  // Readiness is read again whenever a save changes the season. The Ready to launch page reads and shows it itself.
+  useEffect(() => {
+    if (onReview) return;
+    let current = true;
+    void send<Review>("GET", "/api/admin/seasons/setup/review").then(
+      (result) => {
+        if (!current) return;
+        setReadiness(
+          "value" in result
+            ? { status: "ready", review: result.value }
+            : { status: "failed", error: result.error },
+        );
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [season, onReview]);
 
   useEffect(() => {
     // Subpaths and history entries make the browser's Back/Forward move between pages; they never save anything.
     window.history.replaceState(
       { setupView: view },
       "",
-      `/setup/${stepSlugs[view]}`,
+      `/commish/setup/${stepSlugs[view]}`,
     );
     const onPop = (event: PopStateEvent) => {
       const target = (event.state as { setupView?: number } | null)?.setupView;
@@ -417,7 +438,7 @@ function SetupCards({
     window.history.pushState(
       { setupView: target },
       "",
-      `/setup/${stepSlugs[target]}`,
+      `/commish/setup/${stepSlugs[target]}`,
     );
     setView(target);
   }
@@ -547,14 +568,6 @@ function SetupCards({
   const current = milestoneOf(view);
   const part = view - milestones[current].first + 1;
   const parts = milestones[current].last - milestones[current].first + 1;
-  const openMilestone = (index: number) => {
-    const m = milestones[index];
-    goTo(
-      season.setupStep > m.last
-        ? m.first
-        : Math.max(m.first, Math.min(resumeStep, m.last)),
-    );
-  };
 
   return (
     <>
@@ -569,256 +582,410 @@ function SetupCards({
         )}
         {" · Your progress is saved with this season."}
       </p>
-      <nav aria-label="Setup milestones">
-        <ol className="progress milestones">
-          {milestones.map((m, index) => {
-            const done = season.setupStep > m.last;
-            const reached = season.setupStep >= m.first;
-            const mark = done ? "✓ " : index === current ? "● " : "○ ";
-            return (
-              <li
-                key={m.name}
-                aria-current={index === current ? "step" : undefined}
-              >
-                {reached ? (
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => openMilestone(index)}
-                  >
-                    {mark}
-                    {m.name}
-                  </button>
-                ) : (
-                  <span>
-                    {mark}
-                    {m.name}
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      </nav>
-      {!finished && milestoneOf(resumeStep) !== current && (
-        <p className="resume">
-          <span>{`Next up: ${wizardSteps[resumeStep]}`}</span>
-          <button type="button" onClick={() => goTo(resumeStep)}>
-            Continue setup
-          </button>
-        </p>
-      )}
-      {view === 0 && (
-        <Card
-          title="Basics"
-          notice={notices[0]}
-          action="Save & continue"
-          onSubmit={() =>
-            void saveAndContinue(0, "/api/admin/seasons/setup", {
-              year: Number(year),
-              name,
-              isSimulation,
-            })
-          }
-        >
-          <Field label="Season year">
-            <input
-              type="number"
-              value={year}
-              onChange={(event) => setYear(event.target.value)}
-            />
-          </Field>
-          <Field label="Season name">
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </Field>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={isSimulation}
-              onChange={(event) => setIsSimulation(event.target.checked)}
-            />
-            Simulation season
-          </label>
-        </Card>
-      )}
-      {view === 1 && (
-        <Card
-          title="Money"
-          notice={notices[1]}
-          action="Save & continue"
-          onBack={back}
-          onSubmit={() =>
-            void saveAndContinue(1, "/api/admin/seasons/setup/money", {
-              buyIn: Number(buyIn),
-              main: Number(stakes.Main),
-              dog: Number(stakes.Dog),
-              regularSeason: Number(stakes["Regular Season"]),
-              playoff: Number(stakes.Playoff),
-            })
-          }
-        >
-          <Field label="Buy-in">
-            <input
-              type="number"
-              step="0.01"
-              value={buyIn}
-              onChange={(event) => setBuyIn(event.target.value)}
-            />
-          </Field>
-          {stakeNames.map((pool) => (
-            <Field key={pool} label={pool}>
-              <input
-                type="number"
-                step="0.01"
-                value={stakes[pool]}
-                onChange={(event) => {
-                  const { value } = event.target;
-                  setStakes((current) => ({ ...current, [pool]: value }));
-                }}
-              />
-            </Field>
-          ))}
-          <span className="total">{`Pool total ${dollars(poolTotal)}`}</span>
-        </Card>
-      )}
-      {view === 2 && (
-        <Card
-          title="Weekly deadline"
-          notice={notices[2]}
-          action="Save & continue"
-          onBack={back}
-          onSubmit={() =>
-            void saveAndContinue(2, "/api/admin/seasons/setup/deadline", {
-              teamPickDeadlineEastern: `${deadline}:00`,
-            })
-          }
-        >
-          <Field label="Team picks lock Sundays at">
-            <input
-              type="time"
-              value={deadline}
-              onChange={(event) => setDeadline(event.target.value)}
-            />
-          </Field>
-          <span>Eastern Time</span>
-        </Card>
-      )}
-      {view === 3 && (
-        <Card
-          title="Teams and point values"
-          notice={
-            notices[3] ??
-            (teamsError
-              ? {
-                  kind: "error",
-                  text: `Could not load the teams: ${teamsError}`,
-                }
-              : undefined)
-          }
-          action={teams ? "Save & continue" : undefined}
-          onBack={back}
-          onSubmit={() => void saveTeams()}
-        >
-          <span className="hint">
-            Set each team's prior-season division finish. Point values derive
-            automatically.
-          </span>
-          {teams && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => void populatePreviousStandings()}
-            >
-              Load previous NFL standings
-            </button>
+      <div className="setup-flow">
+        <StepRail
+          season={season}
+          view={view}
+          review={readiness.status === "ready" ? readiness.review : undefined}
+          onOpen={goTo}
+        />
+        <div className="setup-step">
+          {!finished && milestoneOf(resumeStep) !== current && (
+            <p className="resume">
+              <span>{`Next up: ${wizardSteps[resumeStep]}`}</span>
+              <button type="button" onClick={() => goTo(resumeStep)}>
+                Continue setup
+              </button>
+            </p>
           )}
-          {!teams && !teamsError && <span>Loading teams…</span>}
-          {teams &&
-            [...new Set(teams.map((team) => team.division))].map((division) => (
-              <fieldset key={division} className="division">
-                <legend>{division}</legend>
-                {teams
-                  .filter((team) => team.division === division)
-                  .map((team) => (
-                    <div key={team.teamId} className="team-row">
-                      <span>{team.name}</span>
-                      <select
-                        aria-label={team.name}
-                        value={picks[team.teamId] ?? ""}
-                        onChange={(event) => {
-                          const { value } = event.target;
-                          setPicks((current) => ({
-                            ...current,
-                            [team.teamId]: value,
-                          }));
-                        }}
-                      >
-                        <option value="">Finish…</option>
-                        {finishLabels.map((label, index) => (
-                          <option key={label} value={String(index + 1)}>
-                            {label}
-                          </option>
+          {view === 0 && (
+            <Card
+              title="Basics"
+              notice={notices[0]}
+              action="Save & continue"
+              onSubmit={() =>
+                void saveAndContinue(0, "/api/admin/seasons/setup", {
+                  year: Number(year),
+                  name,
+                  isSimulation,
+                })
+              }
+            >
+              <Field label="Season year">
+                <input
+                  type="number"
+                  value={year}
+                  onChange={(event) => setYear(event.target.value)}
+                />
+              </Field>
+              <Field label="Season name">
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </Field>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={isSimulation}
+                  onChange={(event) => setIsSimulation(event.target.checked)}
+                />
+                Simulation season
+              </label>
+            </Card>
+          )}
+          {view === 1 && (
+            <Card
+              title="Money"
+              notice={notices[1]}
+              action="Save & continue"
+              onBack={back}
+              onSubmit={() =>
+                void saveAndContinue(1, "/api/admin/seasons/setup/money", {
+                  buyIn: Number(buyIn),
+                  main: Number(stakes.Main),
+                  dog: Number(stakes.Dog),
+                  regularSeason: Number(stakes["Regular Season"]),
+                  playoff: Number(stakes.Playoff),
+                })
+              }
+            >
+              <Field label="Buy-in">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={buyIn}
+                  onChange={(event) => setBuyIn(event.target.value)}
+                />
+              </Field>
+              {stakeNames.map((pool) => (
+                <Field key={pool} label={pool}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={stakes[pool]}
+                    onChange={(event) => {
+                      const { value } = event.target;
+                      setStakes((current) => ({ ...current, [pool]: value }));
+                    }}
+                  />
+                </Field>
+              ))}
+              <span className="total">{`Pool total ${dollars(poolTotal)}`}</span>
+            </Card>
+          )}
+          {view === 2 && (
+            <Card
+              title="Weekly deadline"
+              notice={notices[2]}
+              action="Save & continue"
+              onBack={back}
+              onSubmit={() =>
+                void saveAndContinue(2, "/api/admin/seasons/setup/deadline", {
+                  teamPickDeadlineEastern: `${deadline}:00`,
+                })
+              }
+            >
+              <Field label="Team picks lock Sundays at">
+                <input
+                  type="time"
+                  value={deadline}
+                  onChange={(event) => setDeadline(event.target.value)}
+                />
+              </Field>
+              <span>Eastern Time</span>
+            </Card>
+          )}
+          {view === 3 && (
+            <Card
+              title="Teams and point values"
+              notice={
+                notices[3] ??
+                (teamsError
+                  ? {
+                      kind: "error",
+                      text: `Could not load the teams: ${teamsError}`,
+                    }
+                  : undefined)
+              }
+              action={teams ? "Save & continue" : undefined}
+              onBack={back}
+              onSubmit={() => void saveTeams()}
+            >
+              <span className="hint">
+                Set each team's prior-season division finish. Point values
+                derive automatically.
+              </span>
+              {teams && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => void populatePreviousStandings()}
+                >
+                  Load previous NFL standings
+                </button>
+              )}
+              {!teams && !teamsError && <span>Loading teams…</span>}
+              {teams &&
+                [...new Set(teams.map((team) => team.division))].map(
+                  (division) => (
+                    <fieldset key={division} className="division">
+                      <legend>{division}</legend>
+                      {teams
+                        .filter((team) => team.division === division)
+                        .map((team) => (
+                          <div key={team.teamId} className="team-row">
+                            <span>{team.name}</span>
+                            <select
+                              aria-label={team.name}
+                              value={picks[team.teamId] ?? ""}
+                              onChange={(event) => {
+                                const { value } = event.target;
+                                setPicks((current) => ({
+                                  ...current,
+                                  [team.teamId]: value,
+                                }));
+                              }}
+                            >
+                              <option value="">Finish…</option>
+                              {finishLabels.map((label, index) => (
+                                <option key={label} value={String(index + 1)}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                            <span>{`Point value ${picks[team.teamId] || "–"}`}</span>
+                          </div>
                         ))}
-                      </select>
-                      <span>{`Point value ${picks[team.teamId] || "–"}`}</span>
-                    </div>
-                  ))}
-              </fieldset>
-            ))}
-        </Card>
-      )}
-      {view === 4 && (
-        <ScheduleStep
-          season={season}
-          onSeason={onSeason}
-          onBack={back}
-          onContinue={() => goTo(5)}
-        />
-      )}
-      {view === 5 && (
-        <DogsStep
-          season={season}
-          onSeason={onSeason}
-          onBack={back}
-          onContinue={() => goTo(6)}
-        />
-      )}
-      {view === 6 && (
-        <FinesStep
-          season={season}
-          onSeason={onSeason}
-          onBack={back}
-          onContinue={() => goTo(7)}
-        />
-      )}
-      {view === 7 && (
-        <RulesStep
-          season={season}
-          onSeason={onSeason}
-          onBack={back}
-          onContinue={() => goTo(8)}
-        />
-      )}
-      {view === 8 && (
-        <CoachesStep
-          season={season}
-          onSeason={onSeason}
-          onBack={back}
-          onContinue={() => goTo(9)}
-        />
-      )}
-      {view === 9 && (
-        <ReviewStep
-          season={season}
-          onSeason={onSeason}
-          onBack={back}
-          onFix={goTo}
-        />
-      )}
+                    </fieldset>
+                  ),
+                )}
+            </Card>
+          )}
+          {view === 4 && (
+            <ScheduleStep
+              season={season}
+              onSeason={onSeason}
+              onBack={back}
+              onContinue={() => goTo(5)}
+            />
+          )}
+          {view === 5 && (
+            <DogsStep
+              season={season}
+              onSeason={onSeason}
+              onBack={back}
+              onContinue={() => goTo(6)}
+            />
+          )}
+          {view === 6 && (
+            <FinesStep
+              season={season}
+              onSeason={onSeason}
+              onBack={back}
+              onContinue={() => goTo(7)}
+            />
+          )}
+          {view === 7 && (
+            <RulesStep
+              season={season}
+              onSeason={onSeason}
+              onBack={back}
+              onContinue={() => goTo(8)}
+            />
+          )}
+          {view === 8 && (
+            <CoachesStep
+              season={season}
+              onSeason={onSeason}
+              onBack={back}
+              onContinue={() => goTo(9)}
+            />
+          )}
+          {view === 9 && (
+            <ReviewStep
+              season={season}
+              onSeason={onSeason}
+              onBack={back}
+              onFix={goTo}
+            />
+          )}
+        </div>
+        {!onReview && (
+          <ReadinessPanel
+            readiness={readiness}
+            done={Math.min(season.setupStep, wizardSteps.length)}
+            onFix={goTo}
+          />
+        )}
+      </div>
     </>
+  );
+}
+
+type Readiness =
+  | { status: "loading" }
+  | { status: "failed"; error: string }
+  | { status: "ready"; review: Review };
+
+// Every step, grouped under its milestone. Steps up to the saved resume point can be opened; later ones are listed so the whole road is visible.
+function StepRail({
+  season,
+  view,
+  review,
+  onOpen,
+}: {
+  season: Season;
+  view: number;
+  review?: Review;
+  onOpen: (step: number) => void;
+}) {
+  const finished = season.setupStep > lastStep;
+  const resumeStep = Math.min(season.setupStep, lastStep);
+  const pagesWith = (issues: ReviewIssue[] = []) =>
+    new Set(issues.map((entry) => stepPages[entry.step]));
+  const fix = pagesWith(review?.blockers);
+  const look = pagesWith(review?.warnings);
+  const rail = useRef<HTMLElement>(null);
+  const currentButton = useRef<HTMLButtonElement>(null);
+
+  // On a phone the rail is a sideways strip; keep the open step in view. On a wide screen nothing scrolls.
+  useEffect(() => {
+    const strip = rail.current;
+    if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+    currentButton.current?.scrollIntoView?.({
+      block: "nearest",
+      inline: "center",
+    });
+  }, [view]);
+
+  const reached = (step: number) => finished || step <= resumeStep;
+  // A step not reached yet is simply not started; its issues stay in the readiness panel.
+  const stateOf = (step: number) => {
+    if (reached(step) && fix.has(step))
+      return { key: "fix", text: "Needs fixing" };
+    if (reached(step) && look.has(step))
+      return { key: "look", text: "Worth a look" };
+    if (season.setupStep > step) return { key: "done", text: "Done" };
+    if (step === resumeStep) return { key: "next", text: "Next" };
+    return { key: "todo", text: "Not started" };
+  };
+
+  return (
+    <nav className="step-rail" aria-label="Setup steps" ref={rail}>
+      <ol>
+        {milestones.map((m) => (
+          <li key={m.name} className="rail-group">
+            <span className="rail-group-name" aria-hidden="true">
+              {m.name}
+            </span>
+            <ol aria-label={m.name}>
+              {wizardSteps.slice(m.first, m.last + 1).map((label, offset) => {
+                const step = m.first + offset;
+                const state = stateOf(step);
+                const content = (
+                  <>
+                    <span className="rail-dot" aria-hidden="true" />
+                    <span className="rail-label">{label}</span>
+                    <span className="rail-state">{state.text}</span>
+                  </>
+                );
+                return (
+                  <li key={label} className={`rail-step ${state.key}`}>
+                    {reached(step) ? (
+                      <button
+                        type="button"
+                        ref={step === view ? currentButton : undefined}
+                        aria-current={step === view ? "step" : undefined}
+                        onClick={() => onOpen(step)}
+                      >
+                        {content}
+                      </button>
+                    ) : (
+                      <span className="rail-locked">{content}</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+// What still stands between this season and starting it, read from the server's own review.
+function ReadinessPanel({
+  readiness,
+  done,
+  onFix,
+}: {
+  readiness: Readiness;
+  done: number;
+  onFix: (step: number) => void;
+}) {
+  const total = wizardSteps.length;
+  return (
+    <aside className="readiness" aria-labelledby="readiness-title">
+      <h2 id="readiness-title">Ready to start?</h2>
+      <progress max={total} value={done} aria-label="Setup progress" />
+      <span className="hint">{`${done} of ${total} steps done`}</span>
+      {readiness.status === "loading" && (
+        <span className="hint">Checking what is left…</span>
+      )}
+      {readiness.status === "failed" && (
+        <span className="hint">{`Could not check readiness: ${readiness.error}`}</span>
+      )}
+      {readiness.status === "ready" && (
+        <>
+          <p className="readiness-group fix">Needs fixing</p>
+          {readiness.review.blockers.length > 0 ? (
+            <ul className="issues" aria-label="Needs fixing">
+              {readiness.review.blockers.map((entry) =>
+                issueItem(entry, "blocker", onFix),
+              )}
+            </ul>
+          ) : (
+            <span className="hint">Nothing needs fixing.</span>
+          )}
+          {readiness.review.warnings.length > 0 && (
+            <>
+              <p className="readiness-group look">Worth a look</p>
+              <ul className="issues" aria-label="Worth a look">
+                {readiness.review.warnings.map((entry) =>
+                  issueItem(entry, "warning", onFix),
+                )}
+              </ul>
+            </>
+          )}
+        </>
+      )}
+    </aside>
+  );
+}
+
+// One review issue with a Fix button that opens the step it belongs to.
+function issueItem(
+  entry: ReviewIssue,
+  kind: "blocker" | "warning",
+  onFix: (step: number) => void,
+) {
+  const page = stepPages[entry.step];
+  return (
+    <li key={entry.code} className={`issue ${kind}`}>
+      <span>{entry.message}</span>
+      {page !== undefined && (
+        <button
+          type="button"
+          className="secondary"
+          aria-label={`Fix: ${wizardSteps[page]}`}
+          onClick={() => onFix(page)}
+        >
+          Fix
+        </button>
+      )}
+    </li>
   );
 }
 
@@ -1766,6 +1933,7 @@ function CoachesStep({
           <span className="hint" role="status">
             {`${count} ${count === 1 ? "coach" : "coaches"} selected`}
           </span>
+          <span className="hint">{`${dollars(Math.round(count * season.settings.buyIn.amount * 100))} in buy-ins`}</span>
           {count === 0 && (
             <span className="hint">
               No coaches yet. You can continue; the Review step will warn you
@@ -2022,24 +2190,8 @@ function ReviewStep({
     else void refreshAccess().then(() => goTo("/commish/draft"));
   }
 
-  const issue = (entry: ReviewIssue, kind: "blocker" | "warning") => {
-    const page = stepPages[entry.step];
-    return (
-      <li key={entry.code} className={`issue ${kind}`}>
-        <span>{entry.message}</span>
-        {page !== undefined && (
-          <button
-            type="button"
-            className="secondary"
-            aria-label={`Fix: ${wizardSteps[page]}`}
-            onClick={() => onFix(page)}
-          >
-            Fix
-          </button>
-        )}
-      </li>
-    );
-  };
+  const issue = (entry: ReviewIssue, kind: "blocker" | "warning") =>
+    issueItem(entry, kind, onFix);
 
   const blocked = review ? review.blockers.length > 0 : true;
   const edit = (label: string, page: number) => (
