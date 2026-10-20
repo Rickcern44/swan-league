@@ -530,8 +530,10 @@ test("the browser Back button returns to the previous page without saving", asyn
   ).toBeVisible();
   const before = putCalls().length;
 
-  // The browser delivers the earlier entry's own state, so wait for it rather than faking one.
-  window.history.back();
+  // What the browser does on Back: the earlier address returns with the state it was saved with. A real
+  // history.back() finishes asynchronously and can land during a later test, so it is not used here.
+  window.history.replaceState({ setupView: 0 }, "", "/commish/setup/basics");
+  fireEvent.popState(window, { state: { setupView: 0 } });
 
   expect(await screen.findByRole("form", { name: "Basics" })).toBeVisible();
   expect(window.location.pathname).toBe("/commish/setup/basics");
