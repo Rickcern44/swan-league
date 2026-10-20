@@ -1202,37 +1202,6 @@ li.game.coach-locked .status strong {
   font-size: 1.15rem;
 }
 
-.milestones {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: 0.5rem;
-}
-
-.milestones li {
-  border-top: 0.25rem solid #d9e2ec;
-  padding-top: 0.4rem;
-}
-
-.milestones li[aria-current="step"] {
-  border-top-color: var(--brass, #b8862b);
-}
-
-.milestones button.link {
-  min-height: 2.75rem;
-  border: 0;
-  padding: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  text-decoration: underline;
-}
-
-.milestones li > span {
-  display: inline-block;
-  padding: 0.6rem 0;
-}
-
 .resume {
   display: flex;
   flex-wrap: wrap;
@@ -1435,28 +1404,10 @@ form.card.wide
 
 .step-rail ol {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.4rem;
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.step-rail .rail-group {
-  display: grid;
-  gap: 0.35rem;
-  flex: none;
-}
-
-.step-rail .rail-group > ol {
-  gap: 0.35rem;
-}
-
-.rail-group-name {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
 }
 
 .step-rail button,
@@ -1592,10 +1543,6 @@ form.card.wide
 
   .step-rail ol {
     flex-direction: column;
-  }
-
-  .step-rail > ol {
-    gap: 1rem;
   }
 
   .step-rail button,
