@@ -219,21 +219,17 @@ test("admin runs a week, coach revises picks, and commissioner opens the draft",
           })
         ).ok(),
       ).toBe(true);
-      await commissioner.reload();
-      const launch = commissioner.getByRole("group", {
-        name: "Start the season",
-      });
-      await launch.getByLabel(/Draft deadline/).fill(easternInput(3));
-      await launch
-        .getByRole("button", { name: "Start season and open draft" })
-        .click();
-      const confirm = commissioner.getByRole("alertdialog", {
-        name: "Start the season and open the draft?",
-      });
-      await confirm
-        .getByRole("button", { name: "Confirm and open draft" })
-        .click();
-      await commissioner.getByRole("link", { name: "Open the draft" }).click();
+      expect(
+        (await request.post("/api/admin/seasons/setup/review/finish")).ok(),
+      ).toBe(true);
+      const activation = await request.post(
+        "/api/admin/seasons/setup/activate",
+        {
+          data: { rosterDraftDeadlineEastern: easternInput(3) },
+        },
+      );
+      expect(activation.ok()).toBe(true);
+      await commissioner.goto("/commish/draft");
       await expect(
         commissioner.getByRole("heading", { level: 1, name: "Draft" }),
       ).toBeVisible();
