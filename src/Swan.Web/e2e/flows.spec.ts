@@ -121,7 +121,7 @@ async function lockRoster(page: Page, email: string) {
 }
 
 type WeekResponse = {
-  games: { id: string; approvedLine: number | null }[];
+  games: { id: string; approvedLine: number | null; hasResult: boolean }[];
 };
 
 test("admin creates a fresh season and coach locks a roster", async ({
@@ -228,6 +228,20 @@ test("admin runs a full week after creating a fresh season", async ({
       .nth(1)
       .fill("21");
     await result.getByRole("button", { name: "Save result" }).click();
+    const lockedWeek = (await (
+      await admin.request.get(`/api/admin/weeks/${dashboard.currentWeek!.id}`)
+    ).json()) as WeekResponse;
+    for (const game of lockedWeek.games.filter((game) => !game.hasResult)) {
+      expect(
+        (
+          await admin.request.post(
+            `/api/admin/weeks/${dashboard.currentWeek!.id}/games/${game.id}/result`,
+            { data: { homeScore: 17, awayScore: 21 } },
+          )
+        ).ok(),
+      ).toBe(true);
+    }
+    await admin.reload();
     await dock.getByRole("button", { name: "Finalize week" }).click();
     await expect(
       dock.getByRole("button", { name: "Recompute scores" }),
