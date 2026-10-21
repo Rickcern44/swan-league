@@ -152,10 +152,10 @@ async function prepareOpenWeek(admin: Page) {
     );
   }
   await expectOk(
-    await admin.request.post(`/api/admin/weeks/${weekId}/lines/approve`),
+    await admin.request.post(`/api/admin/weeks/${weekId}/dog-options/generate`),
   );
   await expectOk(
-    await admin.request.post(`/api/admin/weeks/${weekId}/dog-options/generate`),
+    await admin.request.post(`/api/admin/weeks/${weekId}/lines/approve`),
   );
   await expectOk(
     await admin.request.post(`/api/admin/weeks/${weekId}/publish`),
@@ -247,11 +247,6 @@ test("commissioner publishes a prepared draft week", async ({ browser }) => {
         ),
       );
     }
-    await admin.reload();
-    await admin
-      .getByRole("region", { name: "Next action" })
-      .getByRole("button", { name: /^Approve \d+ lines?$/ })
-      .click();
     await expectOk(
       await admin.request.post(
         `/api/admin/weeks/${weekId}/dog-options/generate`,
@@ -260,8 +255,13 @@ test("commissioner publishes a prepared draft week", async ({ browser }) => {
     await admin.reload();
     await admin
       .getByRole("region", { name: "Next action" })
-      .getByRole("button", { name: "Publish week" })
+      .getByRole("button", { name: /^Approve \d+ lines?$/ })
       .click();
+    const nextAction = admin.getByRole("region", { name: "Next action" });
+    await expect(
+      nextAction.getByRole("button", { name: "Publish week" }),
+    ).toBeVisible();
+    await nextAction.getByRole("button", { name: "Publish week" }).click();
     await expect(admin.getByText("Open for picks")).toBeVisible();
   } finally {
     await adminContext.close();
