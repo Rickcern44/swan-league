@@ -165,19 +165,6 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         Assert.Equal([$"start:{Actor}:{SeasonGuid}:2026-10-20T18:00:00"], service.Calls);
     }
 
-    [Fact]
-    public async Task TheCommissionerCanQueueDraftReminders()
-    {
-        var service = new FakeCommissionerRoster();
-        using var client = CreateClient("Admin", new FakeCoachRoster(), service);
-
-        var response = await client.PostAsync("/api/commissioner/roster-draft/reminders", null, TestContext.Current.CancellationToken);
-
-        response.EnsureSuccessStatusCode();
-        Assert.Equal(2, (await response.Content.ReadFromJsonAsync<ReminderQueueResult>(cancellationToken: TestContext.Current.CancellationToken))!.Queued);
-        Assert.Equal([$"remind:{Actor}"], service.Calls);
-    }
-
     [Theory]
     [InlineData("{}")]
     [InlineData("{\"seasonId\":\"00000000-0000-0000-0000-000000000001\",\"rosterDraftDeadlineEastern\":\"tomorrow\"}")]
@@ -304,12 +291,6 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         {
             Calls.Add($"correct:{actor.Value}:{request.MembershipId}:{request.ExpectedRevision}:{request.RemoveTeamId}:{request.AddTeamId}:{request.Reason}");
             return Task.FromResult(Answer());
-        }
-
-        public Task<Result<ReminderQueueResult>> QueueRemindersAsync(UserId actor, CancellationToken cancellationToken = default)
-        {
-            Calls.Add($"remind:{actor.Value}");
-            return Task.FromResult(Result<ReminderQueueResult>.Success(new ReminderQueueResult(2)));
         }
     }
 }

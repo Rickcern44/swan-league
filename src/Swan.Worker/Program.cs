@@ -6,7 +6,7 @@ using Swan.Worker;
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
-builder.Services.AddSingleton<IRunDueJobsHandler, QueuedEmailRunDueJobsHandler>();
+builder.Services.AddSingleton<IRunDueJobsHandler, NoOpRunDueJobsHandler>();
 builder.Services.AddHostedService<DueJobsWorker>();
 
 using var host = builder.Build();

@@ -24,10 +24,6 @@ public static class CommissionerRosterEndpoints
                 return Results.BadRequest(new Error("season.draft-deadline", "seasonId and a roster draft deadline in Eastern Time are required."));
             return ToResult(await service.StartAsync(new UserId(actor), new StartRosterDraft(seasonId, deadline), cancellationToken));
         });
-        draft.MapPost("/reminders", async (ClaimsPrincipal principal, ICommissionerRosterService service, CancellationToken cancellationToken) =>
-            Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)
-                ? ToResult(await service.QueueRemindersAsync(new UserId(actor), cancellationToken))
-                : Results.Unauthorized());
         draft.MapPost("/corrections", async (CorrectRosterRequest request, ClaimsPrincipal principal, ICommissionerRosterService service, CancellationToken cancellationToken) =>
         {
             if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)) return Results.Unauthorized();
@@ -45,15 +41,6 @@ public static class CommissionerRosterEndpoints
         { Error.Code: "commissioner.required" } => Results.Json(result.Error, statusCode: StatusCodes.Status403Forbidden),
         { Error.Code: "season.missing" or "coach.missing" } => Results.NotFound(result.Error),
         { Error.Code: "season.draft-deadline" or "roster.reason" or "roster.team" or "roster.correction.invalid" or "roster.duplicate" or "roster.count" } => Results.BadRequest(result.Error),
-        _ => Results.Conflict(result.Error)
-    };
-
-    private static IResult ToResult(Result<ReminderQueueResult> result) => result switch
-    {
-        { IsSuccess: true } => Results.Ok(result.Value),
-        { Error.Code: "commissioner.required" } => Results.Json(result.Error, statusCode: StatusCodes.Status403Forbidden),
-        { Error.Code: "season.missing" } => Results.NotFound(result.Error),
-        { Error.Code: "roster.draft-closed" } => Results.Conflict(result.Error),
         _ => Results.Conflict(result.Error)
     };
 

@@ -6,7 +6,6 @@ public readonly record struct SeasonId(Guid Value);
 public readonly record struct MembershipId(Guid Value);
 public readonly record struct AuditEntryId(Guid Value);
 public readonly record struct ScheduledJobId(Guid Value);
-public readonly record struct QueuedEmailId(Guid Value);
 public readonly record struct TeamId(Guid Value);
 public readonly record struct SeasonTeamId(Guid Value);
 public readonly record struct WeekId(Guid Value);

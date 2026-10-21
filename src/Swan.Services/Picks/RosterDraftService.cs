@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Swan.Core;
-using Swan.Core.Communication;
 using Swan.Core.Common;
 using Swan.Core.League;
 using Swan.Core.Picks;
@@ -139,14 +138,12 @@ public sealed record CatalogEntry(Guid TeamId, string Name, string Division);
 public sealed record CommissionerDraft(Guid SeasonId, string SeasonName, DateTimeOffset? Deadline, string? DeadlineEastern, bool DraftOpen, DateTimeOffset ServerTime, IReadOnlyList<CatalogEntry> Teams, IReadOnlyList<CommissionerCoach> Coaches, int PicksRemoved = 0);
 public sealed record CorrectRoster(Guid SeasonId, Guid MembershipId, int ExpectedRevision, Guid? RemoveTeamId, Guid AddTeamId, string Reason);
 public sealed record StartRosterDraft(Guid SeasonId, DateTime RosterDraftDeadlineEastern);
-public sealed record ReminderQueueResult(int Queued);
 
 public interface ICommissionerRosterService
 {
     Task<Result<CommissionerDraft>> GetAsync(UserId actor, CancellationToken cancellationToken = default);
     Task<Result<CommissionerDraft>> StartAsync(UserId actor, StartRosterDraft request, CancellationToken cancellationToken = default);
     Task<Result<CommissionerDraft>> CorrectAsync(UserId actor, CorrectRoster request, CancellationToken cancellationToken = default);
-    Task<Result<ReminderQueueResult>> QueueRemindersAsync(UserId actor, CancellationToken cancellationToken = default);
 }
 
 // The commissioner of the newest live season sees every coach's roster and alone may correct one. Authority is an active Commissioner membership of that season, never the global Admin role.
@@ -247,35 +244,6 @@ public sealed class CommissionerRosterService(SwanDbContext database, IClock clo
             var draft = await BuildAsync(season, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return Result<CommissionerDraft>.Success(draft with { PicksRemoved = dropped.Sum(item => item.Removed) });
-        });
-    }
-
-    public async Task<Result<ReminderQueueResult>> QueueRemindersAsync(UserId actor, CancellationToken cancellationToken = default)
-    {
-        return await database.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
-        {
-            await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
-            var found = await CommissionedSeasonAsync(actor, cancellationToken);
-            if (!found.IsSuccess) return Result<ReminderQueueResult>.Failure(found.Error!.Code, found.Error.Message);
-            var season = found.Value!;
-            if (!season.RosterDraftOpen(clock.UtcNow)) return Result<ReminderQueueResult>.Failure("roster.draft-closed", "The draft is not open, so reminders cannot be sent.");
-
-            var coaches = await (from membership in database.Memberships
-                                 join user in database.Users on membership.UserId equals user.Id
-                                 where membership.SeasonId == season.Id && membership.Role == MembershipRole.Coach && membership.IsActive
-                                 select new { membership, user }).ToListAsync(cancellationToken);
-            var rosters = await database.Rosters.AsNoTracking().Where(roster => roster.SeasonId == season.Id).ToDictionaryAsync(roster => roster.MembershipId, cancellationToken);
-            var recipients = coaches.Where(item => !rosters.TryGetValue(item.membership.Id, out var roster) || !roster.IsLocked).ToList();
-            var deadline = EasternTime.ToLocalText(season.RosterDraftDeadline!.Value);
-            foreach (var recipient in recipients)
-                database.QueuedEmails.Add(new QueuedEmail(new QueuedEmailId(Guid.NewGuid()), recipient.user.Email.Value,
-                    $"Reminder: {season.Name} draft closes soon", $"Your Swan draft is open. Choose and lock your 9 teams by {deadline} ET.", clock.UtcNow));
-
-            await database.SaveChangesAsync(cancellationToken);
-            if (recipients.Count > 0)
-                await audit.AppendAsync(actor, "roster-draft.reminders.queued", season.Id.Value.ToString(), before: null, after: new { Queued = recipients.Count }, cancellationToken: cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            return Result<ReminderQueueResult>.Success(new ReminderQueueResult(recipients.Count));
         });
     }
 

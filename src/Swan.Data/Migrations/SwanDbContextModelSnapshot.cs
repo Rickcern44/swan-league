@@ -107,38 +107,6 @@ namespace Swan.Data.Migrations
                     b.ToTable("push_subscriptions", "communication");
                 });
 
-            modelBuilder.Entity("Swan.Core.Communication.QueuedEmail", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("QueuedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Recipient")
-                        .IsRequired()
-                        .HasMaxLength(320)
-                        .HasColumnType("character varying(320)");
-
-                    b.Property<DateTimeOffset?>("SentAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Subject")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SentAt", "QueuedAt");
-
-                    b.ToTable("queued_emails", "communication");
-                });
-
             modelBuilder.Entity("Swan.Core.Finance.Ledger", b =>
                 {
                     b.Property<Guid>("Id")
