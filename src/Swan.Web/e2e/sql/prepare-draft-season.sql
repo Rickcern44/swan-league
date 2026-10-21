@@ -1,10 +1,6 @@
 -- For a DEDICATED e2e database only. Gives the roster-draft e2e what the real schedule import would: an 18-week schedule for the season currently in Setup
 -- (the BALLDONTLIE import needs a key and the network). Run it after the Setup season exists.
 
-insert into identity.users ("Id", "Email", "Name", "IsActive", "Role") values
-  ('00000000-0000-0000-0000-0000000009c2', 'other.admin@swan.local', 'E2E Other Admin', true, 0)
-on conflict do nothing;
-
 insert into schedule.weeks ("Id", "SeasonId", "Number", "Type", "State")
 select gen_random_uuid(), s."Id", n, '0||True', 0
 from league.seasons s, generate_series(1, 18) n

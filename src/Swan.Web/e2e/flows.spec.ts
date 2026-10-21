@@ -2,6 +2,16 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import { sql } from "./database";
 import { signIn } from "./signin";
 
+type Coach = { email: string; name: string };
+type WeekResponse = {
+  games: { id: string; approvedLine: number | null; hasResult: boolean }[];
+};
+type RosterResponse = {
+  seasonId: string;
+  revision: number;
+  teams: { teamId: string }[];
+};
+
 function easternInput(daysAhead: number) {
   const day = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
@@ -12,39 +22,20 @@ function easternInput(daysAhead: number) {
   return `${day}T18:00`;
 }
 
+async function expectOk(response: Awaited<ReturnType<Page["request"]["get"]>>) {
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
 async function chooseNine(page: Page) {
   const choose = page.getByRole("button", { name: /^Choose / });
   for (let i = 0; i < 9; i++) await choose.first().click();
   await expect(page.getByText("9 of 9 chosen · ready to save")).toBeVisible();
 }
 
-async function createLiveDraftSeason(
-  browser: Browser,
-  year: number,
-  coach: { email: string; name: string },
-  adminEmail = "admin@swan.local",
-) {
-  // Insert the alternate test administrator before sign-in. With no Setup season yet,
-  // this does not add schedule data; the second invocation below does.
+async function configureSetup(page: Page, coach: Coach) {
   sql("prepare-draft-season.sql");
-  const adminContext = await browser.newContext();
-  const admin = await adminContext.newPage();
-  await signIn(admin, adminEmail);
-  await admin
-    .getByRole("group", { name: "Mode" })
-    .getByRole("link", { name: "Commish" })
-    .click();
-  await admin.getByRole("link", { name: "Season setup" }).click();
-  const start = admin.getByRole("form", { name: "Start a new season" });
-  await start.getByLabel("Season year").fill(String(year));
-  await start.getByLabel("Season name").fill(`${year} E2E Swan League`);
-  await start.getByRole("button", { name: "Create season" }).click();
-  await expect(admin.getByRole("form", { name: "Basics" })).toBeVisible();
-
-  sql("prepare-draft-season.sql");
-  const request = admin.request;
   const teams = (await (
-    await request.get("/api/admin/seasons/setup/teams")
+    await page.request.get("/api/admin/seasons/setup/teams")
   ).json()) as { teams: { teamId: string; division: string }[] };
   const finishes = new Map<string, number>();
   const selected = teams.teams.map((team) => {
@@ -52,121 +43,189 @@ async function createLiveDraftSeason(
     finishes.set(team.division, finishPosition);
     return { teamId: team.teamId, finishPosition };
   });
-  expect(
-    (
-      await request.put("/api/admin/seasons/setup/teams", {
-        data: { teams: selected },
-      })
-    ).ok(),
-  ).toBe(true);
-  expect(
-    (
-      await request.put("/api/admin/seasons/setup/double-dog-weeks", {
-        data: { weeks: [2, 12, 17] },
-      })
-    ).ok(),
-  ).toBe(true);
+  await expectOk(
+    await page.request.put("/api/admin/seasons/setup/teams", {
+      data: { teams: selected },
+    }),
+  );
+  await expectOk(
+    await page.request.put("/api/admin/seasons/setup/double-dog-weeks", {
+      data: { weeks: [2, 12, 17] },
+    }),
+  );
   const payouts = ["Main", "Dog", "Regular Season", "Playoff"].map((pool) => ({
     pool,
     places: [{ position: 1, percent: 100 }],
   }));
-  expect(
-    (
-      await request.put("/api/admin/seasons/setup/fines-and-payouts", {
-        data: { missedPickFine: 5, payouts },
-      })
-    ).ok(),
-  ).toBe(true);
-  expect(
-    (
-      await request.put("/api/admin/seasons/setup/coaches", {
-        data: { coaches: [coach] },
-      })
-    ).ok(),
-  ).toBe(true);
-  expect(
-    (
-      await request.put("/api/admin/seasons/setup/step", { data: { step: 6 } })
-    ).ok(),
-  ).toBe(true);
-  expect(
-    (await request.post("/api/admin/seasons/setup/review/finish")).ok(),
-  ).toBe(true);
-  expect(
-    (
-      await request.post("/api/admin/seasons/setup/activate", {
-        data: { rosterDraftDeadlineEastern: easternInput(3) },
-      })
-    ).ok(),
-  ).toBe(true);
+  await expectOk(
+    await page.request.put("/api/admin/seasons/setup/fines-and-payouts", {
+      data: { missedPickFine: 5, payouts },
+    }),
+  );
+  await expectOk(
+    await page.request.put("/api/admin/seasons/setup/coaches", {
+      data: { coaches: [coach] },
+    }),
+  );
+  await expectOk(
+    await page.request.put("/api/admin/seasons/setup/step", {
+      data: { step: 6 },
+    }),
+  );
+  await expectOk(
+    await page.request.post("/api/admin/seasons/setup/review/finish"),
+  );
+  await expectOk(
+    await page.request.post("/api/admin/seasons/setup/activate", {
+      data: { rosterDraftDeadlineEastern: easternInput(3) },
+    }),
+  );
+}
+
+async function createDraftState(
+  browser: Browser,
+  year: number,
+  adminEmail: string,
+  coach: Coach,
+) {
+  sql("e2e-users.sql");
+  const adminContext = await browser.newContext();
+  const admin = await adminContext.newPage();
+  await signIn(admin, adminEmail);
+  await expectOk(
+    await admin.request.post("/api/admin/seasons", {
+      data: { year, name: `${year} E2E Swan League` },
+    }),
+  );
+  await configureSetup(admin, coach);
   return { adminContext, admin };
 }
 
-async function lockRoster(page: Page, email: string) {
-  await signIn(page, email);
-  await page
-    .getByRole("navigation", { name: "Primary" })
-    .getByRole("link", { name: "Draft" })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Choose your nine" }),
-  ).toBeVisible();
-  await chooseNine(page);
-  await page.getByRole("button", { name: "Save draft" }).click();
-  await page.getByRole("button", { name: "Lock roster" }).click();
-  await page.getByRole("button", { name: "Confirm lock" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your roster is locked" }),
-  ).toBeVisible();
+async function lockRosterWithApi(browser: Browser, email: string) {
+  const coachContext = await browser.newContext();
+  const coach = await coachContext.newPage();
+  await signIn(coach, email);
+  const roster = (await (
+    await coach.request.get("/api/coach/roster")
+  ).json()) as RosterResponse;
+  await expectOk(
+    await coach.request.put("/api/coach/roster", {
+      data: {
+        seasonId: roster.seasonId,
+        expectedRevision: roster.revision,
+        teamIds: roster.teams.slice(0, 9).map((team) => team.teamId),
+      },
+    }),
+  );
+  const saved = (await (
+    await coach.request.get("/api/coach/roster")
+  ).json()) as RosterResponse;
+  await expectOk(
+    await coach.request.post("/api/coach/roster/lock", {
+      data: { seasonId: saved.seasonId, expectedRevision: saved.revision },
+    }),
+  );
+  return { coachContext, coach };
 }
 
-type WeekResponse = {
-  games: { id: string; approvedLine: number | null; hasResult: boolean }[];
-};
+async function currentWeek(admin: Page) {
+  const dashboard = (await (
+    await admin.request.get("/api/admin/dashboard")
+  ).json()) as { currentWeek: { id: string } | null };
+  expect(dashboard.currentWeek).not.toBeNull();
+  return dashboard.currentWeek!.id;
+}
 
-test("admin creates a fresh season and coach locks a roster", async ({
+async function prepareOpenWeek(admin: Page) {
+  const weekId = await currentWeek(admin);
+  const week = (await (
+    await admin.request.get(`/api/admin/weeks/${weekId}`)
+  ).json()) as WeekResponse;
+  for (const game of week.games) {
+    await expectOk(
+      await admin.request.post(
+        `/api/admin/weeks/${weekId}/games/${game.id}/lines`,
+        {
+          data: { spread: -3.5, approve: true },
+        },
+      ),
+    );
+  }
+  await expectOk(
+    await admin.request.post(`/api/admin/weeks/${weekId}/lines/approve`),
+  );
+  await expectOk(
+    await admin.request.post(`/api/admin/weeks/${weekId}/dog-options/generate`),
+  );
+  await expectOk(
+    await admin.request.post(`/api/admin/weeks/${weekId}/publish`),
+  );
+  return weekId;
+}
+
+async function prepareLockedWeek(admin: Page) {
+  const weekId = await prepareOpenWeek(admin);
+  await expectOk(await admin.request.post(`/api/admin/weeks/${weekId}/lock`));
+  return weekId;
+}
+
+test("commissioner starts a draft and coach locks a roster", async ({
   browser,
 }) => {
-  test.setTimeout(180_000);
-  const { adminContext, admin } = await createLiveDraftSeason(browser, 2027, {
-    email: "coach2@swan.local",
-    name: "Coach 2",
-  });
+  test.setTimeout(90_000);
+  sql("e2e-users.sql");
+  const adminContext = await browser.newContext();
+  const admin = await adminContext.newPage();
   const coachContext = await browser.newContext();
   try {
-    await admin.goto("/commish/draft");
+    await signIn(admin, "admin@swan.local");
+    await admin
+      .getByRole("group", { name: "Mode" })
+      .getByRole("link", { name: "Commish" })
+      .click();
+    await admin.getByRole("link", { name: "Season setup" }).click();
+    const start = admin.getByRole("form", { name: "Start a new season" });
+    await start.getByLabel("Season year").fill("2027");
+    await start.getByLabel("Season name").fill("2027 E2E Swan League");
+    await start.getByRole("button", { name: "Create season" }).click();
+    await expect(admin.getByRole("form", { name: "Basics" })).toBeVisible();
+    await configureSetup(admin, {
+      email: "coach2@swan.local",
+      name: "Coach 2",
+    });
+
+    const coach = await coachContext.newPage();
+    await signIn(coach, "coach2@swan.local");
+    await coach
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: "Draft" })
+      .click();
     await expect(
-      admin.getByRole("heading", { level: 1, name: "Draft" }),
+      coach.getByRole("heading", { name: "Choose your nine" }),
     ).toBeVisible();
-    await lockRoster(await coachContext.newPage(), "coach2@swan.local");
+    await chooseNine(coach);
+    await coach.getByRole("button", { name: "Save draft" }).click();
+    await coach.getByRole("button", { name: "Lock roster" }).click();
+    await coach.getByRole("button", { name: "Confirm lock" }).click();
+    await expect(
+      coach.getByRole("heading", { name: "Your roster is locked" }),
+    ).toBeVisible();
   } finally {
     await Promise.all([adminContext.close(), coachContext.close()]);
   }
 });
 
-test("admin runs a full week after creating a fresh season", async ({
-  browser,
-}) => {
-  test.setTimeout(180_000);
-  const { adminContext, admin } = await createLiveDraftSeason(
+test("commissioner publishes a prepared draft week", async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { adminContext, admin } = await createDraftState(
     browser,
     2028,
-    {
-      email: "coach3@swan.local",
-      name: "Coach 3",
-    },
     "other.admin@swan.local",
+    { email: "coach3@swan.local", name: "Coach 3" },
   );
-  const coachContext = await browser.newContext();
   try {
-    const coach = await coachContext.newPage();
-    await lockRoster(coach, "coach3@swan.local");
-    const dashboard = (await (
-      await admin.request.get("/api/admin/dashboard")
-    ).json()) as { currentWeek: { id: string; state: string } | null };
-    expect(dashboard.currentWeek?.state).toBe("Draft");
-    await admin.goto(`/weeks/${dashboard.currentWeek!.id}`);
-    const dock = admin.getByRole("region", { name: "Next action" });
+    const weekId = await currentWeek(admin);
+    await admin.goto(`/weeks/${weekId}`);
     await admin
       .getByRole("button", { name: /^Add line/ })
       .first()
@@ -174,46 +233,82 @@ test("admin runs a full week after creating a fresh season", async ({
     await admin.getByLabel(/^Spread for/).fill("-3.5");
     await admin.getByRole("button", { name: "Save and approve" }).click();
     const week = (await (
-      await admin.request.get(`/api/admin/weeks/${dashboard.currentWeek!.id}`)
+      await admin.request.get(`/api/admin/weeks/${weekId}`)
     ).json()) as WeekResponse;
     for (const game of week.games.filter(
       (game) => game.approvedLine === null,
     )) {
-      expect(
-        (
-          await admin.request.post(
-            `/api/admin/weeks/${dashboard.currentWeek!.id}/games/${game.id}/lines`,
-            { data: { spread: -3.5, approve: true } },
-          )
-        ).ok(),
-      ).toBe(true);
+      await expectOk(
+        await admin.request.post(
+          `/api/admin/weeks/${weekId}/games/${game.id}/lines`,
+          {
+            data: { spread: -3.5, approve: true },
+          },
+        ),
+      );
     }
     await admin.reload();
-    await dock.getByRole("button", { name: /^Approve \d+ lines?$/ }).click();
-    expect(
-      (
-        await admin.request.post(
-          `/api/admin/weeks/${dashboard.currentWeek!.id}/dog-options/generate`,
-        )
-      ).ok(),
-    ).toBe(true);
-    await admin.reload();
-    await dock.getByRole("button", { name: "Publish week" }).click();
-
-    await coach
-      .getByRole("navigation", { name: "Primary" })
-      .getByRole("link", { name: "Home" })
+    await admin
+      .getByRole("region", { name: "Next action" })
+      .getByRole("button", { name: /^Approve \d+ lines?$/ })
       .click();
+    await expectOk(
+      await admin.request.post(
+        `/api/admin/weeks/${weekId}/dog-options/generate`,
+      ),
+    );
+    await admin.reload();
+    await admin
+      .getByRole("region", { name: "Next action" })
+      .getByRole("button", { name: "Publish week" })
+      .click();
+    await expect(admin.getByText("Open for picks")).toBeVisible();
+  } finally {
+    await adminContext.close();
+  }
+});
+
+test("coach saves picks for an open week", async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { adminContext, admin } = await createDraftState(
+    browser,
+    2029,
+    "e2e.admin2@swan.local",
+    { email: "coach4@swan.local", name: "Coach 4" },
+  );
+  const { coachContext, coach } = await lockRosterWithApi(
+    browser,
+    "coach4@swan.local",
+  );
+  try {
+    await prepareOpenWeek(admin);
+    await coach.goto("/");
     await coach.getByRole("link", { name: /^Finish Week \d+ picks$/ }).click();
     const starts = coach.getByRole("button", { name: /^Start / });
     for (let i = 0; i < 3; i++) await starts.first().click();
     await coach.getByRole("button", { name: /^Dogs \d+ of \d+$/ }).click();
-    const dogs = coach.getByRole("button", { name: /^Pick dog / });
-    await dogs.first().click();
+    await coach
+      .getByRole("button", { name: /^Pick dog / })
+      .first()
+      .click();
     await coach.getByRole("button", { name: "Save 3 picks and 1 dog" }).click();
     await expect(coach.getByText("Picks saved.")).toBeVisible();
+  } finally {
+    await Promise.all([adminContext.close(), coachContext.close()]);
+  }
+});
 
-    await dock.getByRole("button", { name: "Lock week" }).click();
+test("commissioner finalizes a locked week", async ({ browser }) => {
+  test.setTimeout(90_000);
+  const { adminContext, admin } = await createDraftState(
+    browser,
+    2030,
+    "e2e.admin3@swan.local",
+    { email: "coach5@swan.local", name: "Coach 5" },
+  );
+  try {
+    const weekId = await prepareLockedWeek(admin);
+    await admin.goto(`/weeks/${weekId}`);
     await admin
       .getByRole("button", { name: /^Enter result/ })
       .first()
@@ -228,25 +323,28 @@ test("admin runs a full week after creating a fresh season", async ({
       .nth(1)
       .fill("21");
     await result.getByRole("button", { name: "Save result" }).click();
-    const lockedWeek = (await (
-      await admin.request.get(`/api/admin/weeks/${dashboard.currentWeek!.id}`)
+    const week = (await (
+      await admin.request.get(`/api/admin/weeks/${weekId}`)
     ).json()) as WeekResponse;
-    for (const game of lockedWeek.games.filter((game) => !game.hasResult)) {
-      expect(
-        (
-          await admin.request.post(
-            `/api/admin/weeks/${dashboard.currentWeek!.id}/games/${game.id}/result`,
-            { data: { homeScore: 17, awayScore: 21 } },
-          )
-        ).ok(),
-      ).toBe(true);
+    for (const game of week.games.filter((game) => !game.hasResult)) {
+      await expectOk(
+        await admin.request.post(
+          `/api/admin/weeks/${weekId}/games/${game.id}/result`,
+          {
+            data: { homeScore: 17, awayScore: 21 },
+          },
+        ),
+      );
     }
     await admin.reload();
-    await dock.getByRole("button", { name: "Finalize week" }).click();
+    await admin
+      .getByRole("region", { name: "Next action" })
+      .getByRole("button", { name: "Finalize week" })
+      .click();
     await expect(
-      dock.getByRole("button", { name: "Recompute scores" }),
+      admin.getByRole("button", { name: "Recompute scores" }),
     ).toBeVisible();
   } finally {
-    await Promise.all([adminContext.close(), coachContext.close()]);
+    await adminContext.close();
   }
 });
