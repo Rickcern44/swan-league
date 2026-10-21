@@ -282,6 +282,7 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
         var draft = (await Commissioner(service => service.GetAsync(commissioner))).Value!;
 
         Assert.Equal(("2026 Swan League", true, 32), (draft.SeasonName, draft.DraftOpen, draft.Teams.Count));
+        Assert.Equal(1, draft.Teams.Single(team => team.TeamId == teams[0].Id.Value).PointValue);
         Assert.Equal([("Coach B", "missing"), ("Coach A", "locked")], draft.Coaches.Select(coach => (coach.Name, coach.Status)));
         var a = draft.Coaches.Single(coach => coach.Name == "Coach A");
         Assert.Equal((9, 9, true), (a.TeamCount, a.Teams.Count, a.IsLocked));

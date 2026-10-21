@@ -135,7 +135,7 @@ internal static class SeasonCatalog
 }
 
 public sealed record CommissionerCoach(Guid MembershipId, string Name, string Email, string Status, int TeamCount, IReadOnlyList<Guid> TeamIds, IReadOnlyList<string> Teams, bool IsLocked, DateTimeOffset? LockedAt, int Revision);
-public sealed record CatalogEntry(Guid TeamId, string Name, string Division);
+public sealed record CatalogEntry(Guid TeamId, string Name, string Division, int? PointValue);
 public sealed record CommissionerDraft(Guid SeasonId, string SeasonName, DateTimeOffset? Deadline, string? DeadlineEastern, bool DraftOpen, DateTimeOffset ServerTime, IReadOnlyList<CatalogEntry> Teams, IReadOnlyList<CommissionerCoach> Coaches, int PicksRemoved = 0);
 public sealed record CorrectRoster(Guid SeasonId, Guid MembershipId, int ExpectedRevision, Guid? RemoveTeamId, Guid AddTeamId, string Reason);
 public sealed record StartRosterDraft(Guid SeasonId, DateTime RosterDraftDeadlineEastern);
@@ -308,6 +308,6 @@ public sealed class CommissionerRosterService(SwanDbContext database, IClock clo
                 teams.Select(team => names.GetValueOrDefault(team) ?? "Unknown team").Order().ToList(), roster?.IsLocked ?? false, roster?.LockedAt, roster?.Revision ?? 0);
         }).OrderBy(coach => coach.Status switch { "missing" => 0, "incomplete" => 1, "complete" => 2, _ => 3 }).ThenBy(coach => coach.Name, StringComparer.Ordinal).ToList();
         return new(season.Id.Value, season.Name, season.RosterDraftDeadline, season.RosterDraftDeadline is { } deadline ? EasternTime.ToLocalText(deadline) : null, season.RosterDraftOpen(now), now,
-            catalog.Select(team => new CatalogEntry(team.TeamId.Value, team.Name, team.Division)).ToList(), coaches);
+            catalog.Select(team => new CatalogEntry(team.TeamId.Value, team.Name, team.Division, team.PointValue)).ToList(), coaches);
     }
 }
