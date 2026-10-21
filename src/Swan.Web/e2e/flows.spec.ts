@@ -95,11 +95,23 @@ test("admin runs a week, coach revises picks, and commissioner opens the draft",
       expect((await coach.request.get("/api/admin/dashboard")).status()).toBe(
         403,
       );
+      // Coaches land on Home, which shows what is left this week and leads to Picks.
       await expect(
-        coach.getByRole("heading", { name: "Who are you starting?" }),
+        coach.getByRole("region", { name: /^Your Week \d+ card$/ }),
       ).toBeVisible();
+      await coach
+        .getByRole("link", { name: /^Finish Week \d+ picks$/ })
+        .click();
+      await expect(
+        coach.getByRole("heading", { level: 1, name: /^Week \d+ picks$/ }),
+      ).toBeVisible();
+      const showDogs = () =>
+        coach.getByRole("button", { name: /^Dogs \d+ of \d+$/ }).click();
+      const showStarts = () =>
+        coach.getByRole("button", { name: /^Starts \d+ of \d+$/ }).click();
       const starts = coach.getByRole("button", { name: /^Start / });
       for (let i = 0; i < 3; i++) await starts.first().click();
+      await showDogs();
       const dogs = coach.getByRole("button", { name: /^Pick dog / });
       for (let i = 0; i < 2; i++) await dogs.first().click();
       await coach
@@ -110,9 +122,11 @@ test("admin runs a week, coach revises picks, and commissioner opens the draft",
       await expect(
         coach.getByRole("button", { name: /^Starting / }),
       ).toHaveCount(3);
+      await showDogs();
       await expect(
         coach.getByRole("button", { name: /^Dog picked / }),
       ).toHaveCount(2);
+      await showStarts();
       await coach
         .getByRole("button", { name: /^Starting / })
         .first()
@@ -125,6 +139,13 @@ test("admin runs a week, coach revises picks, and commissioner opens the draft",
       await expect(
         coach.getByRole("button", { name: /^Starting / }),
       ).toHaveCount(2);
+      await coach
+        .getByRole("navigation", { name: "Primary" })
+        .getByRole("link", { name: "Home" })
+        .click();
+      await expect(
+        coach.getByRole("heading", { level: 1, name: "1 start left" }),
+      ).toBeVisible();
 
       const dashboard = (await (
         await admin.request.get("/api/admin/dashboard")

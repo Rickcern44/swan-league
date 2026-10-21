@@ -128,7 +128,7 @@ function open(d = desk()) {
     body: current,
   });
   stubApi();
-  window.history.replaceState({}, "", "/");
+  window.history.replaceState({}, "", "/picks");
   return render(<App />);
 }
 
@@ -163,13 +163,15 @@ const start = (n: number) =>
   });
 const dock = () => screen.getByRole("region", { name: "Save picks" });
 const ready = () =>
-  screen.findByRole("heading", { level: 1, name: "Who are you starting?" });
+  screen.findByRole("heading", { level: 1, name: /^Week \d+ picks$/ });
+const showDogs = () =>
+  fireEvent.click(screen.getByRole("button", { name: /^Dogs \d+ of \d+/ }));
 
 test("an open week asks the question, lists the coach's playing teams in kickoff order with points and lock times, and notes who is not playing", async () => {
   open();
 
   expect(await ready()).toBeVisible();
-  expect(screen.getByText(/Week 4 · 2026 Swan League/)).toBeVisible();
+  expect(screen.getByText("2026 Swan League")).toBeVisible();
   expect(screen.getByText("0 of 3 chosen · 3 to go")).toBeVisible();
   const rows = within(
     screen.getByRole("region", { name: "Your teams this week" }),
@@ -183,7 +185,7 @@ test("an open week asks the question, lists the coach's playing teams in kickoff
   expect(rows[0]).toHaveTextContent("2 points if they win");
   expect(rows[0]).toHaveTextContent("Locks at kickoff, Sun");
   expect(screen.getByText("Not playing this week: Bye Team.")).toBeVisible();
-  expect(screen.getByText(/The weekly deadline is .* ET/)).toBeVisible();
+  expect(screen.getByText(/^Deadline .* ET · 1d 6h left\./)).toBeVisible();
   expect(within(dock()).getByText("Nothing saved yet")).toBeVisible();
   expect(
     within(dock()).getByRole("button", { name: "Choose your picks" }),
@@ -218,6 +220,7 @@ test("saving sends the chosen teams, dog and the revision it read, then shows th
 
   fireEvent.click(start(1));
   fireEvent.click(start(3));
+  showDogs();
   fireEvent.click(screen.getByRole("button", { name: /^Pick dog Dog 2,/ }));
   fireEvent.click(
     within(dock()).getByRole("button", { name: "Save 2 picks and 1 dog" }),
@@ -248,11 +251,13 @@ test("saved picks are shown as chosen on a fresh load and can be revised", async
   await ready();
 
   expect(start(1)).toHaveAttribute("aria-pressed", "true");
+  showDogs();
   expect(
     screen.getByRole("button", { name: /^Dog picked Dog 1,/ }),
   ).toBeVisible();
   expect(within(dock()).getByRole("button", { name: "Saved" })).toBeDisabled();
 
+  fireEvent.click(screen.getByRole("button", { name: /^Starts \d+ of \d+/ }));
   fireEvent.click(start(1));
   fireEvent.click(start(4));
   fireEvent.click(
@@ -291,6 +296,7 @@ test("a locked game is shown as settled: a locked-in pick has no button and an u
 test("one dog is allowed in an ordinary week and two in a double-dog week", async () => {
   const { unmount } = open();
   await ready();
+  showDogs();
   expect(screen.getByText("Choose 1 dog · 0 chosen")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: /^Pick dog Dog 1,/ }));
   expect(
@@ -311,6 +317,7 @@ test("one dog is allowed in an ordinary week and two in a double-dog week", asyn
     }),
   );
   await ready();
+  showDogs();
   expect(screen.getByText("Choose 2 dogs this week · 0 chosen")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: /^Pick dog Dog 1,/ }));
   expect(
@@ -321,6 +328,7 @@ test("one dog is allowed in an ordinary week and two in a double-dog week", asyn
 test("a dog row shows the spread and what the dog scores", async () => {
   open(desk({ dogs: [dog(6, { spread: 6.5 })] }));
   await ready();
+  showDogs();
 
   const row6 = within(
     screen.getByRole("region", { name: "Dog pick" }),
@@ -418,7 +426,7 @@ test("a failed load can be retried", async () => {
   replies["GET /api/coach/picks/current"] = () =>
     ++attempts === 1 ? { status: 500 } : { status: 200, body: desk() };
   stubApi();
-  window.history.replaceState({}, "", "/");
+  window.history.replaceState({}, "", "/picks");
   render(<App />);
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -457,7 +465,63 @@ test("every control has a name that includes the team and the game, and the page
   expect(
     screen.getByRole("button", { name: "Start Team 2, Rival 2 at Team 2" }),
   ).toBeVisible();
+  showDogs();
   expect(
     screen.getByRole("button", { name: "Pick dog Dog 1, Dog 1 at Fav 1" }),
   ).toBeVisible();
+});
+
+test("starts are grouped by kickoff window and each shows its point value as a badge", async () => {
+  open(
+    desk({
+      games: [
+        row(1, {
+          kickoff: "2026-10-16T00:15:00Z",
+          lockTime: "2026-10-16T00:15:00Z",
+        }),
+        row(2, {
+          kickoff: "2026-10-18T17:00:00Z",
+          lockTime: "2026-10-18T17:00:00Z",
+        }),
+        row(3, {
+          kickoff: "2026-10-18T20:25:00Z",
+          lockTime: "2026-10-18T17:00:00Z",
+        }),
+        row(4, {
+          kickoff: "2026-10-20T00:15:00Z",
+          lockTime: "2026-10-18T17:00:00Z",
+        }),
+      ],
+    }),
+  );
+  await ready();
+
+  const starts = within(
+    screen.getByRole("region", { name: "Your teams this week" }),
+  );
+  expect(
+    starts.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
+  ).toEqual(["Thursday", "Sunday early", "Sunday late", "Monday"]);
+  expect(starts.getByRole("list", { name: "Thursday" })).toHaveTextContent(
+    "Team 1",
+  );
+  expect(starts.getByLabelText("2 points")).toHaveTextContent("2");
+});
+
+test("the Starts and Dogs tabs show their counts and only one list at a time", async () => {
+  open(desk({ games: [row(1, { selected: true }), row(2)] }));
+  await ready();
+
+  const startsTab = screen.getByRole("button", { name: "Starts 1 of 3" });
+  expect(startsTab).toHaveAttribute("aria-pressed", "true");
+  expect(
+    screen.queryByRole("region", { name: "Dog pick" }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Dogs 0 of 1" }));
+  expect(screen.getByRole("region", { name: "Dog pick" })).toBeVisible();
+  expect(
+    screen.queryByRole("region", { name: "Your teams this week" }),
+  ).not.toBeInTheDocument();
+  expect(within(dock()).getByText("1 of 3 starts · 0 of 1 dogs")).toBeVisible();
+  expect(within(dock()).getByText("3 to go")).toBeVisible();
 });

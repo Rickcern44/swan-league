@@ -1572,3 +1572,382 @@ form.card.wide
     top: 1rem;
   }
 }
+
+/* Point values as tie-breaker colours (R18 defaults: 1 green, 2 blue, 3 yellow, 4 red). The number is always shown. */
+.tier {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.5rem;
+  color: #fff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tier-1 {
+  background: #1a7f4b;
+}
+
+.tier-2 {
+  background: #1f5fbf;
+}
+
+.tier-3 {
+  background: #8a6400;
+}
+
+.tier-4 {
+  background: #b42318;
+}
+
+.spread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.45rem;
+  background: var(--ink);
+  color: #f6d78f;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.button-link.primary-link {
+  background: var(--ink-2);
+  border-color: var(--ink-2);
+  color: #fff;
+}
+
+/* Coach home */
+.coach-home {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 40rem;
+}
+
+.week-hero {
+  display: grid;
+  gap: 0.6rem;
+  margin: -1.25rem -1rem 0;
+  padding: 1.25rem 1rem 1.5rem;
+  background: var(--ink);
+  color: #fff;
+}
+
+.shell-main .week-hero h1 {
+  color: #fff;
+  font-size: clamp(1.9rem, 7vw, 2.6rem);
+}
+
+.week-hero .eyebrow {
+  color: #c3d0dd;
+}
+
+.shell .week-hero .hero-line {
+  color: #c3d0dd;
+  margin: 0;
+}
+
+.hero-clocks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem;
+}
+
+.hero-clocks .clock {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.6rem;
+  background: var(--ink-2);
+  font-size: 0.8rem;
+  color: #c3d0dd;
+}
+
+.hero-clocks .clock strong {
+  color: #fff;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-clocks .clock.next {
+  background: #3a2a0b;
+  border: 1px solid var(--brass);
+  color: #f1e3bf;
+}
+
+.hero-clocks .clock.next strong {
+  color: #f6d78f;
+}
+
+.week-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.85rem;
+  background: #fff;
+  box-shadow: 0 0.25rem 0.9rem rgb(11 27 46 / 6%);
+}
+
+.shell .week-card .slot-label {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.slots {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.25rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.6rem;
+  background: var(--ice);
+}
+
+.slot:has(.slot-empty) {
+  padding: 0;
+  background: none;
+}
+
+.slot-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.slot-text strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.slot-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.slot-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0 0.75rem;
+  border: 1.5px dashed var(--brass);
+  border-radius: 0.6rem;
+  background: #fbf6ea;
+  color: var(--brass-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.week-card .primary-link {
+  margin-top: 0.5rem;
+}
+
+/* Pick desk */
+.pick-desk {
+  display: grid;
+  gap: 0.9rem;
+  max-width: 44rem;
+  padding-bottom: 6rem;
+}
+
+.desk-head {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.pick-desk .notice-line:empty {
+  display: none;
+}
+
+.pick-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 0.75rem;
+  background: var(--secondary, #e2eaf1);
+}
+
+.shell .pick-tabs button {
+  flex: 1;
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.shell .pick-tabs button.on {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgb(11 27 46 / 15%);
+}
+
+.pick-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.pick-window {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.shell-main .pick-window h3 {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.pick-list ol {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.75rem;
+  border: 1.5px solid var(--rule);
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.pick-row.on {
+  border-color: var(--ink-2);
+  background: #eef3f8;
+  box-shadow: inset 4px 0 0 var(--ink-2);
+}
+
+.pick-row.locked {
+  border-style: dashed;
+  background: #eef1f4;
+}
+
+.pick-row.full {
+  opacity: 0.65;
+}
+
+.pick-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.shell .pick-text p {
+  margin: 0;
+}
+
+.pick-text .teams {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.pick-text .kick,
+.pick-text .status {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.locked-mark {
+  display: inline-flex;
+  color: var(--ink-muted);
+}
+
+.shell .pick-row button.toggle {
+  min-width: 6rem;
+  background: #fff;
+  color: var(--ink-2);
+  border: 1.5px solid var(--ink-2);
+  font-weight: 600;
+}
+
+.shell .pick-row button.toggle.on {
+  background: var(--ink-2);
+  color: #fff;
+}
+
+.shell .pick-row button.toggle:disabled {
+  border-color: #c3ccd6;
+  color: #6b7c8f;
+  cursor: not-allowed;
+}
+
+.shell .dog-note {
+  padding: 0.65rem 0.8rem;
+  border: 1px solid #e7cf98;
+  border-radius: 0.6rem;
+  background: #fbf6ea;
+  color: #5c3d08;
+}
+
+.shell .bye-note {
+  color: var(--ink);
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.6rem;
+  background: var(--secondary, #e2eaf1);
+}
+
+.pick-dock .owed {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.pick-dock .complete {
+  color: #1a7f4b;
+  font-weight: 600;
+}
+
+@media (min-width: 56rem) {
+  .week-hero {
+    margin: 0;
+    border-radius: 1rem;
+    padding: 1.5rem;
+  }
+}

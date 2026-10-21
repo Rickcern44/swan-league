@@ -12,7 +12,7 @@ export type Access = {
 };
 
 export type Route =
-  | { mode: "coach"; page: "picks" | "draft" }
+  | { mode: "coach"; page: "home" | "picks" | "draft" }
   | { mode: "commish"; page: "today" | "draft" | "setup" }
   | { mode: "commish"; page: "week"; weekId: string };
 
@@ -48,7 +48,10 @@ export function resolve(
   const fallback = () =>
     hasCommish(access)
       ? resolveCommishHome(access)
-      : { route: { mode: "coach", page: "picks" } as Route, path: "/" };
+      : { route: { mode: "coach", page: "home" } as Route, path: "/" };
+
+  if (path === "/picks" || path === "/picks/")
+    return { route: { mode: "coach", page: "picks" }, path: "/picks" };
 
   if (path === "/roster" || path === "/roster/")
     return { route: { mode: "coach", page: "draft" }, path: "/roster" };
@@ -78,7 +81,7 @@ export function resolve(
       : fallback();
 
   if (path.startsWith("/commish")) return fallback();
-  return { route: { mode: "coach", page: "picks" }, path: rawPath };
+  return { route: { mode: "coach", page: "home" }, path: rawPath };
 }
 
 function resolveCommishHome(access: Access) {

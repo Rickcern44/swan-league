@@ -541,7 +541,7 @@ test("a coach on a week address gets their own desk and no admin call is made", 
   render(<App />);
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Could not load your picks.",
+    "Could not load your week.",
   );
   expect(calls.some((c) => c.url.includes("/api/admin"))).toBe(false);
 });

@@ -117,7 +117,7 @@ test("a coach with no commissioner role sees no Season setup, and /setup is just
   open("/setup", { role: "Coach", setupAccess: "none" });
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Could not load your picks.",
+    "Could not load your week.",
   );
   expect(
     within(nav()).queryByRole("link", { name: "Season setup" }),
@@ -189,7 +189,7 @@ test("a coach who is not a commissioner cannot reach the commissioner roster vie
   });
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Could not load your picks.",
+    "Could not load your week.",
   );
   expect(calls.some((c) => c.url.includes("/api/commissioner"))).toBe(false);
 });

@@ -321,10 +321,10 @@ test("a coach gets their own pick desk and the app never calls an admin endpoint
   render(<App />);
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Could not load your picks.",
+    "Could not load your week.",
   );
   expect(
-    screen.getByRole("heading", { level: 1, name: "Your picks" }),
+    screen.getByRole("heading", { level: 1, name: "Your week" }),
   ).toBeVisible();
   expect(
     screen.queryByRole("link", { name: "Season setup" }),
