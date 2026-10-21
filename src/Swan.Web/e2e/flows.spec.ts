@@ -183,7 +183,7 @@ test("admin runs a full week after creating a fresh season", async ({
         (
           await admin.request.post(
             `/api/admin/weeks/${dashboard.currentWeek!.id}/games/${game.id}/lines`,
-            { data: { spread: -3.5 } },
+            { data: { spread: -3.5, approve: true } },
           )
         ).ok(),
       ).toBe(true);
