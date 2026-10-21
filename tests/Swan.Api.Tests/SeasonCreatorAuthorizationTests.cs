@@ -312,8 +312,9 @@ public sealed class SeasonCreatorAuthorizationTests(SessionApiFixture fixture) :
         await fixture.WithDatabase(fixture.Development, async (database, _) =>
         {
             var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2032, "Live access test season", true).Value!;
+            Assert.True(live.SaveDoubleDogWeeks([2, 12, 17]).IsSuccess);
             live.CompleteSetup();
-            live.Start(hasActiveCommissioner: true);
+            Assert.True(live.Start(hasActiveCommissioner: true).IsSuccess);
             database.Seasons.Add(live);
             database.Memberships.AddRange(
                 new Membership(new MembershipId(Guid.NewGuid()), new UserId(Guid.Parse("b548d5d9-272d-4f4d-b2b4-f179ad8b289d")), live.Id, MembershipRole.Commissioner),
