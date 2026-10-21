@@ -120,6 +120,10 @@ async function lockRoster(page: Page, email: string) {
   ).toBeVisible();
 }
 
+type WeekResponse = {
+  games: { id: string; approvedLine: number | null }[];
+};
+
 test("admin creates a fresh season and coach locks a roster", async ({
   browser,
 }) => {
@@ -169,6 +173,22 @@ test("admin runs a full week after creating a fresh season", async ({
       .click();
     await admin.getByLabel(/^Spread for/).fill("-3.5");
     await admin.getByRole("button", { name: "Save and approve" }).click();
+    const week = (await (
+      await admin.request.get(`/api/admin/weeks/${dashboard.currentWeek!.id}`)
+    ).json()) as WeekResponse;
+    for (const game of week.games.filter(
+      (game) => game.approvedLine === null,
+    )) {
+      expect(
+        (
+          await admin.request.post(
+            `/api/admin/weeks/${dashboard.currentWeek!.id}/games/${game.id}/lines`,
+            { data: { spread: -3.5 } },
+          )
+        ).ok(),
+      ).toBe(true);
+    }
+    await admin.reload();
     await dock.getByRole("button", { name: /^Approve \d+ lines?$/ }).click();
     await dock.getByRole("button", { name: "Publish week" }).click();
 

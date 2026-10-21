@@ -39,7 +39,7 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
         season.CompleteSetup();
         season.Start(hasActiveCommissioner: true);
         var membership = new Membership(new MembershipId(Guid.NewGuid()), new UserId(Guid.Parse("00000000-0000-0000-0000-000000000201")), season.Id, MembershipRole.Coach);
-        var teamIds = await database.Teams.OrderBy(team => team.Name).Select(team => team.Id).Take(2).ToListAsync();
+        var teamIds = await database.Teams.OrderBy(team => team.Name).Select(team => team.Id).Take(9).ToListAsync();
         var week = new Week(new WeekId(Guid.NewGuid()), season.Id, 2, new WeekType(WeekKind.Regular, null, true));
         week.AddGame(new Game(new GameId(Guid.NewGuid()), teamIds[0], teamIds[1], Kickoff.Create(clock.UtcNow.AddDays(1)).Value!));
         database.Seasons.Add(season);
@@ -51,6 +51,10 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
         var seededMembership = await database.Memberships.AsNoTracking().SingleAsync(item => item.Id == membership.Id);
         var seededWeek = await database.Weeks.AsNoTracking().SingleAsync(item => item.Id == week.Id);
         var game = seededWeek.Games.First();
+        var roster = new Roster(new RosterId(Guid.NewGuid()), seededSeason.Id, seededMembership.Id);
+        Assert.True(roster.SaveDraft(teamIds, teamIds.ToHashSet(), true).IsSuccess);
+        Assert.True(roster.Lock(true, clock.UtcNow).IsSuccess);
+        database.Rosters.Add(roster);
         var ballot = new Ballot(new BallotId(Guid.NewGuid()), seededMembership.Id, seededWeek.Id);
         Assert.True(ballot.Save([new TeamPick(game.HomeTeamId, game.Id, clock.UtcNow.AddDays(1))], [], false, new[] { game.HomeTeamId }.ToHashSet(), clock.UtcNow).IsSuccess);
         database.Ballots.Add(ballot);
