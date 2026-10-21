@@ -105,7 +105,7 @@ const choose = (n: number) =>
   screen.getByRole("button", {
     name: new RegExp(`^(Choose|Chosen) Team ${n}$`),
   });
-const dock = () => screen.getByRole("region", { name: "Save roster" });
+const dock = () => screen.getByRole("region", { name: "Save draft" });
 
 test("the open draft shows the deadline, the count and every team grouped by division without a table", async () => {
   open();
@@ -156,7 +156,7 @@ test("saving sends the nine teams with the revision it read and then offers the 
   await ready();
 
   for (let n = 1; n <= 9; n++) fireEvent.click(choose(n));
-  fireEvent.click(within(dock()).getByRole("button", { name: "Save roster" }));
+  fireEvent.click(within(dock()).getByRole("button", { name: "Save draft" }));
 
   expect(await screen.findByText("Roster saved.")).toBeVisible();
   expect(calls.find((c) => c.method === "PUT")).toMatchObject({
@@ -240,7 +240,7 @@ test("a refused save shows the server's reason beside the dock and keeps the cho
   await ready();
   for (let n = 1; n <= 9; n++) fireEvent.click(choose(n));
 
-  fireEvent.click(within(dock()).getByRole("button", { name: "Save roster" }));
+  fireEvent.click(within(dock()).getByRole("button", { name: "Save draft" }));
 
   expect(await within(dock()).findByRole("alert")).toHaveTextContent(
     "can no longer be changed",
@@ -261,7 +261,7 @@ test("a stale save offers a reload that replaces the local choices with the save
   };
   await ready();
   for (let n = 1; n <= 9; n++) fireEvent.click(choose(n));
-  fireEvent.click(within(dock()).getByRole("button", { name: "Save roster" }));
+  fireEvent.click(within(dock()).getByRole("button", { name: "Save draft" }));
   await within(dock()).findByRole("alert");
 
   current = desk(
@@ -401,7 +401,9 @@ test("cancelling the lock confirmation, with the button or Escape, returns focus
     );
     const group = within(dock()).getByRole("group", { name: "Confirm lock" });
     if (cancel === "button")
-      fireEvent.click(within(group).getByRole("button", { name: "Cancel" }));
+      fireEvent.click(
+        within(group).getByRole("button", { name: "Keep editing" }),
+      );
     else fireEvent.keyDown(group, { key: "Escape" });
 
     expect(within(dock()).queryByRole("group")).not.toBeInTheDocument();
@@ -411,4 +413,39 @@ test("cancelling the lock confirmation, with the button or Escape, returns focus
       ).toHaveFocus(),
     );
   }
+});
+
+test("the summary shows how many are chosen, a meter in point-value order and the point mix", async () => {
+  open();
+  await ready();
+
+  fireEvent.click(choose(1));
+  fireEvent.click(choose(2));
+  fireEvent.click(choose(6));
+
+  const summary = within(
+    screen.getByRole("region", { name: "Your draft so far" }),
+  );
+  expect(summary.getByText("3 of 9 chosen · 6 to go")).toBeVisible();
+  expect(summary.getByRole("img", { name: "3 of 9 chosen" })).toBeVisible();
+  // Team 1 is worth 2, Team 2 is worth 3 and Team 6 is worth 3.
+  expect(summary.getByLabelText("Point mix")).toHaveTextContent(
+    "1 pt: 0 · 2 pts: 1 · 3 pts: 2 · 4 pts: 0",
+  );
+});
+
+test("each team is a toggle tile that names the team and describes its point value and division", async () => {
+  open();
+  await ready();
+
+  const tile = choose(3);
+  expect(tile).toHaveAttribute("aria-pressed", "false");
+  expect(tile).toHaveAccessibleDescription("4 points · AFC East");
+  fireEvent.click(tile);
+  expect(choose(3)).toHaveAttribute("aria-pressed", "true");
+  expect(
+    within(screen.getByRole("list", { name: "AFC East" })).getAllByRole(
+      "listitem",
+    ),
+  ).toHaveLength(4);
 });
