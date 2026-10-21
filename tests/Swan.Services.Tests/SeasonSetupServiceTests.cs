@@ -2021,6 +2021,22 @@ public sealed class SeasonSetupServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ScheduleCanBeImportedBeforePointValuesAndRemainsWhenTheyAreSaved()
+    {
+        await Migrate();
+        var teams = await SeedTeams();
+        await Run(service => service.CreateBlankAsync(Admin, 2026, "2026 Season", isSimulation: false));
+        ProviderReturns(Full(teams, PG("10", 1, teams[0], teams[1])));
+
+        var preview = await Run(service => service.PreviewScheduleAsync());
+
+        Assert.True(preview.IsSuccess, preview.Error?.Message);
+        Assert.True((await Run(service => service.ImportScheduleAsync(Admin, preview.Value!.Fingerprint!))).IsSuccess);
+        Assert.True((await Run(service => service.UpdateSetupTeamsAsync(Admin, Finishes(teams)))).IsSuccess);
+        Assert.Equal((18, 18, 1), await Counts());
+    }
+
+    [Fact]
     public async Task AnUnpublishedSeasonPreviewsAsEmptyAndProviderProblemsAreReportedWithoutWriting()
     {
         await SetupWithTeams();

@@ -573,8 +573,7 @@ public sealed class SeasonSetupService(SwanDbContext database, IAuditService aud
     private async Task<Result<IReadOnlyList<Week>>> BuildWeeksAsync(SeasonId seasonId, IReadOnlyCollection<ProviderGame> games, CancellationToken cancellationToken)
     {
         var catalog = await database.Teams.AsNoTracking().ToListAsync(cancellationToken);
-        var seasonTeams = (await database.SeasonTeams.AsNoTracking().Where(team => team.SeasonId == seasonId).Select(team => team.TeamId).ToListAsync(cancellationToken)).ToHashSet();
-        return ScheduleImportPlan.Build(seasonId, games, catalog, seasonTeams);
+        return ScheduleImportPlan.Build(seasonId, games, catalog);
     }
 
     private async Task<SchedulePlan> ToPlanAsync(int year, IReadOnlyList<Week> weeks, bool imported, string? fingerprint, CancellationToken cancellationToken)
