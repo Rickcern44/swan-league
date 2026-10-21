@@ -6,6 +6,8 @@ using Swan.Core.Identity;
 using Swan.Core.Finance;
 using Swan.Core.Picks;
 using Swan.Core.Scoring;
+using Swan.Core.League;
+using Swan.Core.Schedule;
 using Swan.Data;
 using Swan.Data.Seed;
 using Swan.Services.Development;
@@ -32,24 +34,37 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
         await DevelopmentSeeder.SeedAsync(database);
-        var season = await database.Seasons.AsNoTracking().SingleAsync();
-        var membership = await database.Memberships.AsNoTracking().FirstAsync(item => item.Role == Swan.Core.League.MembershipRole.Coach);
-        var week = await database.Weeks.AsNoTracking().FirstAsync(item => item.Number == 2);
-        var game = week.Games.First();
-        var ballot = new Ballot(new BallotId(Guid.NewGuid()), membership.Id, week.Id);
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "Reset test season", true).Value!;
+        season.SaveDoubleDogWeeks([2, 12, 17]);
+        season.CompleteSetup();
+        season.Start(hasActiveCommissioner: true);
+        var membership = new Membership(new MembershipId(Guid.NewGuid()), new UserId(Guid.Parse("00000000-0000-0000-0000-000000000201")), season.Id, MembershipRole.Coach);
+        var teamIds = await database.Teams.OrderBy(team => team.Name).Select(team => team.Id).Take(2).ToListAsync();
+        var week = new Week(new WeekId(Guid.NewGuid()), season.Id, 2, new WeekType(WeekKind.Regular, null, true));
+        week.AddGame(new Game(new GameId(Guid.NewGuid()), teamIds[0], teamIds[1], Kickoff.Create(clock.UtcNow.AddDays(1)).Value!));
+        database.Seasons.Add(season);
+        database.Memberships.Add(membership);
+        database.Weeks.Add(week);
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+        var seededSeason = await database.Seasons.AsNoTracking().SingleAsync(item => item.Id == season.Id);
+        var seededMembership = await database.Memberships.AsNoTracking().SingleAsync(item => item.Id == membership.Id);
+        var seededWeek = await database.Weeks.AsNoTracking().SingleAsync(item => item.Id == week.Id);
+        var game = seededWeek.Games.First();
+        var ballot = new Ballot(new BallotId(Guid.NewGuid()), seededMembership.Id, seededWeek.Id);
         Assert.True(ballot.Save([new TeamPick(game.HomeTeamId, game.Id, clock.UtcNow.AddDays(1))], [], false, new[] { game.HomeTeamId }.ToHashSet(), clock.UtcNow).IsSuccess);
         database.Ballots.Add(ballot);
-        var score = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, membership.Id, week.Id);
+        var score = new WeekScore(new WeekScoreId(Guid.NewGuid()), seededSeason.Id, seededMembership.Id, seededWeek.Id);
         score.ReplaceLines([new ScoreLine(game.HomeTeamId, 1, ScoreSource.TeamPick, "r")]);
         database.WeekScores.Add(score);
-        database.Ledgers.Add(new Ledger(new LedgerId(Guid.NewGuid()), season.Id));
-        database.Notifications.Add(new Notification(new NotificationId(Guid.NewGuid()), membership.Id, "week.opened", "Week 2 is open"));
-        var preferences = new NotificationPreferences(membership.Id);
+        database.Ledgers.Add(new Ledger(new LedgerId(Guid.NewGuid()), seededSeason.Id));
+        database.Notifications.Add(new Notification(new NotificationId(Guid.NewGuid()), seededMembership.Id, "week.opened", "Week 2 is open"));
+        var preferences = new NotificationPreferences(seededMembership.Id);
         Assert.True(preferences.Mute(NotificationCategory.Reminders).IsSuccess);
         database.NotificationPreferences.Add(preferences);
-        database.PushSubscriptions.Add(new PushSubscription(new PushSubscriptionId(Guid.NewGuid()), membership.Id, "https://push.example/endpoint", "p256dh", "auth"));
+        database.PushSubscriptions.Add(new PushSubscription(new PushSubscriptionId(Guid.NewGuid()), seededMembership.Id, "https://push.example/endpoint", "p256dh", "auth"));
         database.Announcements.Add(new Announcement(new AnnouncementId(Guid.NewGuid()), "Welcome", clock.UtcNow));
-        await new AuditService(database, clock).AppendAsync(Admin, "season.setup.created", season.Id.Value.ToString());
+        await new AuditService(database, clock).AppendAsync(Admin, "season.setup.created", seededSeason.Id.Value.ToString());
         database.Sessions.Add(new UserSession(new SessionId(Guid.NewGuid()), Admin, new string('A', 64), clock.UtcNow, clock.UtcNow.AddDays(30)));
         await database.SaveChangesAsync();
     }
@@ -120,9 +135,9 @@ public sealed class DevelopmentResetServiceTests : IAsyncLifetime
 
         await using var database = CreateDatabase();
         Assert.False(await database.Seasons.AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
-        // Starting over is just creating a season: the catalog and the administrator are still there, and the seeder will not bring the sample back.
+        // Starting over preserves the catalog and people, then restores only the completed reference season.
         await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
-        Assert.False(await database.Seasons.AnyAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(2025, (await database.Seasons.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Year);
         Assert.True(await database.Users.AnyAsync(user => user.Id == Admin, cancellationToken: TestContext.Current.CancellationToken));
     }
 
