@@ -64,3 +64,15 @@ public sealed class NotificationPreferences(MembershipId membershipId)
 }
 
 public sealed record PushSubscription(PushSubscriptionId Id, MembershipId MembershipId, string Endpoint, string P256Dh, string Auth);
+
+public sealed class QueuedEmail(QueuedEmailId id, string recipient, string subject, string body, DateTimeOffset queuedAt)
+{
+    public QueuedEmailId Id { get; } = id;
+    public string Recipient { get; } = recipient;
+    public string Subject { get; } = subject;
+    public string Body { get; } = body;
+    public DateTimeOffset QueuedAt { get; } = queuedAt;
+    public DateTimeOffset? SentAt { get; private set; }
+
+    public void MarkSent(DateTimeOffset sentAt) => SentAt = sentAt;
+}
