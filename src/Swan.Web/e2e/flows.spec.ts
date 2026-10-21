@@ -190,6 +190,14 @@ test("admin runs a full week after creating a fresh season", async ({
     }
     await admin.reload();
     await dock.getByRole("button", { name: /^Approve \d+ lines?$/ }).click();
+    expect(
+      (
+        await admin.request.post(
+          `/api/admin/weeks/${dashboard.currentWeek!.id}/dog-options/generate`,
+        )
+      ).ok(),
+    ).toBe(true);
+    await admin.reload();
     await dock.getByRole("button", { name: "Publish week" }).click();
 
     await coach
@@ -201,10 +209,8 @@ test("admin runs a full week after creating a fresh season", async ({
     for (let i = 0; i < 3; i++) await starts.first().click();
     await coach.getByRole("button", { name: /^Dogs \d+ of \d+$/ }).click();
     const dogs = coach.getByRole("button", { name: /^Pick dog / });
-    for (let i = 0; i < 2; i++) await dogs.first().click();
-    await coach
-      .getByRole("button", { name: "Save 3 picks and 2 dogs" })
-      .click();
+    await dogs.first().click();
+    await coach.getByRole("button", { name: "Save 3 picks and 1 dog" }).click();
     await expect(coach.getByText("Picks saved.")).toBeVisible();
 
     await dock.getByRole("button", { name: "Lock week" }).click();
