@@ -47,7 +47,7 @@ public static class ScheduleImportPlan
 {
     public const int RegularSeasonWeeks = DoubleDogWeekRules.RegularSeasonWeeks;
 
-    public static Result<IReadOnlyList<Week>> Build(SeasonId seasonId, IReadOnlyCollection<ProviderGame> games, IReadOnlyCollection<Team> catalog, IReadOnlySet<TeamId> seasonTeams)
+    public static Result<IReadOnlyList<Week>> Build(SeasonId seasonId, IReadOnlyCollection<ProviderGame> games, IReadOnlyCollection<Team> catalog)
     {
         if (games.Count == 0) return Failure("schedule.empty", "The provider has no regular-season games for this season.");
         var byName = catalog.ToDictionary(team => team.Name, StringComparer.OrdinalIgnoreCase);
@@ -62,8 +62,6 @@ public static class ScheduleImportPlan
             if (!byName.TryGetValue(game.HomeTeam, out var home)) return Failure("schedule.invalid", $"Provider game {game.Id} names an unknown team: {game.HomeTeam}.");
             if (!byName.TryGetValue(game.AwayTeam, out var away)) return Failure("schedule.invalid", $"Provider game {game.Id} names an unknown team: {game.AwayTeam}.");
             if (home.Id == away.Id) return Failure("schedule.invalid", $"Provider game {game.Id} has the same home and away team.");
-            foreach (var team in new[] { home, away })
-                if (!seasonTeams.Contains(team.Id)) return Failure("schedule.invalid", $"{team.Name} is not in this season's team list.");
             var utc = Kickoff.Create(kickoff.ToUniversalTime());
             if (!weeks.TryGetValue(game.Week, out var week))
                 weeks[game.Week] = week = new Week(new WeekId(Guid.NewGuid()), seasonId, game.Week, new WeekType(WeekKind.Regular, null, true));

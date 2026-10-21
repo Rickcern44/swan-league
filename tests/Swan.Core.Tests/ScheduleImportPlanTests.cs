@@ -10,15 +10,14 @@ public sealed class ScheduleImportPlanTests
     private static readonly SeasonId Season = new(Guid.NewGuid());
     private static readonly Team Bills = new(new TeamId(Guid.NewGuid()), "Buffalo Bills", null, DateTimeOffset.UtcNow, "AFC East");
     private static readonly Team Jets = new(new TeamId(Guid.NewGuid()), "New York Jets", null, DateTimeOffset.UtcNow, "AFC East");
-    private static readonly Team Giants = new(new TeamId(Guid.NewGuid()), "New York Giants", null, DateTimeOffset.UtcNow, "NFC East");
-    private static readonly Team[] Catalog = [Bills, Jets, Giants];
-    private static readonly HashSet<TeamId> InSeason = [Bills.Id, Jets.Id];
+    private static readonly Team Seahawks = new(new TeamId(Guid.NewGuid()), "Seattle Seahawks", null, DateTimeOffset.UtcNow, "NFC West");
+    private static readonly Team[] Catalog = [Bills, Jets, Seahawks];
     private static readonly DateTimeOffset Sunday = new(2026, 9, 13, 17, 0, 0, TimeSpan.Zero);
 
     private static ProviderGame Game(string id = "1", int week = 1, string home = "Buffalo Bills", string away = "New York Jets", DateTimeOffset? kickoff = null, bool noKickoff = false) =>
         new(id, week, home, away, noKickoff ? null : kickoff ?? Sunday);
 
-    private static Result<IReadOnlyList<Week>> Build(params ProviderGame[] games) => ScheduleImportPlan.Build(Season, games, Catalog, InSeason);
+    private static Result<IReadOnlyList<Week>> Build(params ProviderGame[] games) => ScheduleImportPlan.Build(Season, games, Catalog);
 
     // The given games plus one filler game in every regular-season week they leave out, so the schedule is complete.
     private static ProviderGame[] Full(params ProviderGame[] games) => games
@@ -114,12 +113,12 @@ public sealed class ScheduleImportPlanTests
     }
 
     [Fact]
-    public void ATeamThatIsNotInTheSetupSeasonIsRejected()
+    public void AKnownCatalogTeamCanBeScheduledBeforePointValuesAreSaved()
     {
-        var built = Build(Game(away: "New York Giants"));
+        var built = Build(Full(Game(away: "Seattle Seahawks")));
 
-        Assert.Equal("schedule.invalid", built.Error!.Code);
-        Assert.Contains("New York Giants is not in this season's team list", built.Error.Message);
+        Assert.True(built.IsSuccess);
+        Assert.Contains(built.Value!.SelectMany(week => week.Games), game => game.AwayTeamId == Seahawks.Id);
     }
 
     [Fact]
