@@ -22,10 +22,14 @@ async function createLiveDraftSeason(
   browser: Browser,
   year: number,
   coach: { email: string; name: string },
+  adminEmail = "admin@swan.local",
 ) {
+  // Insert the alternate test administrator before sign-in. With no Setup season yet,
+  // this does not add schedule data; the second invocation below does.
+  sql("prepare-draft-season.sql");
   const adminContext = await browser.newContext();
   const admin = await adminContext.newPage();
-  await signIn(admin, "admin@swan.local");
+  await signIn(admin, adminEmail);
   await admin
     .getByRole("group", { name: "Mode" })
     .getByRole("link", { name: "Commish" })
@@ -108,7 +112,7 @@ async function lockRoster(page: Page, email: string) {
     page.getByRole("heading", { name: "Choose your nine" }),
   ).toBeVisible();
   await chooseNine(page);
-  await page.getByRole("button", { name: "Save roster" }).click();
+  await page.getByRole("button", { name: "Save draft" }).click();
   await page.getByRole("button", { name: "Lock roster" }).click();
   await page.getByRole("button", { name: "Confirm lock" }).click();
   await expect(
@@ -140,10 +144,15 @@ test("admin runs a full week after creating a fresh season", async ({
   browser,
 }) => {
   test.setTimeout(180_000);
-  const { adminContext, admin } = await createLiveDraftSeason(browser, 2028, {
-    email: "coach3@swan.local",
-    name: "Coach 3",
-  });
+  const { adminContext, admin } = await createLiveDraftSeason(
+    browser,
+    2028,
+    {
+      email: "coach3@swan.local",
+      name: "Coach 3",
+    },
+    "other.admin@swan.local",
+  );
   const coachContext = await browser.newContext();
   try {
     const coach = await coachContext.newPage();
