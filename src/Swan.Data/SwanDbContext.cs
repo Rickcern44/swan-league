@@ -33,6 +33,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<NotificationPreferences> NotificationPreferences => Set<NotificationPreferences>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+    public DbSet<QueuedEmail> QueuedEmails => Set<QueuedEmail>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
     public DbSet<NflStandingsSnapshot> NflStandingsSnapshots => Set<NflStandingsSnapshot>();
@@ -390,6 +391,18 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(subscription => subscription.P256Dh);
             entity.Property(subscription => subscription.Auth);
             entity.HasIndex(subscription => subscription.Endpoint).IsUnique();
+        });
+        modelBuilder.Entity<QueuedEmail>(entity =>
+        {
+            entity.ToTable("queued_emails", "communication");
+            entity.HasKey(email => email.Id);
+            entity.Property(email => email.Id).HasConversion(id => id.Value, value => new QueuedEmailId(value));
+            entity.Property(email => email.Recipient).HasMaxLength(320);
+            entity.Property(email => email.Subject).HasMaxLength(300);
+            entity.Property(email => email.Body);
+            entity.Property(email => email.QueuedAt);
+            entity.Property(email => email.SentAt);
+            entity.HasIndex(email => new { email.SentAt, email.QueuedAt });
         });
     }
 

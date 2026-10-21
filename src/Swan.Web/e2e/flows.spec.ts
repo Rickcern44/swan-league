@@ -254,6 +254,12 @@ test("admin runs a week, coach revises picks, and commissioner opens the draft",
       await expect(
         commissioner.getByRole("heading", { level: 1, name: "Draft" }),
       ).toBeVisible();
+      await expect(
+        commissioner.getByText(/^Open · \d+d \d+h left$/),
+      ).toBeVisible();
+      await expect(
+        commissioner.getByRole("button", { name: /^Not locked \d+$/ }),
+      ).toHaveAttribute("aria-pressed", "true");
 
       const draftCoach = await draftCoachContext.newPage();
       await signIn(draftCoach, "coach2@swan.local");
@@ -265,7 +271,7 @@ test("admin runs a week, coach revises picks, and commissioner opens the draft",
         draftCoach.getByRole("heading", { name: "Choose your nine" }),
       ).toBeVisible();
       await chooseNine(draftCoach);
-      await draftCoach.getByRole("button", { name: "Save roster" }).click();
+      await draftCoach.getByRole("button", { name: "Save draft" }).click();
       await draftCoach.getByRole("button", { name: "Lock roster" }).click();
       await draftCoach.getByRole("button", { name: "Confirm lock" }).click();
       await draftCoach.reload();
