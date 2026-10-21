@@ -1202,37 +1202,6 @@ li.game.coach-locked .status strong {
   font-size: 1.15rem;
 }
 
-.milestones {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: 0.5rem;
-}
-
-.milestones li {
-  border-top: 0.25rem solid #d9e2ec;
-  padding-top: 0.4rem;
-}
-
-.milestones li[aria-current="step"] {
-  border-top-color: var(--brass, #b8862b);
-}
-
-.milestones button.link {
-  min-height: 2.75rem;
-  border: 0;
-  padding: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  text-decoration: underline;
-}
-
-.milestones li > span {
-  display: inline-block;
-  padding: 0.6rem 0;
-}
-
 .resume {
   display: flex;
   flex-wrap: wrap;
@@ -1411,5 +1380,195 @@ form.card.wide
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* Season setup: step rail, the current step, and what is left before the season can start. */
+.setup-flow {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+
+.setup-step {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.step-rail {
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.step-rail ol {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step-rail button,
+.step-rail .rail-locked {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.5rem;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.5rem;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.shell .step-rail button {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--rule);
+  padding: 0.35rem 0.75rem;
+}
+
+.step-rail .rail-locked {
+  color: var(--ink-muted);
+  background: transparent;
+  border-style: dashed;
+}
+
+.step-rail .rail-dot {
+  grid-row: span 2;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  border: 2px solid #9fb0c2;
+}
+
+.step-rail .rail-state {
+  grid-column: 2;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+.rail-step.done .rail-dot {
+  border-color: #1a7f4b;
+  background: #1a7f4b;
+}
+
+.rail-step.next .rail-dot {
+  border-color: var(--brass);
+}
+
+.rail-step.fix .rail-dot {
+  border-color: #b42318;
+  background: #b42318;
+}
+
+.rail-step.fix .rail-state {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.rail-step.look .rail-dot {
+  border-color: var(--brass);
+  background: var(--brass);
+}
+
+.rail-step.look .rail-state {
+  color: var(--brass-text);
+  font-weight: 600;
+}
+
+.shell .step-rail button[aria-current="step"] {
+  border-color: var(--ink);
+  box-shadow: inset 4px 0 0 var(--brass);
+  font-weight: 700;
+}
+
+.readiness {
+  display: grid;
+  gap: 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 1rem;
+}
+
+.shell-main .readiness h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.readiness progress {
+  width: 100%;
+  height: 0.5rem;
+  accent-color: var(--ink);
+}
+
+.readiness .readiness-group {
+  margin: 0.25rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.readiness .readiness-group.fix {
+  color: #b42318;
+}
+
+.readiness .readiness-group.look {
+  color: var(--brass-text);
+}
+
+.readiness .issue {
+  font-size: 0.9rem;
+}
+
+@media (min-width: 56rem) {
+  .setup-flow {
+    grid-template-columns: 13rem minmax(0, 1fr);
+  }
+
+  .step-rail {
+    overflow: visible;
+    position: sticky;
+    top: 1rem;
+  }
+
+  .step-rail ol {
+    flex-direction: column;
+  }
+
+  .step-rail button,
+  .step-rail .rail-locked {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .readiness {
+    grid-column: 2;
+  }
+}
+
+@media (min-width: 80rem) {
+  main.shell-main:has(.setup) {
+    max-width: 82rem;
+  }
+
+  .setup-flow {
+    grid-template-columns: 13rem minmax(0, 1fr) 17rem;
+  }
+
+  .readiness {
+    grid-column: 3;
+    grid-row: 1;
+    position: sticky;
+    top: 1rem;
   }
 }
