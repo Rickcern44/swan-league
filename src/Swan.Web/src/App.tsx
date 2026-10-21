@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { DevelopmentTools, RefreshAccess } from "./AccessContext";
+import CoachHome from "./CoachHome";
 import CommissionerDraft from "./CommissionerDraft";
 import Dashboard from "./Dashboard";
 import PickDesk from "./PickDesk";
@@ -149,8 +150,10 @@ export default function App() {
             {route.mode === "coach" ? (
               route.page === "draft" ? (
                 <RosterDraft />
-              ) : (
+              ) : route.page === "picks" ? (
                 <PickDesk />
+              ) : (
+                <CoachHome />
               )
             ) : route.page === "draft" ? (
               <CommissionerDraft />

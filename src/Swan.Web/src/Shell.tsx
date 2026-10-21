@@ -1,5 +1,6 @@
 import {
   CalendarCheck,
+  House,
   LayoutGrid,
   ListChecks,
   type LucideIcon,
@@ -22,8 +23,14 @@ function destinations(access: Access, route: Route): Destination[] {
   if (route.mode === "coach")
     return [
       {
-        label: "Picks",
+        label: "Home",
         path: "/",
+        icon: House,
+        current: route.page === "home",
+      },
+      {
+        label: "Picks",
+        path: "/picks",
         icon: ListChecks,
         current: route.page === "picks",
       },

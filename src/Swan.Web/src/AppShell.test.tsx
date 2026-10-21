@@ -49,14 +49,19 @@ const weekId = "7a1f3c2e-9b4d-4e8a-a1b2-c3d4e5f60718";
 test("a coach with no commissioner access gets the coach destinations and no mode switch", async () => {
   open("/", { role: "Coach", setupAccess: "none" });
 
-  await screen.findByRole("heading", { level: 1, name: "Your picks" });
-  expect(within(nav()).getByRole("link", { name: "Picks" })).toHaveAttribute(
+  await screen.findByRole("heading", { level: 1, name: "Your week" });
+  expect(
+    within(nav())
+      .getAllByRole("link")
+      .map((link) => [link.textContent, link.getAttribute("href")]),
+  ).toEqual([
+    ["Home", "/"],
+    ["Picks", "/picks"],
+    ["Draft", "/roster"],
+  ]);
+  expect(within(nav()).getByRole("link", { name: "Home" })).toHaveAttribute(
     "aria-current",
     "page",
-  );
-  expect(within(nav()).getByRole("link", { name: "Draft" })).toHaveAttribute(
-    "href",
-    "/roster",
   );
   expect(modes()).not.toBeInTheDocument();
   expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
@@ -68,7 +73,7 @@ test("a coach with no commissioner access gets the coach destinations and no mod
 test("an administrator starts in coach mode with the full coach experience and a switch to Commish", async () => {
   open("/", { role: "Admin" });
 
-  await screen.findByRole("heading", { level: 1, name: "Your picks" });
+  await screen.findByRole("heading", { level: 1, name: "Your week" });
   const switcher = modes()!;
   expect(within(switcher).getByRole("link", { name: "Coach" })).toHaveAttribute(
     "aria-current",
@@ -87,7 +92,7 @@ test("an administrator starts in coach mode with the full coach experience and a
 
 test("switching an administrator to Commish shows the commish destinations and remembers the mode", async () => {
   open("/", { role: "Admin" });
-  await screen.findByRole("heading", { level: 1, name: "Your picks" });
+  await screen.findByRole("heading", { level: 1, name: "Your week" });
 
   fireEvent.click(within(modes()!).getByRole("link", { name: "Commish" }));
 
@@ -128,7 +133,7 @@ test("a remembered Commish mode is ignored for a coach who has no commissioner a
   window.localStorage.setItem("swan.mode", "commish");
   open("/", { role: "Coach", setupAccess: "none" });
 
-  await screen.findByRole("heading", { level: 1, name: "Your picks" });
+  await screen.findByRole("heading", { level: 1, name: "Your week" });
   expect(window.location.pathname).toBe("/");
   expect(modes()).not.toBeInTheDocument();
 });
@@ -139,7 +144,7 @@ test("a coach who commissions the live season switches to Commish and lands on t
     setupAccess: "none",
     commissionsLiveSeason: true,
   });
-  await screen.findByRole("heading", { level: 1, name: "Your picks" });
+  await screen.findByRole("heading", { level: 1, name: "Your week" });
 
   fireEvent.click(within(modes()!).getByRole("link", { name: "Commish" }));
 
@@ -180,7 +185,7 @@ test("an administrator opening a week from the commish area reaches the week wor
 test("a coach without commissioner access cannot reach a commish page by address", async () => {
   open("/commish/setup", { role: "Coach", setupAccess: "none" });
 
-  await screen.findByRole("heading", { level: 1, name: "Your picks" });
+  await screen.findByRole("heading", { level: 1, name: "Your week" });
   expect(
     calls.some(
       (url) => url.includes("/api/admin") || url.includes("/api/commissioner"),
@@ -193,6 +198,17 @@ test("the coach draft page is called Draft in coach mode", async () => {
 
   await waitFor(() => expect(calls).toContain("/api/coach/roster"));
   expect(within(nav()).getByRole("link", { name: "Draft" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("the pick desk has its own address in coach mode", async () => {
+  open("/picks", { role: "Coach", setupAccess: "none" });
+
+  await waitFor(() => expect(calls).toContain("/api/coach/picks/current"));
+  expect(window.location.pathname).toBe("/picks");
+  expect(within(nav()).getByRole("link", { name: "Picks" })).toHaveAttribute(
     "aria-current",
     "page",
   );

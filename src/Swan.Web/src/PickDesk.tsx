@@ -1,75 +1,16 @@
+import { Lock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { goTo } from "./draftTime";
-
-type DeskGame = {
-  teamId: string;
-  team: string;
-  gameId: string;
-  opponent: string;
-  isHome: boolean;
-  kickoff: string;
-  lockTime: string;
-  locked: boolean;
-  pointValue: number;
-  selected: boolean;
-};
-
-type DeskDog = {
-  teamId: string;
-  team: string;
-  gameId: string;
-  opponent: string;
-  isHome: boolean;
-  kickoff: string;
-  lockTime: string;
-  locked: boolean;
-  spread: number;
-  selected: boolean;
-};
-
-type Desk = {
-  state:
-    | "open"
-    | "no-membership"
-    | "no-week"
-    | "no-roster"
-    | "roster-incomplete";
-  seasonName: string | null;
-  week: {
-    id: string;
-    number: number;
-    deadline: string;
-    isDoubleDogWeek: boolean;
-    pickLimit: number;
-    dogLimit: number;
-  } | null;
-  revision: number;
-  games: DeskGame[];
-  notPlaying: string[];
-  dogs: DeskDog[];
-};
-
-type Loaded =
-  | { status: "loading" }
-  | { status: "failed"; error: string }
-  | { status: "ready"; desk: Desk };
-
-const timeFormat = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/New_York",
-  weekday: "short",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-const when = (iso: string) => timeFormat.format(new Date(iso));
-
-// Team picks lock at the earlier of kickoff and the weekly deadline; dogs lock at kickoff. Say which one applies.
-function lockText(row: { kickoff: string; lockTime: string; locked: boolean }) {
-  if (row.locked) return "Locked";
-  return row.lockTime === row.kickoff
-    ? `Locks at kickoff, ${when(row.lockTime)}`
-    : `Locks at the weekly deadline, ${when(row.lockTime)}`;
-}
+import {
+  closedMessages,
+  type Desk,
+  type DeskGame,
+  kickoffWindow,
+  type Loaded,
+  lockText,
+  points,
+  when,
+} from "./coachDesk";
+import { goTo, timeLeft } from "./draftTime";
 
 const sameSet = (left: Set<string>, right: Set<string>) =>
   left.size === right.size && [...left].every((id) => right.has(id));
@@ -95,6 +36,7 @@ export default function PickDesk() {
   } | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<"starts" | "dogs">("starts");
 
   const adopt = useCallback((desk: Desk) => {
     setLoaded({ status: "ready", desk });
@@ -156,17 +98,7 @@ export default function PickDesk() {
   const { desk } = loaded;
 
   if (desk.state !== "open" || !desk.week) {
-    const message = {
-      "no-membership":
-        "You are not on a coach roster for a live season, so there is nothing for you to pick.",
-      "no-week":
-        "No week is open for picks right now. When the next week opens, your picks will be here.",
-      "no-roster":
-        "Your roster has not been set up yet, so there is nothing to pick from. The commissioner sets rosters before the season starts.",
-      "roster-incomplete":
-        "Your roster needs exactly nine teams before you can pick. If the draft is still open you can finish it yourself; after the deadline the commissioner has to complete it.",
-      open: "",
-    }[desk.state];
+    const message = closedMessages[desk.state as keyof typeof closedMessages];
     return (
       <section aria-labelledby="desk-title">
         {desk.seasonName && <p className="eyebrow">{desk.seasonName}</p>}
@@ -177,7 +109,7 @@ export default function PickDesk() {
           {(desk.state === "no-roster" ||
             desk.state === "roster-incomplete") && (
             <button type="button" onClick={() => goTo("/roster")}>
-              Open your roster
+              Open your draft
             </button>
           )}
           <button
@@ -262,24 +194,53 @@ export default function PickDesk() {
     .filter((row) => !row.locked)
     .sort((a, b) => a.lockTime.localeCompare(b.lockTime))[0];
 
-  return (
-    <div className="workspace desk">
-      <section aria-labelledby="desk-title" className="ws-main">
-        <p className="eyebrow">
-          Week {week.number}
-          {desk.seasonName ? ` · ${desk.seasonName}` : ""}
-        </p>
-        <h1 id="desk-title">Who are you starting?</h1>
-        <p className="lede">
-          Start up to {week.pickLimit} of your teams. The weekly deadline is{" "}
-          {when(week.deadline)} ET; a team that kicks off earlier locks at
-          kickoff.
-        </p>
-        <p role="status" className="notice-line">
-          {notice}
-        </p>
+  const startsLeft = Math.max(0, week.pickLimit - picks.size);
+  const dogsLeft = Math.max(0, week.dogLimit - dogs.size);
+  const left = startsLeft + dogsLeft;
+  const now = desk.serverTime ?? new Date().toISOString();
+  const deadlineLeft = timeLeft(week.deadline, now);
+  // Starts in kickoff order, grouped by the slate's windows.
+  const windows: { name: string; rows: DeskGame[] }[] = [];
+  for (const row of desk.games) {
+    const name = kickoffWindow(row.kickoff);
+    const group = windows.find((entry) => entry.name === name);
+    if (group) group.rows.push(row);
+    else windows.push({ name, rows: [row] });
+  }
 
-        <section aria-labelledby="starts-title" className="week-games">
+  return (
+    <div className="pick-desk">
+      <header className="desk-head">
+        {desk.seasonName && <p className="eyebrow">{desk.seasonName}</p>}
+        <h1 id="desk-title">{`Week ${week.number} picks`}</h1>
+        <p className="lede">
+          {`Deadline ${when(week.deadline)} ET${deadlineLeft === "none" ? "" : ` · ${deadlineLeft} left`}. A team that kicks off earlier locks at kickoff.`}
+        </p>
+        <div className="pick-tabs" role="group" aria-label="Pick type">
+          <button
+            type="button"
+            className={tab === "starts" ? "on" : ""}
+            aria-pressed={tab === "starts"}
+            onClick={() => setTab("starts")}
+          >
+            {`Starts ${picks.size} of ${week.pickLimit}`}
+          </button>
+          <button
+            type="button"
+            className={tab === "dogs" ? "on" : ""}
+            aria-pressed={tab === "dogs"}
+            onClick={() => setTab("dogs")}
+          >
+            {`Dogs ${dogs.size} of ${week.dogLimit}`}
+          </button>
+        </div>
+      </header>
+      <p role="status" className="notice-line">
+        {notice}
+      </p>
+
+      {tab === "starts" && (
+        <section aria-labelledby="starts-title" className="pick-list">
           <h2 id="starts-title">Your teams this week</h2>
           <p className="count">
             {picks.size} of {week.pickLimit} chosen
@@ -287,34 +248,50 @@ export default function PickDesk() {
               ? ` · ${week.pickLimit - picks.size} to go`
               : " · all set"}
           </p>
-          <ol>
-            {desk.games.map((row) => {
-              const on = picks.has(row.teamId);
-              const matchup = row.isHome
-                ? `${row.opponent} at ${row.team}`
-                : `${row.team} at ${row.opponent}`;
-              return (
-                <li
-                  key={row.teamId}
-                  className={`game pick${on ? " on" : ""}${row.locked ? " locked" : ""}`}
-                >
-                  <div className="game-line">
-                    <p className="kick">{when(row.kickoff)}</p>
-                    <p className="teams">
-                      {row.team} <i>{row.isHome ? "vs" : "at"}</i>{" "}
-                      {row.opponent}
-                    </p>
-                    <p className="status">
-                      {row.pointValue}{" "}
-                      {row.pointValue === 1 ? "point" : "points"} if they win ·{" "}
-                      {lockText(row)}
-                      {row.locked && on ? " · locked in" : ""}
-                    </p>
-                    {!row.locked && (
-                      <div className="game-actions">
+          <p className="hint">
+            A win scores the team's point value; all three winning adds a +3
+            Perfect Week.
+          </p>
+          {windows.map((group) => (
+            <div key={group.name} className="pick-window">
+              <h3>{group.name}</h3>
+              <ol aria-label={group.name}>
+                {group.rows.map((row) => {
+                  const on = picks.has(row.teamId);
+                  const matchup = row.isHome
+                    ? `${row.opponent} at ${row.team}`
+                    : `${row.team} at ${row.opponent}`;
+                  return (
+                    <li
+                      key={row.teamId}
+                      className={`pick-row${on ? " on" : ""}${row.locked ? " locked" : ""}${!on && !row.locked && full ? " full" : ""}`}
+                    >
+                      <span
+                        className={`tier tier-${row.pointValue}`}
+                        role="img"
+                        aria-label={points(row.pointValue)}
+                      >
+                        {row.pointValue}
+                      </span>
+                      <div className="pick-text">
+                        <p className="teams">
+                          {row.team} <i>{row.isHome ? "vs" : "at"}</i>{" "}
+                          {row.opponent}
+                        </p>
+                        <p className="kick">{when(row.kickoff)}</p>
+                        <p className="status">
+                          {points(row.pointValue)} if they win · {lockText(row)}
+                          {row.locked && on ? " · locked in" : ""}
+                        </p>
+                      </div>
+                      {row.locked ? (
+                        <span className="locked-mark">
+                          <Lock aria-hidden="true" size={16} />
+                        </span>
+                      ) : (
                         <button
                           type="button"
-                          className={on ? "primary" : "ghost"}
+                          className={on ? "toggle on" : "toggle"}
                           aria-pressed={on}
                           disabled={busy || (!on && full)}
                           onClick={() => toggle(picks, setPicks, row.teamId)}
@@ -325,22 +302,24 @@ export default function PickDesk() {
                             {row.team}, {matchup}
                           </span>
                         </button>
-                      </div>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          ))}
           {desk.games.length === 0 && <p>None of your teams play this week.</p>}
           {desk.notPlaying.length > 0 && (
-            <p className="muted">
+            <p className="muted bye-note">
               Not playing this week: {desk.notPlaying.join(", ")}.
             </p>
           )}
         </section>
+      )}
 
-        <section aria-labelledby="dogs-title" className="week-games dogs">
+      {tab === "dogs" && (
+        <section aria-labelledby="dogs-title" className="pick-list">
           <h2 id="dogs-title">Dog pick</h2>
           <p className="count">
             {week.isDoubleDogWeek
@@ -348,73 +327,66 @@ export default function PickDesk() {
               : "Choose 1 dog"}{" "}
             · {dogs.size} chosen
           </p>
+          <p className="hint dog-note">
+            {week.isDoubleDogWeek
+              ? "Double-dog week: pick two underdogs from two different games. "
+              : ""}
+            A dog that wins outright pays its spread, rounded up. Dogs lock at
+            their own kickoff.
+          </p>
           {desk.dogs.length === 0 && (
             <p>No dogs have been offered for this week yet.</p>
           )}
-          <ol>
+          <ol aria-label="Underdogs">
             {desk.dogs.map((row) => {
               const on = dogs.has(row.teamId);
               return (
                 <li
                   key={row.teamId}
-                  className={`game pick${on ? " on" : ""}${row.locked ? " locked" : ""}`}
+                  className={`pick-row${on ? " on" : ""}${row.locked ? " locked" : ""}${!on && !row.locked && dogsFull ? " full" : ""}`}
                 >
-                  <div className="game-line">
-                    <p className="kick">{when(row.kickoff)}</p>
+                  <div className="pick-text">
                     <p className="teams">
-                      +{row.spread} {row.team} <i>{row.isHome ? "vs" : "at"}</i>{" "}
-                      {row.opponent}
+                      <span className="spread">+{row.spread}</span> {row.team}{" "}
+                      <i>{row.isHome ? "vs" : "at"}</i> {row.opponent}
                     </p>
+                    <p className="kick">{when(row.kickoff)}</p>
                     <p className="status">
                       Scores {Math.ceil(row.spread)} if they win outright ·{" "}
                       {lockText(row)}
                       {row.locked && on ? " · locked in" : ""}
                     </p>
-                    {!row.locked && (
-                      <div className="game-actions">
-                        <button
-                          type="button"
-                          className={on ? "primary" : "ghost"}
-                          aria-pressed={on}
-                          disabled={busy || (!on && dogsFull)}
-                          onClick={() => toggle(dogs, setDogs, row.teamId)}
-                        >
-                          {on ? "Dog picked" : "Pick dog"}
-                          <span className="sr-only">
-                            {" "}
-                            {row.team},{" "}
-                            {row.isHome
-                              ? `${row.opponent} at ${row.team}`
-                              : `${row.team} at ${row.opponent}`}
-                          </span>
-                        </button>
-                      </div>
-                    )}
                   </div>
+                  {row.locked ? (
+                    <span className="locked-mark">
+                      <Lock aria-hidden="true" size={16} />
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={on ? "toggle on" : "toggle"}
+                      aria-pressed={on}
+                      disabled={busy || (!on && dogsFull)}
+                      onClick={() => toggle(dogs, setDogs, row.teamId)}
+                    >
+                      {on ? "Dog picked" : "Pick dog"}
+                      <span className="sr-only">
+                        {" "}
+                        {row.team},{" "}
+                        {row.isHome
+                          ? `${row.opponent} at ${row.team}`
+                          : `${row.team} at ${row.opponent}`}
+                      </span>
+                    </button>
+                  )}
                 </li>
               );
             })}
           </ol>
         </section>
-      </section>
+      )}
 
-      <aside className="pulse" aria-labelledby="ballot-title">
-        <h2 id="ballot-title">Your ballot</h2>
-        <dl className="counts">
-          <dt>Starting</dt>
-          <dd>
-            {picks.size} of {week.pickLimit}
-          </dd>
-          <dt>Dogs</dt>
-          <dd>
-            {dogs.size} of {week.dogLimit}
-          </dd>
-          <dt>Next lock</dt>
-          <dd>{nearest ? when(nearest.lockTime) : "Nothing chosen"}</dd>
-        </dl>
-      </aside>
-
-      <div className="dock" role="region" aria-label="Save picks">
+      <div className="dock pick-dock" role="region" aria-label="Save picks">
         <div className="dock-text">
           <strong>
             {dirty
@@ -423,10 +395,11 @@ export default function PickDesk() {
                 ? "Saved"
                 : "Nothing saved yet"}
           </strong>
-          <span>
-            {picks.size} {picks.size === 1 ? "start" : "starts"} · {dogs.size}{" "}
-            {dogs.size === 1 ? "dog" : "dogs"}
+          <span>{`${picks.size} of ${week.pickLimit} starts · ${dogs.size} of ${week.dogLimit} dogs`}</span>
+          <span className={left > 0 ? "owed" : "complete"}>
+            {left > 0 ? `${left} to go` : "Card complete"}
           </span>
+          {nearest && <span>{`Next lock ${when(nearest.lockTime)}`}</span>}
           {problem && (
             <span role="alert" className="problem">
               {problem.message}
