@@ -16,6 +16,7 @@ const catalog = Array.from({ length: 12 }, (_, i) => ({
   teamId: id(i + 1),
   name: `Team ${i + 1}`,
   division: "AFC East",
+  pointValue: (i % 4) + 1,
 }));
 
 type Status = "missing" | "incomplete" | "complete" | "locked";
@@ -110,6 +111,8 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const ready = () => screen.findByRole("heading", { level: 1, name: "Draft" });
+const showAll = () =>
+  fireEvent.click(screen.getByRole("button", { name: /^All \d+$/ }));
 const rows = () =>
   within(screen.getByRole("region", { name: "Coaches" })).getAllByRole(
     "listitem",
@@ -122,13 +125,26 @@ test("the commissioner sees the deadline, a count by state and every coach with 
   await screen.findByText(
     /Coaches can choose and lock nine teams until Sun, Oct 18, 8:00 AM ET/,
   );
-  expect(screen.getByText(/3d 0h left/)).toBeVisible();
+  expect(screen.getByText("Open · 3d 0h left")).toBeVisible();
+  const status = within(screen.getByRole("list", { name: "Draft status" }));
+  expect(status.getByText("Locked").parentElement).toHaveTextContent("Locked1");
   expect(
-    screen.getByText("1 missing · 1 incomplete · 0 complete · 1 locked"),
-  ).toBeVisible();
-  expect(rows().map((row) => row.querySelector(".teams")?.textContent)).toEqual(
-    ["Coach A", "Coach B", "Coach C"],
+    status.getByText("9 saved, not locked").parentElement,
+  ).toHaveTextContent("9 saved, not locked0");
+  expect(status.getByText("Short of 9").parentElement).toHaveTextContent(
+    "Short of 91",
   );
+  expect(status.getByText("Not started").parentElement).toHaveTextContent(
+    "Not started1",
+  );
+  // Not locked is the default filter; All shows everyone, missing and short rosters first.
+  expect(
+    rows().map((row) => row.querySelector(".coach-name")?.textContent),
+  ).toEqual(["Coach A", "Coach B"]);
+  fireEvent.click(screen.getByRole("button", { name: "All 3" }));
+  expect(
+    rows().map((row) => row.querySelector(".coach-name")?.textContent),
+  ).toEqual(["Coach A", "Coach B", "Coach C"]);
   expect(rows()[0]).toHaveTextContent("No roster yet");
   expect(rows()[0]).toHaveTextContent("still drafting");
   expect(rows()[1]).toHaveTextContent("Incomplete · 3 of 9 teams");
@@ -143,6 +159,7 @@ test("after the deadline the same view says the draft closed and what needs corr
   await screen.findByText(
     /The draft closed Sun, Oct 18, 8:00 AM ET\. Only you can change a roster now\./,
   );
+  expect(screen.getByText("Closed")).toBeVisible();
   expect(rows()[0]).toHaveTextContent("needs your correction");
 });
 
@@ -186,6 +203,7 @@ test("a correction replaces one team for a reason and shows the coach's updated 
   await ready();
   await screen.findByRole("region", { name: "Coaches" });
 
+  showAll();
   fireEvent.click(
     within(rows()[2]).getByRole("button", {
       name: "Correct roster for Coach C",
@@ -263,6 +281,7 @@ test("a full roster must name the team to replace, a team to add and a reason, b
   open();
   await ready();
   await screen.findByRole("region", { name: "Coaches" });
+  showAll();
   fireEvent.click(
     within(rows()[2]).getByRole("button", {
       name: "Correct roster for Coach C",
@@ -429,6 +448,7 @@ test("a team cannot be offered as its own replacement", async () => {
   open();
   await ready();
   await screen.findByRole("region", { name: "Coaches" });
+  showAll();
   fireEvent.click(
     within(rows()[2]).getByRole("button", {
       name: "Correct roster for Coach C",
@@ -445,9 +465,9 @@ test("a team cannot be offered as its own replacement", async () => {
     .map((option) => option.textContent);
   expect(offered).toEqual([
     "Choose a team to add",
-    "Team 10",
-    "Team 11",
-    "Team 12",
+    "Team 10 · AFC East · 2 pts",
+    "Team 11 · AFC East · 3 pts",
+    "Team 12 · AFC East · 4 pts",
   ]);
 });
 
@@ -459,6 +479,7 @@ test("when a correction also drops a ballot pick of the removed team the commiss
   });
   await ready();
   await screen.findByRole("region", { name: "Coaches" });
+  showAll();
   fireEvent.click(
     within(rows()[2]).getByRole("button", {
       name: "Correct roster for Coach C",
@@ -483,4 +504,113 @@ test("when a correction also drops a ballot pick of the removed team the commiss
       "Corrected Coach C's roster. Their pick of the removed team was also taken off their ballot.",
     ),
   ).toBeVisible();
+});
+
+test("filters show the coaches who have not locked, the locked ones, or everyone", async () => {
+  open();
+  await ready();
+  await screen.findByRole("region", { name: "Coaches" });
+
+  const filters = within(screen.getByRole("group", { name: "Filter coaches" }));
+  expect(filters.getByRole("button", { name: "Not locked 2" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  fireEvent.click(filters.getByRole("button", { name: "Locked 1" }));
+  expect(rows()).toHaveLength(1);
+  expect(rows()[0]).toHaveTextContent("Coach C");
+  expect(filters.getByRole("button", { name: "Locked 1" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
+test("a quick pick fills the closing time and the consequence is spelled out before opening", async () => {
+  open(
+    draft([coach(1, "Coach A", "missing")], {
+      deadline: null,
+      draftOpen: false,
+    }),
+  );
+  await ready();
+  expect(await screen.findByText("Not opened")).toBeVisible();
+
+  fireEvent.click(screen.getByRole("button", { name: "In 7 days" }));
+
+  expect(screen.getByLabelText("Draft deadline (Eastern Time)")).toHaveValue(
+    "2026-10-22T20:00",
+  );
+  expect(
+    screen.getByText(
+      /Coaches can choose and lock their nine teams until Thu, Oct 22, 8:00 PM ET\./,
+    ),
+  ).toBeVisible();
+  expect(screen.getByText(/can't move the deadline/)).toBeVisible();
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+});
+
+test("the replacement list names each team's division and point value", async () => {
+  open();
+  await ready();
+  await screen.findByRole("region", { name: "Coaches" });
+  fireEvent.click(
+    within(rows()[1]).getByRole("button", {
+      name: "Correct roster for Coach B",
+    }),
+  );
+
+  const form = screen.getByRole("form", { name: "Correct Coach B's roster" });
+  expect(
+    within(within(form).getByLabelText("With")).getByRole("option", {
+      name: "Team 4 · AFC East · 4 pts",
+    }),
+  ).toBeInTheDocument();
+});
+
+test("while the draft is open the commissioner can email a reminder to every coach who has not locked", async () => {
+  open();
+  replies["POST /api/commissioner/roster-draft/reminders"] = {
+    status: 200,
+    body: { queued: 2 },
+  };
+  await ready();
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Remind 2 coaches" }),
+  );
+
+  expect(
+    await screen.findByText("Reminder emails are on their way to 2 coaches."),
+  ).toBeVisible();
+  expect(calls.filter((c) => c.method === "POST")).toMatchObject([
+    { url: "/api/commissioner/roster-draft/reminders" },
+  ]);
+});
+
+test("a refused reminder says why and no reminder is offered once the draft has closed", async () => {
+  open();
+  replies["POST /api/commissioner/roster-draft/reminders"] = {
+    status: 409,
+    body: {
+      code: "roster.draft-closed",
+      message: "The draft is not open, so reminders cannot be sent.",
+    },
+  };
+  await ready();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Remind 2 coaches" }),
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "The draft is not open, so reminders cannot be sent.",
+  );
+  cleanup();
+
+  open(
+    draft([coach(1, "Coach A", "missing")], {
+      draftOpen: false,
+      serverTime: "2026-10-19T12:00:00Z",
+    }),
+  );
+  await screen.findByText(/The draft closed/);
+  expect(screen.queryByRole("button", { name: /^Remind/ })).toBeNull();
 });
