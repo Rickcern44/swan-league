@@ -65,6 +65,26 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
     }
 
+    [Fact]
+    public async Task SeasonWeekListIsAdminOnlyAndReturnsOrderedReadableWeeks()
+    {
+        var service = new FakeWeekService();
+        using var anonymous = factory.CreateClient();
+        using var coach = CreateClient("Coach", service);
+        using var admin = CreateClient("Admin", service);
+        using var missing = CreateClient("Admin", new FakeWeekService { SeasonFailure = new Error("season.missing", "Season does not exist.") });
+        var url = $"/api/admin/seasons/{SeasonGuid}/weeks";
+
+        Assert.Contains((await anonymous.GetAsync(url, TestContext.Current.CancellationToken)).StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Redirect });
+        Assert.Equal(HttpStatusCode.Forbidden, (await coach.GetAsync(url, TestContext.Current.CancellationToken)).StatusCode);
+        var response = await admin.GetAsync(url, TestContext.Current.CancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal([1, 2], json.RootElement.EnumerateArray().Select(item => item.GetProperty("number").GetInt32()));
+        Assert.Equal(("Regular", "Open"), (json.RootElement[0].GetProperty("kind").GetString(), json.RootElement[0].GetProperty("state").GetString()));
+        Assert.Equal(HttpStatusCode.NotFound, (await missing.GetAsync(url, TestContext.Current.CancellationToken)).StatusCode);
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("{\"teamIds\":null}")]
@@ -211,6 +231,11 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
 
         public Task<Result<WeekDashboard>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default) =>
             Task.FromResult(weekId.Value == WeekGuid ? Ok(weekId) : Result<WeekDashboard>.Failure("week.missing", "Week does not exist."));
+
+        public Task<Result<IReadOnlyList<SeasonWeek>>> GetSeasonWeeksAsync(SeasonId seasonId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(SeasonFailure is { } error
+                ? Result<IReadOnlyList<SeasonWeek>>.Failure(error.Code, error.Message)
+                : Result<IReadOnlyList<SeasonWeek>>.Success([new SeasonWeek(new WeekId(Guid.NewGuid()), 1, WeekKind.Regular, WeekState.Open), new SeasonWeek(new WeekId(Guid.NewGuid()), 2, WeekKind.Regular, WeekState.Draft)]));
 
         public Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, AmericanMoneyline? moneyline, LineSource source, bool approve, CancellationToken cancellationToken = default) => Record(actor, weekId, $"line:{gameId.Value}:{spread}:{approve}");
         public Task<Result<WeekDashboard>> SetGameExclusionAsync(UserId actor, WeekId weekId, GameId gameId, bool excluded, string reason, CancellationToken cancellationToken = default) => Record(actor, weekId, $"exclusion:{gameId.Value}:{excluded}");

@@ -66,6 +66,8 @@ public sealed class AdminDashboardEndpointTests(WebApplicationFactory<Program> f
         Assert.Equal(("lines-missing", 4, "Draft", 3), (item.GetProperty("kind").GetString(), item.GetProperty("weekNumber").GetInt32(), item.GetProperty("weekState").GetString(), item.GetProperty("count").GetInt32()));
         Assert.Equal(weekId.Value, item.GetProperty("weekId").GetGuid());
         Assert.False(root.GetProperty("caughtUp").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("money").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("jobs").ValueKind);
         Assert.Equal(1, service.Calls);
     }
 

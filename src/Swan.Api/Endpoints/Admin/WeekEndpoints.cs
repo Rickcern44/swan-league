@@ -8,6 +8,7 @@ namespace Swan.Api.Endpoints.Admin;
 public sealed record MoneylineRequest(int Home, int Away);
 public sealed record AddLineRequest(decimal Spread, bool Approve = false, MoneylineRequest? Moneyline = null, string? Source = null);
 public sealed record SetGameExclusionRequest(bool Excluded, string? Reason);
+public sealed record SeasonWeekResponse(Guid Id, int Number, string Kind, string State);
 public sealed record ConfirmResultRequest(int HomeScore, int AwayScore);
 public sealed record ReplaceDogOptionsRequest(IReadOnlyList<Guid> TeamIds);
 
@@ -18,6 +19,13 @@ public static class WeekEndpoints
         var weeks = endpoints.MapGroup("/api/admin/weeks/{weekId:guid}").RequireAuthorization("Admin");
         weeks.MapGet("", async (Guid weekId, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             ToResult(await service.GetAsync(new WeekId(weekId), cancellationToken)));
+        endpoints.MapGet("/api/admin/seasons/{seasonId:guid}/weeks", async (Guid seasonId, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetSeasonWeeksAsync(new SeasonId(seasonId), cancellationToken);
+            return result.IsSuccess
+                ? Results.Ok(result.Value!.Select(week => new SeasonWeekResponse(week.Id.Value, week.Number, week.Kind.ToString(), week.State.ToString())))
+                : Results.NotFound(result.Error);
+        }).RequireAuthorization("Admin");
         weeks.MapPost("/games/{gameId:guid}/lines", (Guid weekId, Guid gameId, AddLineRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
         {
             var source = ParseSource(request.Source);
