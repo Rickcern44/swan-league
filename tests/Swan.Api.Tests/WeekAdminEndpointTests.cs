@@ -212,7 +212,8 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         public Task<Result<WeekDashboard>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default) =>
             Task.FromResult(weekId.Value == WeekGuid ? Ok(weekId) : Result<WeekDashboard>.Failure("week.missing", "Week does not exist."));
 
-        public Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, bool approve, CancellationToken cancellationToken = default) => Record(actor, weekId, $"line:{gameId.Value}:{spread}:{approve}");
+        public Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, AmericanMoneyline? moneyline, LineSource source, bool approve, CancellationToken cancellationToken = default) => Record(actor, weekId, $"line:{gameId.Value}:{spread}:{approve}");
+        public Task<Result<WeekDashboard>> SetGameExclusionAsync(UserId actor, WeekId weekId, GameId gameId, bool excluded, string reason, CancellationToken cancellationToken = default) => Record(actor, weekId, $"exclusion:{gameId.Value}:{excluded}");
         public Task<Result<WeekDashboard>> ApproveLatestLineAsync(UserId actor, WeekId weekId, GameId gameId, CancellationToken cancellationToken = default) => Record(actor, weekId, $"latest:{gameId.Value}");
         public Task<Result<WeekDashboard>> ConfirmResultAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, CancellationToken cancellationToken = default) => Record(actor, weekId, $"result:{gameId.Value}:{homeScore}:{awayScore}");
         public Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "finalize");

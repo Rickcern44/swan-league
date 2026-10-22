@@ -108,6 +108,20 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task LatestLineCarriesItsMoneylineSourceAndAuthorWithoutChangingApprovalRules()
+    {
+        var (weekId, gameId) = await SeedWeek();
+
+        var added = await Run(service => service.AddLineAsync(Admin, weekId, gameId, -3.5m, new AmericanMoneyline(-145, 125), LineSource.Csv, approve: false));
+        var game = (await Run(service => service.GetAsync(weekId))).Value!.Games.Single();
+
+        Assert.True(added.IsSuccess);
+        Assert.Equal(-3.5m, game.LatestLine!.Spread);
+        Assert.Equal((-145, 125, LineSource.Csv, Admin), (game.LatestLine.HomeMoneyline, game.LatestLine.AwayMoneyline, game.LatestLine.Source, game.LatestLine.EnteredBy));
+        Assert.Null(game.ApprovedLine);
+    }
+
+    [Fact]
     public async Task ApproveLatestLineRejectsMissingHistoryFrozenLinesAndMissingTargetsWithoutAudit()
     {
         var (weekId, gameId) = await SeedWeek();

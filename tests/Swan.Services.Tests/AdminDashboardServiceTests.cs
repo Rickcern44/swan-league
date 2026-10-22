@@ -31,6 +31,8 @@ public sealed class AdminDashboardServiceTests : IAsyncLifetime
 
         Assert.Null(dashboard.Season);
         Assert.Null(dashboard.CurrentWeek);
+        Assert.Null(dashboard.Money);
+        Assert.Null(dashboard.Jobs);
         Assert.Empty(dashboard.Attention);
         Assert.False(dashboard.CaughtUp);
     }

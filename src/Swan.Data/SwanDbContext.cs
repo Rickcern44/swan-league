@@ -207,6 +207,19 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 game.Property(value => value.ApprovedLine).HasConversion(new ValueConverter<Spread?, decimal?>(value => value == null ? null : value.Value, value => value == null ? null : new Spread(value.Value)));
                 game.Property(value => value.Result).HasConversion(new ValueConverter<GameResult?, string?>(value => value == null ? null : $"{value.HomeScore}:{value.AwayScore}", value => value == null ? null : ParseResult(value)));
                 game.PrimitiveCollection(value => value.LineHistory).HasField("lineHistory").ElementType().HasConversion(new ValueConverter<Spread, decimal>(value => value.Value, value => new Spread(value)));
+                game.OwnsMany<GameLine>(nameof(Game.LineDetails), line =>
+                {
+                    line.ToTable("game_lines", "schedule");
+                    line.WithOwner().HasForeignKey("GameId");
+                    line.Property<Guid>("Id");
+                    line.HasKey("Id");
+                    line.Property(value => value.Spread).HasConversion(value => value.Value, value => new Spread(value));
+                    line.Property(value => value.HomeMoneyline);
+                    line.Property(value => value.AwayMoneyline);
+                    line.Property(value => value.Source);
+                    line.Property(value => value.EnteredAt);
+                    line.Property(value => value.EnteredBy).HasConversion(id => id.Value, value => new UserId(value));
+                });
             });
             entity.OwnsMany<DogOption>(nameof(DogOption), nameof(Week.DogOptions), option =>
             {

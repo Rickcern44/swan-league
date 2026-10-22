@@ -8,6 +8,7 @@ using Swan.Services.Integrations;
 using Swan.Services.Identity;
 using Swan.Services.League;
 using Swan.Services.Platform;
+using Swan.Services.Picks;
 using Swan.Services.Schedule;
 using Swan.Services.Scoring;
 using Swan.Core;
@@ -31,6 +32,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddScoped<Swan.Services.Development.DevelopmentResetService>();
         builder.Services.AddScoped<IAuditService, AuditService>();
         builder.Services.AddScoped<IWeekAdministrationService, WeekAdministrationService>();
+        builder.Services.AddScoped<IAdminWeekPickService, AdminWeekPickService>();
         builder.Services.AddScoped<IAdminDashboardService, AdminDashboardService>();
         builder.Services.AddScoped<Swan.Services.Picks.ICoachPickService, Swan.Services.Picks.CoachPickService>();
         builder.Services.AddScoped<Swan.Services.Picks.ICoachRosterService, Swan.Services.Picks.CoachRosterService>();
