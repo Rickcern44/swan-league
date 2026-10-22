@@ -45,16 +45,24 @@ test("a recent sign-in request explains when another email can be sent", async (
 }) => {
   await page.goto("/");
   await page.getByLabel("Email").fill("coach6@swan.local");
-  await page.getByRole("button", { name: "Send sign-in link" }).click();
-  await expect(page.getByText("Check your email")).toBeVisible();
+  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Check your email" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /^Send another link in \d+s$/ }),
+  ).toBeDisabled();
 
   await page.goto("/");
   await page.getByLabel("Email").fill("coach6@swan.local");
-  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
 
   await expect(page.getByRole("alert")).toHaveText(
-    /A sign-in link was recently sent\. Try again in \d+ seconds\./,
+    /A link was just sent to this address\. You can ask for another in \d:\d{2}\./,
   );
+  await expect(
+    page.getByRole("button", { name: "Email me a sign-in link" }),
+  ).toBeDisabled();
 });
 
 async function configureSetup(page: Page, coach: Coach) {

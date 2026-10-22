@@ -9,8 +9,10 @@ export async function signIn(page: Page, email: string) {
   await page.request.delete(`${mailpitUrl}/api/v1/messages`);
   await page.goto("/");
   await page.getByLabel("Email").fill(email);
-  await page.getByRole("button", { name: "Send sign-in link" }).click();
-  await expect(page.getByText("Check your email")).toBeVisible();
+  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Check your email" }),
+  ).toBeVisible();
 
   let link = "";
   await expect

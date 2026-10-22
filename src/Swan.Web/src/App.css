@@ -3394,3 +3394,273 @@ form.card.wide
   font-weight: 500;
   color: var(--ink-muted);
 }
+
+/* Sign in: ink header with the mark on a phone, a split screen on desktop. Outside the app shell, so the old
+   global p and main rules are reset here. */
+.signin {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  background: var(--ink, #0b1b2e);
+  color: var(--ink, #0b1b2e);
+}
+
+.signin p {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.signin-brand {
+  display: grid;
+  gap: 0.9rem;
+  padding: 2.5rem 1.5rem 1.75rem;
+  color: #fff;
+}
+
+.signin-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.signin-mark .swan-mark {
+  color: #d9a441;
+}
+
+.signin .signin-tagline {
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #c3d0dd;
+}
+
+.signin-headline,
+.signin-tiers {
+  display: none;
+}
+
+.signin-sheet {
+  display: block;
+  place-content: start;
+  flex: 1;
+  min-height: 0;
+  padding: 1.75rem 1.5rem 2.5rem;
+  border-radius: 1.4rem 1.4rem 0 0;
+  background: #f3f7fa;
+}
+
+.signin-step,
+.signin-busy {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  max-width: 24rem;
+  min-width: 0;
+  margin: 0 auto;
+}
+
+.signin h1 {
+  margin: 0;
+  color: var(--ink, #0b1b2e);
+  font-weight: 700;
+  font-size: 1.65rem;
+  line-height: 1.15;
+}
+
+.signin h1:focus {
+  outline: none;
+}
+
+.signin h1:focus-visible {
+  outline: none;
+}
+
+.signin .signin-lede {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #23364d;
+}
+
+.signin .signin-note {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #4d6076;
+}
+
+.signin label {
+  margin-bottom: -0.6rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.signin input {
+  min-height: 3.1rem;
+  padding: 0 0.9rem;
+  border: 1.5px solid #9fb3c8;
+  border-radius: 0.65rem;
+  background: #fff;
+  color: var(--ink, #0b1b2e);
+  font-size: 1rem;
+}
+
+.signin input:focus-visible,
+.signin button:focus-visible {
+  outline: 3px solid #f6d78f;
+  outline-offset: 2px;
+}
+
+.signin .signin-primary,
+.signin .signin-secondary {
+  min-height: 3.1rem;
+  border-radius: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.signin .signin-primary {
+  border: 0;
+  background: var(--ink-2, #16314f);
+  color: #fff;
+}
+
+.signin .signin-secondary {
+  border: 1.5px solid var(--ink-2, #16314f);
+  background: #fff;
+  color: var(--ink-2, #16314f);
+}
+
+.signin .signin-primary:disabled,
+.signin .signin-secondary:disabled {
+  border-color: #d3dde7;
+  background: #d3dde7;
+  color: #4d6076;
+  cursor: default;
+}
+
+.signin .signin-link {
+  justify-self: start;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2, #16314f);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.signin .signin-problem,
+.signin .signin-wait {
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.signin .signin-problem {
+  border: 1px solid #f3b8b2;
+  background: #fde8e6;
+  color: #7a1a12;
+}
+
+.signin .signin-wait {
+  border: 1px solid #e7cf98;
+  background: #fbf6ea;
+  color: #5c3d08;
+}
+
+.signin-wait strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.signin-mail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border: 1px solid #e7cf98;
+  border-radius: 1rem;
+  background: #fbf6ea;
+  color: #7d5410;
+}
+
+.signin-busy {
+  justify-items: center;
+  padding-top: 4rem;
+  text-align: center;
+}
+
+.signin-spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 4px solid #d3dde7;
+  border-top-color: var(--brass, #b07a1f);
+  border-radius: 50%;
+  animation: signin-spin 0.9s linear infinite;
+}
+
+@keyframes signin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signin-spinner {
+    animation: none;
+    border-top-color: #d3dde7;
+    border-right-color: var(--brass, #b07a1f);
+  }
+}
+
+@media (min-width: 56rem) {
+  .signin {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .signin-brand {
+    align-content: space-between;
+    padding: 3.5rem 4rem;
+  }
+
+  .signin-pitch {
+    display: grid;
+    gap: 1.1rem;
+    max-width: 28rem;
+  }
+
+  .signin .signin-headline {
+    display: block;
+    order: -1;
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: #fff;
+  }
+
+  .signin .signin-tagline {
+    font-size: 1.05rem;
+  }
+
+  .signin-tiers {
+    display: flex;
+    gap: 0.6rem;
+  }
+
+  .signin-sheet {
+    display: grid;
+    align-content: center;
+    padding: 3rem;
+    border-radius: 0;
+  }
+
+  .signin h1 {
+    font-size: 1.9rem;
+  }
+}
