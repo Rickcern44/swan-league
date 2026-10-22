@@ -20,6 +20,13 @@ function run(command, args, options = {}) {
   return `${result.stdout}${result.stderr}`;
 }
 
+// CI uses the pinned local tool, while developers keep using their existing Aspire command.
+function aspire(args, options = {}) {
+  return process.env.ASPIRE_USE_LOCAL_TOOL === "true"
+    ? run("dotnet", ["tool", "run", "aspire", "--", ...args], options)
+    : run("aspire", args, options);
+}
+
 function jsonFrom(output) {
   const start = output.indexOf("{");
   const end = output.lastIndexOf("}");
@@ -41,12 +48,7 @@ function httpUrl(item) {
 }
 
 // Never attach the browser suite to a developer's running stack.
-const existing = run("aspire", [
-  "describe",
-  "--non-interactive",
-  "--format",
-  "Json",
-]);
+const existing = aspire(["describe", "--non-interactive", "--format", "Json"]);
 if (!existing.includes("No running AppHost found"))
   throw new Error(
     "Stop the existing Aspire AppHost before running the disposable E2E stack.",
@@ -54,8 +56,7 @@ if (!existing.includes("No running AppHost found"))
 
 let started = false;
 try {
-  const launchOutput = run(
-    "aspire",
+  const launchOutput = aspire(
     [
       "start",
       "--apphost",
@@ -71,11 +72,11 @@ try {
   const launch = jsonFrom(launchOutput);
   if (!launch.appHostPath?.endsWith(apphost))
     throw new Error("Aspire started an unexpected AppHost.");
-  run("aspire", ["wait", "web", "--non-interactive"]);
-  run("aspire", ["wait", "mailpit", "--non-interactive"]);
+  aspire(["wait", "web", "--non-interactive"]);
+  aspire(["wait", "mailpit", "--non-interactive"]);
 
   const { resources } = jsonFrom(
-    run("aspire", [
+    aspire([
       "describe",
       "--apphost",
       apphost,
@@ -111,7 +112,7 @@ try {
 } finally {
   if (started) {
     try {
-      run("aspire", ["stop", "--apphost", apphost, "--non-interactive"]);
+      aspire(["stop", "--apphost", apphost, "--non-interactive"]);
     } catch (error) {
       process.exitCode = 1;
       console.error(`Could not stop the E2E AppHost: ${error.message}`);

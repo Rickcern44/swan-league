@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend:
     name: Frontend
@@ -38,9 +42,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
       - name: Verify container runtime
         run: docker info
-      - run: dotnet restore Swan.slnx
+      - run: dotnet restore Swan.slnx --locked-mode
       - run: dotnet build Swan.slnx --configuration Release --no-restore
       - run: dotnet format Swan.slnx --verify-no-changes
       - run: ./scripts/verify-ef-model.sh
@@ -58,19 +64,23 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: src/Swan.Web/package-lock.json
-      - run: dotnet tool install --global Aspire.Cli --version 13.6.1
-      - run: echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+      - run: dotnet tool restore
+      - run: dotnet restore Swan.slnx --locked-mode
       - run: npm ci
         working-directory: src/Swan.Web
       - run: npx playwright install --with-deps chromium
         working-directory: src/Swan.Web
       - run: npm run test:e2e:stack
         working-directory: src/Swan.Web
+        env:
+          ASPIRE_USE_LOCAL_TOOL: "true"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
