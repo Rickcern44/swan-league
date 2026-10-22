@@ -64,4 +64,16 @@ public static class ServiceCollectionExtensions
         using var scope = host.Services.CreateScope();
         await DevelopmentSeeder.SeedAsync(scope.ServiceProvider.GetRequiredService<SwanDbContext>());
     }
+
+    // Development always starts from the same usable baseline: the team catalog, test identities, and the 2025 reference season.
+    // Season-scoped work from a prior run is deliberately discarded so setup and draft flows are exercised from scratch.
+    public static async Task ResetAndSeedSwanDatabaseAsync(this IHost host)
+    {
+        using var scope = host.Services.CreateScope();
+        var database = scope.ServiceProvider.GetRequiredService<SwanDbContext>();
+        await DevelopmentSeeder.SeedAsync(database);
+        await scope.ServiceProvider.GetRequiredService<Swan.Services.Development.DevelopmentResetService>()
+            .ResetSeasonDataAsync(new Swan.Core.Common.UserId(Guid.Parse("b548d5d9-272d-4f4d-b2b4-f179ad8b289d")));
+        await DevelopmentSeeder.SeedAsync(database);
+    }
 }
