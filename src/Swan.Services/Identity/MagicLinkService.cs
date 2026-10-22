@@ -13,26 +13,32 @@ namespace Swan.Services.Identity;
 
 public sealed record RedeemedUser(UserId UserId, string Name);
 public sealed record CurrentUser(UserId UserId, string Name, string Role);
+public sealed record SignInLinkRequestResult(bool IsRateLimited, TimeSpan? RetryAfter)
+{
+    public static readonly SignInLinkRequestResult Sent = new(false, null);
+}
 
 public sealed class MagicLinkService(SwanDbContext database, IEmailSender emailSender, IClock clock)
 {
     private static readonly ConcurrentDictionary<string, DateTimeOffset> Requests = new();
 
-    public async Task RequestAsync(Email email, string ipAddress, Uri linkBase, CancellationToken cancellationToken = default)
+    public async Task<SignInLinkRequestResult> RequestAsync(Email email, string ipAddress, Uri linkBase, CancellationToken cancellationToken = default)
     {
         var now = clock.UtcNow;
         var rateKey = $"{email.Value}:{ipAddress}";
-        if (Requests.TryGetValue(rateKey, out var requestedAt) && requestedAt.AddMinutes(1) > now) return;
+        if (Requests.TryGetValue(rateKey, out var requestedAt) && requestedAt.AddMinutes(1) > now)
+            return new SignInLinkRequestResult(true, requestedAt.AddMinutes(1) - now);
         Requests[rateKey] = now;
 
         var user = await database.Users.SingleOrDefaultAsync(candidate => candidate.Email == email, cancellationToken);
-        if (user is null || !user.IsActive) return;
+        if (user is null || !user.IsActive) return SignInLinkRequestResult.Sent;
 
         var rawToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         user.IssueLoginToken(Hash(rawToken), now);
         await database.SaveChangesAsync(cancellationToken);
         var link = new Uri(linkBase, $"?token={rawToken}");
         await emailSender.SendAsync(new EmailMessage(user.Email.Value, "Your Swan sign-in link", link.ToString(), false), cancellationToken);
+        return SignInLinkRequestResult.Sent;
     }
 
     public async Task<Result<RedeemedUser>> RedeemAsync(string rawToken, CancellationToken cancellationToken = default)

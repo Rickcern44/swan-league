@@ -21,10 +21,8 @@ public static class ServiceCollectionExtensions
         where TBuilder : IHostApplicationBuilder
     {
         builder.AddNpgsqlDbContext<SwanDbContext>("swan");
-        builder.Services.AddSingleton<IEmailSender>(_ => new SmtpEmailSender(
-            builder.Configuration["MAILPIT_HOST"] ?? "localhost",
-            int.TryParse(builder.Configuration["MAILPIT_PORT"], out var port) ? port : 1025,
-            "noreply@swan.local"));
+        var mailpit = MailpitSmtpEndpoint.FromConfiguration(builder.Configuration);
+        builder.Services.AddSingleton<IEmailSender>(_ => new SmtpEmailSender(mailpit.Host, mailpit.Port, "noreply@swan.local"));
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddScoped<MagicLinkService>();
         builder.Services.AddScoped<SessionService>();

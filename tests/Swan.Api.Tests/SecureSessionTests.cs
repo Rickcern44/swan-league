@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Swan.Core;
 using Swan.Core.Common;
+using Swan.Core.Identity;
 using Swan.Core.Integrations;
 using Swan.Core.League;
 using Swan.Data;
@@ -152,6 +153,25 @@ public sealed class SecureSessionTests(SessionApiFixture fixture) : IClassFixtur
         // The credential does not appear in any column of the table.
         var anywhere = await fixture.WithDatabase(fixture.Development, (database, _) => database.Database.SqlQuery<int>($"select count(*)::int as \"Value\" from identity.sessions s where s::text like {"%" + credential + "%"}").SingleAsync());
         Assert.Equal(0, anywhere);
+    }
+
+    [Fact]
+    public async Task ARepeatedSignInLinkRequestReturnsARetryAfterInsteadOfPretendingToSendEmail()
+    {
+        var email = $"rate-limit-{Guid.NewGuid():N}@swan.local";
+        await fixture.WithDatabase(fixture.Development, async (database, _) =>
+        {
+            database.Users.Add(new User(new UserId(Guid.NewGuid()), Email.Create(email).Value!, "Rate Limited Coach"));
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return true;
+        });
+        var client = Client(fixture.Development);
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/sign-in-links", new { email }, TestContext.Current.CancellationToken)).StatusCode);
+        var response = await client.PostAsJsonAsync("/api/sign-in-links", new { email }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal("60", response.Headers.GetValues("Retry-After").Single());
     }
 
     [Fact]

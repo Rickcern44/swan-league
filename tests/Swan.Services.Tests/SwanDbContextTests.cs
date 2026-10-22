@@ -232,8 +232,12 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         var sender = new CapturingEmailSender();
         var clock = new FakeClock(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
         var service = new MagicLinkService(database, sender, clock);
-        await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
-        await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
+        var sent = await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
+        var throttled = await service.RequestAsync(email, "192.0.2.44", new Uri("https://swan.test/api/sign-in-links/redeem"), TestContext.Current.CancellationToken);
+
+        Assert.False(sent.IsRateLimited);
+        Assert.True(throttled.IsRateLimited);
+        Assert.Equal(TimeSpan.FromMinutes(1), throttled.RetryAfter);
 
         var rawToken = TokenFrom(sender.Messages.Single().Body);
         database.ChangeTracker.Clear();
