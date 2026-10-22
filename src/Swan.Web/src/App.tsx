@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DevelopmentTools, RefreshAccess } from "./AccessContext";
 import CoachHome from "./CoachHome";
 import CommissionerDraft from "./CommissionerDraft";
@@ -15,6 +15,7 @@ import {
 } from "./routes";
 import SeasonSetup from "./SeasonSetup";
 import Shell from "./Shell";
+import SignIn from "./SignIn";
 import Standings from "./Standings";
 import WeekWorkspace from "./WeekWorkspace";
 
@@ -29,12 +30,9 @@ type CurrentUser = {
 };
 
 export default function App() {
-  const [email, setEmail] = useState("");
-  const [state, setState] = useState<"sign-in" | "check-email" | "redeeming">(
-    "sign-in",
-  );
+  const [state, setState] = useState<"sign-in" | "redeeming">("sign-in");
+  const [linkFailed, setLinkFailed] = useState(false);
   const [user, setUser] = useState<CurrentUser | null>(null);
-  const [signInError, setSignInError] = useState<string | null>(null);
   const [path, setPath] = useState(window.location.pathname);
   const [decisions, setDecisions] = useState(0);
 
@@ -109,6 +107,7 @@ export default function App() {
         );
         window.history.replaceState({}, "", redeemed.ok ? "/" : "/signin");
         if (!redeemed.ok) {
+          setLinkFailed(true);
           setState("sign-in");
           return;
         }
@@ -121,24 +120,6 @@ export default function App() {
 
     void loadSession();
   }, []);
-
-  async function requestLink(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSignInError(null);
-    const response = await fetch("/api/sign-in-links", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    if (response.status === 429) {
-      const retryAfter = Number(response.headers.get("Retry-After"));
-      setSignInError(
-        `A sign-in link was recently sent. Try again in ${Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60} seconds.`,
-      );
-      return;
-    }
-    setState("check-email");
-  }
 
   async function signOut() {
     await fetch("/api/sign-out", { method: "POST", credentials: "include" });
@@ -203,35 +184,5 @@ export default function App() {
     );
   }
 
-  if (state === "check-email")
-    return (
-      <main>
-        <h1>Check your email</h1>
-        <p>We sent a sign-in link to {email}.</p>
-      </main>
-    );
-  if (state === "redeeming")
-    return (
-      <main>
-        <h1>Signing you in…</h1>
-      </main>
-    );
-
-  return (
-    <main>
-      <h1>Swan League Tracker</h1>
-      <form onSubmit={requestLink}>
-        {signInError && <p role="alert">{signInError}</p>}
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-        />
-        <button type="submit">Send sign-in link</button>
-      </form>
-    </main>
-  );
+  return <SignIn redeeming={state === "redeeming"} linkFailed={linkFailed} />;
 }
