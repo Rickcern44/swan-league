@@ -28,7 +28,16 @@ public static class IdentityEndpoints
         if (email.IsSuccess)
         {
             var baseUri = new Uri($"{context.Request.Scheme}://{context.Request.Host}/signin-callback");
-            await magicLinks.RequestAsync(email.Value!, context.Connection.RemoteIpAddress?.ToString() ?? "unknown", baseUri, cancellationToken);
+            var requested = await magicLinks.RequestAsync(email.Value!, context.Connection.RemoteIpAddress?.ToString() ?? "unknown", baseUri, cancellationToken);
+            if (requested.IsRateLimited)
+            {
+                var retryAfter = Math.Max(1, (int)Math.Ceiling(requested.RetryAfter!.Value.TotalSeconds));
+                context.Response.Headers.RetryAfter = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return Results.Problem(
+                    statusCode: StatusCodes.Status429TooManyRequests,
+                    title: "A sign-in link was recently requested.",
+                    extensions: new Dictionary<string, object?> { ["retryAfterSeconds"] = retryAfter });
+            }
         }
 
         return Results.Ok();

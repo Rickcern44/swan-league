@@ -33,6 +33,7 @@ export default function App() {
     "sign-in",
   );
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [signInError, setSignInError] = useState<string | null>(null);
   const [path, setPath] = useState(window.location.pathname);
 
   useEffect(() => {
@@ -120,11 +121,19 @@ export default function App() {
 
   async function requestLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await fetch("/api/sign-in-links", {
+    setSignInError(null);
+    const response = await fetch("/api/sign-in-links", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
     });
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      setSignInError(
+        `A sign-in link was recently sent. Try again in ${Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60} seconds.`,
+      );
+      return;
+    }
     setState("check-email");
   }
 
@@ -197,6 +206,7 @@ export default function App() {
     <main>
       <h1>Swan League Tracker</h1>
       <form onSubmit={requestLink}>
+        {signInError && <p role="alert">{signInError}</p>}
         <label htmlFor="email">Email</label>
         <input
           id="email"

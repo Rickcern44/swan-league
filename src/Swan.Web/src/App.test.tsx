@@ -24,3 +24,23 @@ test("shows the check-email state after submitting", async () => {
 
   expect(await screen.findByText("Check your email")).toBeInTheDocument();
 });
+
+test("explains when a recent sign-in request is still rate limited", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: new Headers({ "Retry-After": "42" }),
+    }),
+  );
+  render(<App />);
+
+  const input = await screen.findByLabelText("Email");
+  fireEvent.change(input, { target: { value: "admin@swan.local" } });
+  fireEvent.submit(input.closest("form")!);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "A sign-in link was recently sent. Try again in 42 seconds.",
+  );
+});
