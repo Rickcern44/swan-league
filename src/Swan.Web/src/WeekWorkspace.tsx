@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { kindLabels, stageLabelsInOrder } from "./Swan";
+import { kindLabels, stageLabelsInOrder, stateLabel } from "./Swan";
 
 type LatestLine = {
   spread: number;
@@ -164,12 +164,16 @@ function initialTab(state: string): Tab {
   return "lines";
 }
 
+type SeasonWeek = { id: string; number: number; kind: string; state: string };
+
 export default function WeekWorkspace({
   weekId,
   onBack,
+  onOpenWeek,
 }: {
   weekId: string;
   onBack: () => void;
+  onOpenWeek?: (weekId: string, tab: string) => void;
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
   const [tab, setTab] = useState<Tab | null>(null);
@@ -178,6 +182,7 @@ export default function WeekWorkspace({
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [seasonWeeks, setSeasonWeeks] = useState<SeasonWeek[]>([]);
   const returnToDock = useRef(false);
 
   const load = useCallback(async () => {
@@ -202,6 +207,28 @@ export default function WeekWorkspace({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The picker needs the season's weeks; without them the workspace works as before, just without it.
+  const seasonId = loaded.status === "ready" ? loaded.week.seasonId : null;
+  useEffect(() => {
+    if (!seasonId) return;
+    let live = true;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/admin/seasons/${seasonId}/weeks`, {
+          credentials: "include",
+        });
+        if (!response.ok) return;
+        const weeks: SeasonWeek[] = await response.json();
+        if (live && Array.isArray(weeks)) setSeasonWeeks(weeks);
+      } catch {
+        // no picker
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [seasonId]);
 
   // Cancelling the recompute confirmation puts focus back on the button that opened it.
   useEffect(() => {
@@ -323,11 +350,61 @@ export default function WeekWorkspace({
 
   const say = (text: string) => setNotice(text);
 
+  const here = seasonWeeks.findIndex((item) => item.id === week.id);
+  const previous = here > 0 ? seasonWeeks[here - 1] : null;
+  const following =
+    here >= 0 && here < seasonWeeks.length - 1 ? seasonWeeks[here + 1] : null;
+  const openWeek = (id: string) => onOpenWeek?.(id, current);
+
   return (
     <div className="week-desk">
-      <button type="button" className="back" onClick={onBack}>
-        ‹ Today
-      </button>
+      <div className="ws-top">
+        <button type="button" className="back" onClick={onBack}>
+          ‹ Today
+        </button>
+        {here >= 0 && onOpenWeek && (
+          <nav className="week-picker" aria-label="Weeks">
+            <button
+              type="button"
+              className="ghost small"
+              disabled={!previous}
+              aria-label={
+                previous
+                  ? `Previous week, Week ${previous.number}`
+                  : "Previous week"
+              }
+              onClick={() => previous && openWeek(previous.id)}
+            >
+              ‹
+            </button>
+            <label htmlFor="week-select" className="sr-only">
+              Week
+            </label>
+            <select
+              id="week-select"
+              value={week.id}
+              onChange={(event) => openWeek(event.target.value)}
+            >
+              {seasonWeeks.map((item) => (
+                <option key={item.id} value={item.id}>
+                  Week {item.number} · {stateLabel(item.state)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="ghost small"
+              disabled={!following}
+              aria-label={
+                following ? `Next week, Week ${following.number}` : "Next week"
+              }
+              onClick={() => following && openWeek(following.id)}
+            >
+              ›
+            </button>
+          </nav>
+        )}
+      </div>
       <header className="ws-head">
         <p className="eyebrow">
           Week {week.number} · {kindLabels[week.kind] ?? week.kind} ·{" "}
@@ -1348,6 +1425,7 @@ function useFetched<T>(url: string) {
   useEffect(() => {
     void load();
   }, [load]);
+
   return [state, load] as const;
 }
 

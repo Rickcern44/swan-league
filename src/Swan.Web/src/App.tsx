@@ -169,6 +169,9 @@ export default function App() {
                 key={route.weekId}
                 weekId={route.weekId}
                 onBack={() => navigate("/commish")}
+                onOpenWeek={(id, tab) =>
+                  navigate(`/commish/weeks/${id}?tab=${tab}`)
+                }
               />
             ) : (
               <Dashboard

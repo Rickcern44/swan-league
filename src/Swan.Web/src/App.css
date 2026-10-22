@@ -3169,3 +3169,34 @@ form.card.wide
     box-shadow: 0 -0.25rem 1rem rgb(11 27 46 / 8%);
   }
 }
+
+.ws-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.week-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.week-picker select {
+  min-height: 2.75rem;
+  padding: 0 0.6rem;
+  border: 1px solid #9fb3c8;
+  border-radius: 0.5rem;
+  background: #fff;
+  font: inherit;
+  font-weight: 600;
+  max-width: 14rem;
+}
+
+.shell .week-picker button.small {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1.2rem;
+}

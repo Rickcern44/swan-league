@@ -1199,3 +1199,59 @@ test("the other dock actions need no confirmation", async () => {
     screen.queryByRole("group", { name: /Confirm/ }),
   ).not.toBeInTheDocument();
 });
+
+const W3 = "33333333-3333-3333-3333-333333333333";
+const W5 = "55555555-5555-5555-5555-555555555555";
+const seasonWeeks = [
+  { id: W3, number: 3, kind: "Regular", state: "Final" },
+  { id: WEEK, number: 4, kind: "Regular", state: "Open" },
+  { id: W5, number: 5, kind: "Regular", state: "Draft" },
+];
+
+test("the week picker lists the season's weeks with their state and moves between them", async () => {
+  replies["GET /api/admin/seasons/s/weeks"] = {
+    status: 200,
+    body: seasonWeeks,
+  };
+  open("Draft", [game(G1)]);
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  const picker = within(
+    await screen.findByRole("navigation", { name: "Weeks" }),
+  );
+  const select = picker.getByLabelText("Week");
+  expect(select).toHaveValue(WEEK);
+  expect(
+    within(select)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["Week 3 · Final", "Week 4 · Open for picks", "Week 5 · Draft"]);
+
+  fireEvent.click(picker.getByRole("button", { name: "Next week, Week 5" }));
+  expect(window.location.pathname).toBe(`/commish/weeks/${W5}`);
+  expect(window.location.search).toBe("?tab=lines");
+});
+
+test("choosing a week in the picker opens it, and the first week has no previous", async () => {
+  replies["GET /api/admin/seasons/s/weeks"] = {
+    status: 200,
+    body: [seasonWeeks[1], seasonWeeks[2]],
+  };
+  open("Draft", [game(G1)]);
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  const picker = within(
+    await screen.findByRole("navigation", { name: "Weeks" }),
+  );
+  expect(picker.getByRole("button", { name: "Previous week" })).toBeDisabled();
+  fireEvent.change(picker.getByLabelText("Week"), { target: { value: W5 } });
+  expect(window.location.pathname).toBe(`/commish/weeks/${W5}`);
+});
+
+test("without the season's weeks the workspace still works and offers no picker", async () => {
+  open("Draft", [game(G1)]);
+  await screen.findByRole("table", { name: "Lines" });
+
+  expect(screen.queryByRole("navigation", { name: "Weeks" })).toBeNull();
+  expect(screen.getByRole("button", { name: "‹ Today" })).toBeVisible();
+});
