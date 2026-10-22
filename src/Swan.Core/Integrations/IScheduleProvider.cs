@@ -23,3 +23,12 @@ public interface IStandingsProvider
 {
     Task<Result<ProviderStandings>> FetchRegularSeasonStandingsAsync(int season, CancellationToken cancellationToken = default);
 }
+
+public sealed record ProviderFinalScore(string ProviderGameId, int Week, string HomeTeam, string AwayTeam, int HomeScore, int AwayScore, DateTimeOffset UpdatedAt);
+
+public sealed record ProviderFinalScores(DateTimeOffset FetchedAt, IReadOnlyList<ProviderFinalScore> Scores);
+
+public interface IFinalScoreProvider
+{
+    Task<Result<ProviderFinalScores>> FetchFinalScoresAsync(int season, int week, CancellationToken cancellationToken = default);
+}

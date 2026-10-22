@@ -18,7 +18,7 @@ public sealed class BallDontLieOptions
 }
 
 // Reads the NFL regular-season schedule from BALLDONTLIE. The key travels only in the Authorization header and is never logged or returned.
-public sealed partial class BallDontLieScheduleProvider(HttpClient http, IOptions<BallDontLieOptions> options, IClock clock, ILogger<BallDontLieScheduleProvider> logger) : IScheduleProvider, IStandingsProvider
+public sealed partial class BallDontLieScheduleProvider(HttpClient http, IOptions<BallDontLieOptions> options, IClock clock, ILogger<BallDontLieScheduleProvider> logger) : IScheduleProvider, IStandingsProvider, IFinalScoreProvider
 {
     private const int PerPage = 100;
     private const int MaxPages = 50;
@@ -107,6 +107,51 @@ public sealed partial class BallDontLieScheduleProvider(HttpClient http, IOption
         }
     }
 
+    public async Task<Result<ProviderFinalScores>> FetchFinalScoresAsync(int season, int week, CancellationToken cancellationToken = default)
+    {
+        var key = options.Value.ApiKey;
+        if (string.IsNullOrWhiteSpace(key)) return Result<ProviderFinalScores>.Failure("scores.config", "The final-score provider is not configured.");
+        var scores = new List<ProviderFinalScore>();
+        long? cursor = null;
+        try
+        {
+            for (var page = 0; page < MaxPages; page++)
+            {
+                var query = $"games?seasons[]={season}&weeks[]={week}&season_types[]=2&per_page={PerPage}{(cursor is null ? "" : $"&cursor={cursor}")}";
+                using var request = new HttpRequestMessage(HttpMethod.Get, query);
+                request.Headers.Authorization = AuthenticationHeaderValue.Parse(key.Trim());
+                using var response = await http.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.LogWarning("BALLDONTLIE answered the final-score request with HTTP {Status}.", (int)response.StatusCode);
+                    return ScoresUnavailable($"The final-score provider answered HTTP {(int)response.StatusCode}.");
+                }
+
+                using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+                if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                    return ScoresUnavailable("The final-score provider returned an unexpected response.");
+                foreach (var item in data.EnumerateArray())
+                    if (item.TryGetProperty("status_state", out var state) && state.ValueKind == JsonValueKind.String && state.GetString() == "final")
+                        scores.Add(MapFinalScore(item));
+
+                cursor = document.RootElement.TryGetProperty("meta", out var meta) && meta.ValueKind == JsonValueKind.Object && meta.TryGetProperty("next_cursor", out var next) && next.ValueKind == JsonValueKind.Number ? next.GetInt64() : null;
+                if (cursor is null) return Result<ProviderFinalScores>.Success(new ProviderFinalScores(clock.UtcNow, scores));
+            }
+
+            return ScoresUnavailable("The final-score provider returned too many pages.");
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("The final-score request timed out.");
+            return ScoresUnavailable("The final-score provider timed out; it may be rate limiting requests. Try again in a minute.");
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
+        {
+            logger.LogWarning("The final-score request failed: {Type}.", exception.GetType().Name);
+            return ScoresUnavailable("The final-score provider could not be reached or returned an unusable response.");
+        }
+    }
+
     // K would read a timestamp without an offset as local time; a kickoff must say which instant it is.
     [GeneratedRegex(@"(Z|[+-]\d\d:\d\d)$")]
     private static partial Regex HasOffset();
@@ -126,9 +171,21 @@ public sealed partial class BallDontLieScheduleProvider(HttpClient http, IOption
         return new ProviderStanding(String("full_name"), String("conference"), String("division"), Number("wins"), Number("losses"), Number("ties"));
     }
 
+    private static ProviderFinalScore MapFinalScore(JsonElement item)
+    {
+        string String(string property) => item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+        int Number(string property) => item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : throw new FormatException($"Final-score field {property} is missing.");
+        var id = item.TryGetProperty("id", out var providerId) ? providerId.ToString() : "";
+        if (string.IsNullOrWhiteSpace(id)) throw new FormatException("Final-score id is missing.");
+        var updatedAt = String("updated_at");
+        if (!HasOffset().IsMatch(updatedAt) || !DateTimeOffset.TryParseExact(updatedAt, KickoffFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var updated)) throw new FormatException("Final-score updated_at is invalid.");
+        return new(id, Number("week"), TeamName(item, "home_team"), TeamName(item, "visitor_team"), Number("home_team_score"), Number("visitor_team_score"), updated.ToUniversalTime());
+    }
+
     private static string TeamName(JsonElement item, string property) =>
         item.TryGetProperty(property, out var team) && team.ValueKind == JsonValueKind.Object && team.TryGetProperty("full_name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() ?? "" : "";
 
     private static Result<ProviderSchedule> Unavailable(string message) => Result<ProviderSchedule>.Failure("schedule.provider", message);
     private static Result<ProviderStandings> StandingsUnavailable(string message) => Result<ProviderStandings>.Failure("standings.provider", message);
+    private static Result<ProviderFinalScores> ScoresUnavailable(string message) => Result<ProviderFinalScores>.Failure("scores.provider", message);
 }

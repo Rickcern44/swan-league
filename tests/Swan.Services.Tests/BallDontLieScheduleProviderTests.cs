@@ -30,6 +30,22 @@ public sealed class BallDontLieScheduleProviderTests
     private static string Page(string[] games, int? next = null) =>
         "{\"data\":[" + string.Join(",", games) + "],\"meta\":{\"per_page\":100,\"next_cursor\":" + (next is null ? "null" : next.ToString()) + "}}";
 
+    private static string FinalGame(int id, int week, string home, string away, int homeScore, int awayScore, string updatedAt = "2025-09-05T03:20:00.000Z") =>
+        JsonSerializer.Serialize(new
+        {
+            id,
+            week,
+            season = 2025,
+            postseason = false,
+            status = "Final",
+            status_state = "final",
+            home_team_score = homeScore,
+            visitor_team_score = awayScore,
+            updated_at = updatedAt,
+            home_team = new { id = 1, full_name = home },
+            visitor_team = new { id = 2, full_name = away },
+        });
+
     private static (BallDontLieScheduleProvider Provider, FakeHandler Handler) Create(string? key, params Func<HttpRequestMessage, HttpResponseMessage>[] replies)
     {
         var handler = new FakeHandler(replies);
@@ -98,6 +114,40 @@ public sealed class BallDontLieScheduleProviderTests
 
         Assert.True(fetched.IsSuccess);
         Assert.Empty(fetched.Value!.Games);
+    }
+
+    [Fact]
+    public async Task FinalScoresAreMappedByProviderGameIdAndOnlyFinalGamesAreReturned()
+    {
+        var inProgress = """{"id":12,"week":1,"status_state":"in_progress","home_team_score":10,"visitor_team_score":7}""";
+        var (provider, handler) = Create(Key, Json(Page([FinalGame(11, 1, "Kansas City Chiefs", "Baltimore Ravens", 27, 20), inProgress])));
+
+        var fetched = await provider.FetchFinalScoresAsync(2025, 1, TestContext.Current.CancellationToken);
+
+        Assert.True(fetched.IsSuccess);
+        var score = Assert.Single(fetched.Value!.Scores);
+        Assert.Equal(("11", 1, "Kansas City Chiefs", "Baltimore Ravens", 27, 20), (score.ProviderGameId, score.Week, score.HomeTeam, score.AwayTeam, score.HomeScore, score.AwayScore));
+        Assert.Equal(new DateTimeOffset(2025, 9, 5, 3, 20, 0, TimeSpan.Zero), score.UpdatedAt);
+        var query = Uri.UnescapeDataString(Assert.Single(handler.Requests).RequestUri!.Query);
+        Assert.Contains("seasons[]=2025", query);
+        Assert.Contains("weeks[]=1", query);
+        Assert.Contains("season_types[]=2", query);
+    }
+
+    [Fact]
+    public async Task FinalScoresRequireAKeyAndRejectMalformedFinalGames()
+    {
+        var (withoutKey, noRequest) = Create(null);
+        var malformed = """{"id":11,"week":1,"status_state":"final","home_team_score":27,"visitor_team_score":20,"updated_at":"not-a-time"}""";
+        var (withMalformedGame, _) = Create(Key, Json(Page([malformed])));
+
+        var notConfigured = await withoutKey.FetchFinalScoresAsync(2025, 1, TestContext.Current.CancellationToken);
+        var unusable = await withMalformedGame.FetchFinalScoresAsync(2025, 1, TestContext.Current.CancellationToken);
+
+        Assert.Equal("scores.config", notConfigured.Error!.Code);
+        Assert.Empty(noRequest.Requests);
+        Assert.Equal("scores.provider", unusable.Error!.Code);
+        Assert.DoesNotContain(Key, unusable.Error.Message);
     }
 
     [Theory]
