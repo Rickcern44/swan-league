@@ -10,6 +10,7 @@ public sealed record AddLineRequest(decimal Spread, bool Approve = false, Moneyl
 public sealed record SetGameExclusionRequest(bool Excluded, string? Reason);
 public sealed record SeasonWeekResponse(Guid Id, int Number, string Kind, string State);
 public sealed record ConfirmResultRequest(int HomeScore, int AwayScore);
+public sealed record ResultDraftRequest(int HomeScore, int AwayScore, string? Reason);
 public sealed record ReplaceDogOptionsRequest(IReadOnlyList<Guid> TeamIds);
 
 public static class WeekEndpoints
@@ -56,6 +57,12 @@ public static class WeekEndpoints
             Act(principal, actor => service.PublishAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/games/{gameId:guid}/result", (Guid weekId, Guid gameId, ConfirmResultRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.ConfirmResultAsync(actor, new WeekId(weekId), new GameId(gameId), request.HomeScore, request.AwayScore, cancellationToken)));
+        weeks.MapPost("/games/{gameId:guid}/result-draft", (Guid weekId, Guid gameId, ResultDraftRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.SubmitResultDraftAsync(actor, new WeekId(weekId), new GameId(gameId), request.HomeScore, request.AwayScore, request.Reason, cancellationToken)));
+        weeks.MapPost("/results/import", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.ImportFinalScoresAsync(actor, new WeekId(weekId), cancellationToken)));
+        weeks.MapPost("/results/confirm", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.ConfirmResultDraftsAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/finalize", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.FinalizeAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/recompute", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
@@ -74,7 +81,7 @@ public static class WeekEndpoints
     {
         { IsSuccess: true } => Results.Ok(result.Value is WeekDashboard week ? WeekResponse.From(week) : result.Value),
         { Error.Code: "week.missing" or "game.missing" or "season.missing" } => Results.NotFound(result.Error),
-        { Error.Code: "spread.invalid" or "game-result.invalid" or "moneyline.invalid" or "game.exclusion.reason" } => Results.BadRequest(result.Error),
+        { Error.Code: "spread.invalid" or "game-result.invalid" or "moneyline.invalid" or "game.exclusion.reason" or "result.override.reason" } => Results.BadRequest(result.Error),
         _ => Results.Conflict(result.Error)
     };
 

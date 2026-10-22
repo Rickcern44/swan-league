@@ -77,6 +77,29 @@ public sealed class ScheduleTests
     }
 
     [Fact]
+    public void FinalScoreDraftsAreReviewableAndAnOverrideRequiresAReason()
+    {
+        var week = CreateWeek(out var gameId);
+        var providerTime = new DateTimeOffset(2026, 9, 14, 2, 0, 0, TimeSpan.Zero);
+        var providerResult = GameResult.Create(27, 20).Value!;
+        var overrideResult = GameResult.Create(24, 20).Value!;
+        week.AddLine(gameId, Spread.Create(-3m).Value!);
+        week.ApproveLatestLine(gameId);
+        week.ApproveLines();
+        week.Publish();
+        week.Lock();
+
+        Assert.True(week.ProposeResult(gameId, providerResult, ResultDraftSource.Provider, providerTime, null).IsSuccess);
+        Assert.Equal(providerResult, week.Games.Single().ProposedResult!.Result);
+        Assert.Equal(ResultDraftSource.Provider, week.Games.Single().ProposedResult!.Source);
+        Assert.Equal("result.override.reason", week.ProposeResult(gameId, overrideResult, ResultDraftSource.Override, providerTime, "").Error!.Code);
+        Assert.True(week.ProposeResult(gameId, overrideResult, ResultDraftSource.Override, providerTime.AddMinutes(1), "Official correction").IsSuccess);
+        Assert.True(week.ConfirmProposedResults().IsSuccess);
+        Assert.Equal(overrideResult, week.Games.Single().Result);
+        Assert.Equal("game.result.confirmed", week.ProposeResult(gameId, providerResult, ResultDraftSource.Provider, providerTime.AddMinutes(2), null).Error!.Code);
+    }
+
+    [Fact]
     public void GeneratedDogOptionsFollowTheHomePerspectiveSpread()
     {
         var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));

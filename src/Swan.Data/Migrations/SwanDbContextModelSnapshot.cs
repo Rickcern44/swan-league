@@ -893,7 +893,40 @@ namespace Swan.Data.Migrations
                                         .HasForeignKey("GameId");
                                 });
 
+                            b1.OwnsOne("Swan.Core.Schedule.ResultDraft", "ProposedResult", b2 =>
+                                {
+                                    b2.Property<Guid>("GameId")
+                                        .HasColumnType("uuid");
+
+                                    b2.Property<string>("Reason")
+                                        .HasMaxLength(500)
+                                        .HasColumnType("character varying(500)")
+                                        .HasColumnName("ProposedResultReason");
+
+                                    b2.Property<string>("Result")
+                                        .IsRequired()
+                                        .HasColumnType("text")
+                                        .HasColumnName("ProposedResult");
+
+                                    b2.Property<int>("Source")
+                                        .HasColumnType("integer")
+                                        .HasColumnName("ProposedResultSource");
+
+                                    b2.Property<DateTimeOffset>("UpdatedAt")
+                                        .HasColumnType("timestamp with time zone")
+                                        .HasColumnName("ProposedResultUpdatedAt");
+
+                                    b2.HasKey("GameId");
+
+                                    b2.ToTable("games", "schedule");
+
+                                    b2.WithOwner()
+                                        .HasForeignKey("GameId");
+                                });
+
                             b1.Navigation("LineDetails");
+
+                            b1.Navigation("ProposedResult");
                         });
 
                     b.Navigation("DogOptions");
