@@ -447,6 +447,103 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         Assert.All(standings.Take(3), standing => Assert.True(standing.TiebreakUnbroken));
     }
 
+    [Fact]
+    public async Task CoachStandingsIncludeZeroScoreCoachesAndReportMovement()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2027, "Standings", true).Value!;
+        season.SaveDoubleDogWeeks([2, 12, 17]);
+        season.CompleteSetup();
+        season.Start(true);
+        var users = Enumerable.Range(1, 3).Select(number => new User(new UserId(Guid.NewGuid()), Email.Create($"standing{number}@swan.local").Value!, $"Coach {number}")).ToList();
+        var memberships = users.Select(user => new Membership(new MembershipId(Guid.NewGuid()), user.Id, season.Id, MembershipRole.Coach)).ToList();
+        var first = new Week(new WeekId(Guid.NewGuid()), season.Id, 1, new WeekType(WeekKind.Regular, null, true));
+        var second = new Week(new WeekId(Guid.NewGuid()), season.Id, 2, new WeekType(WeekKind.Regular, null, true));
+        var one = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, memberships[0].Id, first.Id); one.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 3, ScoreSource.TeamPick, "one")]);
+        var two = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, memberships[1].Id, first.Id); two.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 5, ScoreSource.TeamPick, "two")]);
+        var comeback = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, memberships[0].Id, second.Id); comeback.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 4, ScoreSource.TeamPick, "three")]);
+        database.AddRange(season, users[0], users[1], users[2], memberships[0], memberships[1], memberships[2], first, second, one, two);
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var service = new CoachStandingsService(database);
+        var firstWeek = await service.GetAsync(users[0].Id, StandingPool.Main, TestContext.Current.CancellationToken);
+        database.WeekScores.Add(comeback);
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var result = await service.GetAsync(users[0].Id, StandingPool.Main, TestContext.Current.CancellationToken);
+
+        Assert.Null(firstWeek.You!.Movement);
+        Assert.Equal(("ready", 2, 3), (result.State, result.ThroughWeek, result.CoachCount));
+        Assert.Equal([7, 5, 0], result.Rows.Select(row => row.Points));
+        Assert.Equal([1, 2, 3], result.Rows.Select(row => row.Rank));
+        Assert.Equal(1, result.You!.Movement);
+        Assert.Equal(0, result.You.BehindLeader);
+    }
+
+    [Fact]
+    public async Task CoachStandingsSeparateAllPoolsAndExcludeInactiveMemberships()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2027, "Pools", true).Value!;
+        season.SaveDoubleDogWeeks([2, 12, 17]);
+        season.CompleteSetup();
+        season.Start(true);
+        var users = Enumerable.Range(1, 4).Select(number => new User(new UserId(Guid.NewGuid()), Email.Create($"pool{number}@swan.local").Value!, $"Coach {number}")).ToList();
+        var memberships = users.Select(user => new Membership(new MembershipId(Guid.NewGuid()), user.Id, season.Id, MembershipRole.Coach)).ToList();
+        memberships[3].Deactivate();
+        var regular = new Week(new WeekId(Guid.NewGuid()), season.Id, 1, new WeekType(WeekKind.Regular, null, true));
+        var playoff = new Week(new WeekId(Guid.NewGuid()), season.Id, 19, new WeekType(WeekKind.Playoff, null, true));
+        var viewerRegular = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, memberships[0].Id, regular.Id);
+        viewerRegular.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 4, ScoreSource.TeamPick, "regular"), new ScoreLine(new TeamId(Guid.NewGuid()), 2, ScoreSource.DogPick, "dog")]);
+        var viewerPlayoff = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, memberships[0].Id, playoff.Id);
+        viewerPlayoff.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 3, ScoreSource.TeamPick, "playoff")]);
+        var tiedRegular = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, memberships[1].Id, regular.Id);
+        tiedRegular.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 4, ScoreSource.TeamPick, "regular")]);
+        var tiedPlayoff = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, memberships[1].Id, playoff.Id);
+        tiedPlayoff.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 3, ScoreSource.TeamPick, "playoff"), new ScoreLine(new TeamId(Guid.NewGuid()), 5, ScoreSource.DogPick, "dog")]);
+        var inactiveScore = new WeekScore(new WeekScoreId(Guid.NewGuid()), season.Id, memberships[3].Id, regular.Id);
+        inactiveScore.ReplaceLines([new ScoreLine(new TeamId(Guid.NewGuid()), 99, ScoreSource.TeamPick, "excluded")]);
+        database.AddRange(season, users[0], users[1], users[2], users[3], memberships[0], memberships[1], memberships[2], memberships[3], regular, playoff, viewerRegular, viewerPlayoff, tiedRegular, tiedPlayoff, inactiveScore);
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var service = new CoachStandingsService(database);
+        var main = await service.GetAsync(users[0].Id, StandingPool.Main, TestContext.Current.CancellationToken);
+        var dog = await service.GetAsync(users[0].Id, StandingPool.Dog, TestContext.Current.CancellationToken);
+        var regularSeason = await service.GetAsync(users[0].Id, StandingPool.RegularSeason, TestContext.Current.CancellationToken);
+        var playoffPool = await service.GetAsync(users[0].Id, StandingPool.Playoff, TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, main.CoachCount);
+        Assert.Equal([7, 7, 0], main.Rows.Select(row => row.Points));
+        Assert.Equal([1, 1, 3], main.Rows.Select(row => row.Rank));
+        Assert.Equal([5, 2, 0], dog.Rows.Select(row => row.Points));
+        Assert.Equal([4, 4, 0], regularSeason.Rows.Select(row => row.Points));
+        Assert.Equal([3, 3, 0], playoffPool.Rows.Select(row => row.Points));
+        Assert.DoesNotContain(main.Rows, row => row.Name == "Coach 4");
+    }
+
+    [Fact]
+    public async Task CoachStandingsReportsNoMembershipAndNoScores()
+    {
+        await using var database = await CreateMigratedDatabase();
+        var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2027, "Empty", true).Value!;
+        season.SaveDoubleDogWeeks([2, 12, 17]);
+        season.CompleteSetup();
+        season.Start(true);
+        var coach = new User(new UserId(Guid.NewGuid()), Email.Create("empty@swan.local").Value!, "Empty Coach");
+        var membership = new Membership(new MembershipId(Guid.NewGuid()), coach.Id, season.Id, MembershipRole.Coach);
+        database.AddRange(season, coach, membership);
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var service = new CoachStandingsService(database);
+        var noScores = await service.GetAsync(coach.Id, StandingPool.Main, TestContext.Current.CancellationToken);
+        var noMembership = await service.GetAsync(new UserId(Guid.NewGuid()), StandingPool.Main, TestContext.Current.CancellationToken);
+
+        Assert.Equal(("no-scores", "Empty", 1), (noScores.State, noScores.SeasonName, noScores.CoachCount));
+        Assert.Empty(noScores.Rows);
+        Assert.Null(noScores.You);
+        Assert.Equal("no-membership", noMembership.State);
+        Assert.Empty(noMembership.Rows);
+    }
+
     private static string TokenFrom(string body) => new Uri(body).Query.Split('=', 2)[1];
 
     private sealed class FakeClock(DateTimeOffset utcNow) : IClock

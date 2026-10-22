@@ -48,6 +48,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddScoped<IStandingsProvider>(serviceProvider => serviceProvider.GetRequiredService<BallDontLieScheduleProvider>());
         builder.Services.AddScoped<IPreviousStandingsService, PreviousStandingsService>();
         builder.Services.AddScoped<StandingsService>();
+        builder.Services.AddScoped<ICoachStandingsService, CoachStandingsService>();
         return builder;
     }
 

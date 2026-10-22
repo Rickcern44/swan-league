@@ -48,6 +48,7 @@ app.MapWeekEndpoints();
 app.MapWeekPickEndpoints();
 app.MapDashboardEndpoints();
 app.MapCoachPickEndpoints();
+app.MapCoachStandingsEndpoints();
 app.MapRosterDraftEndpoints();
 app.MapCommissionerRosterEndpoints();
 app.MapSeasonEndpoints();
