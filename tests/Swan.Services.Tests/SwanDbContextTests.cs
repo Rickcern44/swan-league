@@ -507,7 +507,9 @@ public sealed class SwanDbContextTests : IAsyncLifetime
         var regularSeason = await service.GetAsync(users[0].Id, StandingPool.RegularSeason, TestContext.Current.CancellationToken);
         var playoffPool = await service.GetAsync(users[0].Id, StandingPool.Playoff, TestContext.Current.CancellationToken);
 
-        Assert.Equal((3, new[] { 7, 7, 0 }, new[] { 1, 1, 3 }), (main.CoachCount, main.Rows.Select(row => row.Points).ToArray(), main.Rows.Select(row => row.Rank).ToArray()));
+        Assert.Equal(3, main.CoachCount);
+        Assert.Equal([7, 7, 0], main.Rows.Select(row => row.Points));
+        Assert.Equal([1, 1, 3], main.Rows.Select(row => row.Rank));
         Assert.Equal([5, 2, 0], dog.Rows.Select(row => row.Points));
         Assert.Equal([4, 4, 0], regularSeason.Rows.Select(row => row.Points));
         Assert.Equal([3, 3, 0], playoffPool.Rows.Select(row => row.Points));
