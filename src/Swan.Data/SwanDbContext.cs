@@ -206,6 +206,13 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 game.HasIndex(value => value.ProviderGameId).IsUnique().HasFilter("\"ProviderGameId\" IS NOT NULL").HasDatabaseName("ux_games_provider_game_id");
                 game.Property(value => value.ApprovedLine).HasConversion(new ValueConverter<Spread?, decimal?>(value => value == null ? null : value.Value, value => value == null ? null : new Spread(value.Value)));
                 game.Property(value => value.Result).HasConversion(new ValueConverter<GameResult?, string?>(value => value == null ? null : $"{value.HomeScore}:{value.AwayScore}", value => value == null ? null : ParseResult(value)));
+                game.OwnsOne(value => value.ProposedResult, draft =>
+                {
+                    draft.Property(value => value.Result).HasColumnName("ProposedResult").HasConversion(new ValueConverter<GameResult, string?>(value => $"{value.HomeScore}:{value.AwayScore}", value => ParseRequiredResult(value)));
+                    draft.Property(value => value.Source).HasColumnName("ProposedResultSource");
+                    draft.Property(value => value.UpdatedAt).HasColumnName("ProposedResultUpdatedAt");
+                    draft.Property(value => value.Reason).HasColumnName("ProposedResultReason").HasMaxLength(500);
+                });
                 game.PrimitiveCollection(value => value.LineHistory).HasField("lineHistory").ElementType().HasConversion(new ValueConverter<Spread, decimal>(value => value.Value, value => new Spread(value)));
                 game.OwnsMany<GameLine>(nameof(Game.LineDetails), line =>
                 {
@@ -471,6 +478,8 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
         var parts = value.Split('|');
         return new WeekType((WeekKind)int.Parse(parts[0]), parts[1], bool.Parse(parts[2]));
     }
+
+    private static GameResult ParseRequiredResult(string? value) => ParseResult(value ?? throw new InvalidOperationException("A proposed result is required."));
 
     private static GameResult ParseResult(string value)
     {
