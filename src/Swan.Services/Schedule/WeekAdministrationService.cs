@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Swan.Core;
 using Swan.Core.Common;
 using Swan.Core.Schedule;
 using Swan.Core.Scoring;
@@ -7,8 +8,10 @@ using Swan.Services.Platform;
 
 namespace Swan.Services.Schedule;
 
-public sealed record GameDashboard(GameId Id, TeamId HomeTeamId, TeamId AwayTeamId, DateTimeOffset Kickoff, bool Excluded, decimal? ApprovedLine, IReadOnlyList<decimal> LineHistory, bool HasResult, int? HomeScore = null, int? AwayScore = null, string? HomeTeamName = null, string? AwayTeamName = null);
+public sealed record LatestLineDashboard(decimal Spread, int? HomeMoneyline, int? AwayMoneyline, LineSource Source, DateTimeOffset EnteredAt, UserId EnteredBy);
+public sealed record GameDashboard(GameId Id, TeamId HomeTeamId, TeamId AwayTeamId, DateTimeOffset Kickoff, bool Excluded, decimal? ApprovedLine, IReadOnlyList<decimal> LineHistory, bool HasResult, int? HomeScore = null, int? AwayScore = null, string? HomeTeamName = null, string? AwayTeamName = null, LatestLineDashboard? LatestLine = null);
 public sealed record WeekDashboard(WeekId Id, SeasonId SeasonId, int Number, WeekKind Kind, WeekState State, IReadOnlyList<GameDashboard> Games, IReadOnlyList<TeamId> DogOptions, WeekNextAction? NextAction = null);
+public sealed record SeasonWeek(WeekId Id, int Number, WeekKind Kind, WeekState State);
 
 public sealed record RecomputedWeek(WeekId WeekId, int Number);
 public sealed record FailedWeek(WeekId WeekId, int Number, string Code);
@@ -17,10 +20,12 @@ public sealed record SeasonRecomputeSummary(SeasonId SeasonId, IReadOnlyList<Rec
 public interface IWeekAdministrationService
 {
     Task<Result<WeekDashboard>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default);
-    Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, bool approve, CancellationToken cancellationToken = default);
+    Task<Result<IReadOnlyList<SeasonWeek>>> GetSeasonWeeksAsync(SeasonId seasonId, CancellationToken cancellationToken = default);
+    Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, AmericanMoneyline? moneyline, LineSource source, bool approve, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> ApproveLatestLineAsync(UserId actor, WeekId weekId, GameId gameId, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> GenerateDogOptionsAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> ReplaceDogOptionsAsync(UserId actor, WeekId weekId, IReadOnlyCollection<TeamId> teamIds, CancellationToken cancellationToken = default);
+    Task<Result<WeekDashboard>> SetGameExclusionAsync(UserId actor, WeekId weekId, GameId gameId, bool excluded, string reason, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> ApproveLinesAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> PublishAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> LockAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
@@ -30,19 +35,32 @@ public interface IWeekAdministrationService
     Task<Result<SeasonRecomputeSummary>> RecomputeSeasonAsync(UserId actor, SeasonId seasonId, CancellationToken cancellationToken = default);
 }
 
-public sealed class WeekAdministrationService(SwanDbContext database, IAuditService audit) : IWeekAdministrationService
+public sealed class WeekAdministrationService(SwanDbContext database, IAuditService audit, IClock? clock = null) : IWeekAdministrationService
 {
     public async Task<Result<WeekDashboard>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default) =>
         await database.Weeks.AsNoTracking().FirstOrDefaultAsync(week => week.Id == weekId, cancellationToken) is { } week
             ? Result<WeekDashboard>.Success(await PresentAsync(week, cancellationToken))
             : Missing;
 
+    public async Task<Result<IReadOnlyList<SeasonWeek>>> GetSeasonWeeksAsync(SeasonId seasonId, CancellationToken cancellationToken = default)
+    {
+        if (!await database.Seasons.AsNoTracking().AnyAsync(season => season.Id == seasonId, cancellationToken))
+            return Result<IReadOnlyList<SeasonWeek>>.Failure("season.missing", "Season does not exist.");
+        var weeks = await database.Weeks.AsNoTracking().Where(week => week.SeasonId == seasonId)
+            .OrderBy(week => week.Number).ThenBy(week => week.Id.Value)
+            .Select(week => new SeasonWeek(week.Id, week.Number, week.Type.Kind, week.State)).ToListAsync(cancellationToken);
+        return Result<IReadOnlyList<SeasonWeek>>.Success(weeks);
+    }
+
     public Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, bool approve, CancellationToken cancellationToken = default) =>
+        AddLineAsync(actor, weekId, gameId, spread, null, LineSource.Manual, approve, cancellationToken);
+
+    public Task<Result<WeekDashboard>> AddLineAsync(UserId actor, WeekId weekId, GameId gameId, decimal spread, AmericanMoneyline? moneyline, LineSource source, bool approve, CancellationToken cancellationToken = default) =>
         ActAsync(actor, weekId, "week.line.added", week =>
         {
             var line = Spread.Create(spread);
             if (!line.IsSuccess) return Result<bool>.Failure(line.Error!.Code, line.Error.Message);
-            var added = week.AddLine(gameId, line.Value!);
+            var added = week.AddLine(gameId, line.Value!, moneyline, source, clock?.UtcNow ?? DateTimeOffset.UtcNow, actor);
             return added.IsSuccess && approve ? week.ApproveLatestLine(gameId) : added;
         }, cancellationToken);
 
@@ -54,6 +72,11 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
 
     public Task<Result<WeekDashboard>> ReplaceDogOptionsAsync(UserId actor, WeekId weekId, IReadOnlyCollection<TeamId> teamIds, CancellationToken cancellationToken = default) =>
         ActAsync(actor, weekId, "week.dog-options.replaced", week => week.ReplaceDogOptions(teamIds), cancellationToken);
+
+    public Task<Result<WeekDashboard>> SetGameExclusionAsync(UserId actor, WeekId weekId, GameId gameId, bool excluded, string reason, CancellationToken cancellationToken = default) =>
+        string.IsNullOrWhiteSpace(reason)
+            ? Task.FromResult(Result<WeekDashboard>.Failure("game.exclusion.reason", "An exclusion reason is required."))
+            : ActAsync(actor, weekId, "week.game.exclusion.changed", week => week.SetGameExclusion(gameId, excluded), cancellationToken, reason);
 
     public Task<Result<WeekDashboard>> ApproveLinesAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) =>
         ActAsync(actor, weekId, "week.lines.approved", week => week.ApproveLines(), cancellationToken);
@@ -135,10 +158,10 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
 
     private static Result<WeekDashboard> Missing => Result<WeekDashboard>.Failure("week.missing", "Week does not exist.");
 
-    private Task<Result<WeekDashboard>> ActAsync(UserId actor, WeekId weekId, string action, Func<Week, Result<bool>> mutate, CancellationToken cancellationToken) =>
-        ActAsync(actor, weekId, action, week => Task.FromResult(mutate(week)), cancellationToken);
+    private Task<Result<WeekDashboard>> ActAsync(UserId actor, WeekId weekId, string action, Func<Week, Result<bool>> mutate, CancellationToken cancellationToken, string? reason = null) =>
+        ActAsync(actor, weekId, action, week => Task.FromResult(mutate(week)), cancellationToken, reason);
 
-    private async Task<Result<WeekDashboard>> ActAsync(UserId actor, WeekId weekId, string action, Func<Week, Task<Result<bool>>> mutate, CancellationToken cancellationToken)
+    private async Task<Result<WeekDashboard>> ActAsync(UserId actor, WeekId weekId, string action, Func<Week, Task<Result<bool>>> mutate, CancellationToken cancellationToken, string? reason = null)
     {
         var week = await database.Weeks.FirstOrDefaultAsync(week => week.Id == weekId, cancellationToken);
         if (week is null) return Missing;
@@ -147,7 +170,7 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
         if (!result.IsSuccess) return Result<WeekDashboard>.Failure(result.Error!.Code, result.Error.Message);
         var after = ToDashboard(week);
         // AuditService saves the shared context, so the week change and its audit entry commit together.
-        await audit.AppendAsync(actor, action, weekId.Value.ToString(), before, after, cancellationToken: cancellationToken);
+        await audit.AppendAsync(actor, action, weekId.Value.ToString(), before, after, reason, cancellationToken);
         return Result<WeekDashboard>.Success(await PresentAsync(week, cancellationToken));
     }
 
@@ -169,6 +192,6 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
 
     private static WeekDashboard ToDashboard(Week week) => new(
         week.Id, week.SeasonId, week.Number, week.Type.Kind, week.State,
-        week.Games.Select(game => new GameDashboard(game.Id, game.HomeTeamId, game.AwayTeamId, game.Kickoff.Value, game.Excluded, game.ApprovedLine?.Value, game.LineHistory.Select(line => line.Value).ToList(), game.Result is not null, game.Result?.HomeScore, game.Result?.AwayScore)).ToList(),
+        week.Games.Select(game => new GameDashboard(game.Id, game.HomeTeamId, game.AwayTeamId, game.Kickoff.Value, game.Excluded, game.ApprovedLine?.Value, game.LineHistory.Select(line => line.Value).ToList(), game.Result is not null, game.Result?.HomeScore, game.Result?.AwayScore, LatestLine: game.LatestLine is { } line ? new LatestLineDashboard(line.Spread.Value, line.HomeMoneyline, line.AwayMoneyline, line.Source, line.EnteredAt, line.EnteredBy) : null)).ToList(),
         week.DogOptions.Select(option => option.TeamId).ToList());
 }

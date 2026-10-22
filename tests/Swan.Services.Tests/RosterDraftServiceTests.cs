@@ -101,6 +101,25 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ACommissionerQueuesOneReminderForEveryUnlockedActiveCoach()
+    {
+        await SeedAsync();
+        Assert.True((await Coach(service => service.SaveAsync(coachA, new SaveRoster(seasonId.Value, 0, Nine())))).IsSuccess);
+        Assert.True((await Coach(service => service.LockAsync(coachA, new LockRoster(seasonId.Value, 1)))).IsSuccess);
+
+        var queued = await Commissioner(service => service.QueueRemindersAsync(commissioner));
+
+        Assert.True(queued.IsSuccess, queued.Error?.Message);
+        Assert.Equal(1, queued.Value!.Queued);
+        await using var database = CreateDatabase();
+        var email = await database.QueuedEmails.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("coach.b@example.com", email.Recipient);
+        Assert.Contains("2026 Swan League", email.Subject);
+        Assert.Null(email.SentAt);
+        Assert.Equal("roster-draft.reminders.queued", (await database.AuditEntries.SingleAsync(entry => entry.Action == "roster-draft.reminders.queued", TestContext.Current.CancellationToken)).Action);
+    }
+
+    [Fact]
     public async Task ACoachSavesExactlyNineTeamsRevisesThemAndEachChangeIsAudited()
     {
         await SeedAsync();
@@ -263,6 +282,7 @@ public sealed class RosterDraftServiceTests : IAsyncLifetime
         var draft = (await Commissioner(service => service.GetAsync(commissioner))).Value!;
 
         Assert.Equal(("2026 Swan League", true, 32), (draft.SeasonName, draft.DraftOpen, draft.Teams.Count));
+        Assert.Equal(1, draft.Teams.Single(team => team.TeamId == teams[0].Id.Value).PointValue);
         Assert.Equal([("Coach B", "missing"), ("Coach A", "locked")], draft.Coaches.Select(coach => (coach.Name, coach.Status)));
         var a = draft.Coaches.Single(coach => coach.Name == "Coach A");
         Assert.Equal((9, 9, true), (a.TeamCount, a.Teams.Count, a.IsLocked));

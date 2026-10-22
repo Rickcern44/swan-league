@@ -150,6 +150,7 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         var coach = json.RootElement.GetProperty("coaches")[0];
         Assert.Equal(("Coach A", "missing"), (coach.GetProperty("name").GetString(), coach.GetProperty("status").GetString()));
         Assert.Equal(MembershipGuid, coach.GetProperty("membershipId").GetGuid());
+        Assert.Equal(3, json.RootElement.GetProperty("teams")[0].GetProperty("pointValue").GetInt32());
         Assert.Equal([$"get:{Actor}", $"correct:{Actor}:{MembershipGuid}:4:{TeamGuid}:00000000-0000-0000-0000-0000000000aa:Picked the wrong team"], service.Calls);
     }
 
@@ -163,6 +164,19 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
 
         response.EnsureSuccessStatusCode();
         Assert.Equal([$"start:{Actor}:{SeasonGuid}:2026-10-20T18:00:00"], service.Calls);
+    }
+
+    [Fact]
+    public async Task TheCommissionerCanQueueDraftReminders()
+    {
+        var service = new FakeCommissionerRoster();
+        using var client = CreateClient("Admin", new FakeCoachRoster(), service);
+
+        var response = await client.PostAsync("/api/commissioner/roster-draft/reminders", null, TestContext.Current.CancellationToken);
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(2, (await response.Content.ReadFromJsonAsync<ReminderQueueResult>(cancellationToken: TestContext.Current.CancellationToken))!.Queued);
+        Assert.Equal([$"remind:{Actor}"], service.Calls);
     }
 
     [Theory]
@@ -273,7 +287,7 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
 
         private Result<CommissionerDraft> Answer() => Failure is { } error ? Result<CommissionerDraft>.Failure(error.Code, error.Message) : Result<CommissionerDraft>.Success(
             new CommissionerDraft(SeasonGuid, "2026 Swan League", new DateTimeOffset(2026, 10, 20, 22, 0, 0, TimeSpan.Zero), "2026-10-20T18:00", true, DateTimeOffset.UtcNow,
-                [new CatalogEntry(TeamGuid, "Team 00", "Division 0")], [new CommissionerCoach(MembershipGuid, "Coach A", "a@example.com", "missing", 0, [], [], false, null, 0)]));
+                [new CatalogEntry(TeamGuid, "Team 00", "Division 0", 3)], [new CommissionerCoach(MembershipGuid, "Coach A", "a@example.com", "missing", 0, [], [], false, null, 0)]));
 
         public Task<Result<CommissionerDraft>> GetAsync(UserId actor, CancellationToken cancellationToken = default)
         {
@@ -291,6 +305,12 @@ public sealed class RosterDraftEndpointTests(WebApplicationFactory<Program> fact
         {
             Calls.Add($"correct:{actor.Value}:{request.MembershipId}:{request.ExpectedRevision}:{request.RemoveTeamId}:{request.AddTeamId}:{request.Reason}");
             return Task.FromResult(Answer());
+        }
+
+        public Task<Result<ReminderQueueResult>> QueueRemindersAsync(UserId actor, CancellationToken cancellationToken = default)
+        {
+            Calls.Add($"remind:{actor.Value}");
+            return Task.FromResult(Result<ReminderQueueResult>.Success(new ReminderQueueResult(2)));
         }
     }
 }

@@ -35,7 +35,7 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment() && !string.IsNullOrWhiteSpace(app.Configuration.GetConnectionString("swan")))
 {
     await app.MigrateSwanDatabaseAsync();
-    await app.SeedSwanDatabaseAsync();
+    if (app.Configuration.GetValue("Development:ResetOnStart", true)) await app.ResetAndSeedSwanDatabaseAsync();
 }
 
 app.MapDefaultEndpoints();
@@ -45,6 +45,7 @@ app.MapGet("/api/ping", () => Results.Ok(new { message = "pong" })).AllowAnonymo
 app.MapIdentityEndpoints();
 app.MapAuditEndpoints();
 app.MapWeekEndpoints();
+app.MapWeekPickEndpoints();
 app.MapDashboardEndpoints();
 app.MapCoachPickEndpoints();
 app.MapRosterDraftEndpoints();

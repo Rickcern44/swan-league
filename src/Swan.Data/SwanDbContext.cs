@@ -33,6 +33,7 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<NotificationPreferences> NotificationPreferences => Set<NotificationPreferences>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+    public DbSet<QueuedEmail> QueuedEmails => Set<QueuedEmail>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
     public DbSet<NflStandingsSnapshot> NflStandingsSnapshots => Set<NflStandingsSnapshot>();
@@ -206,6 +207,19 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
                 game.Property(value => value.ApprovedLine).HasConversion(new ValueConverter<Spread?, decimal?>(value => value == null ? null : value.Value, value => value == null ? null : new Spread(value.Value)));
                 game.Property(value => value.Result).HasConversion(new ValueConverter<GameResult?, string?>(value => value == null ? null : $"{value.HomeScore}:{value.AwayScore}", value => value == null ? null : ParseResult(value)));
                 game.PrimitiveCollection(value => value.LineHistory).HasField("lineHistory").ElementType().HasConversion(new ValueConverter<Spread, decimal>(value => value.Value, value => new Spread(value)));
+                game.OwnsMany<GameLine>(nameof(Game.LineDetails), line =>
+                {
+                    line.ToTable("game_lines", "schedule");
+                    line.WithOwner().HasForeignKey("GameId");
+                    line.Property<Guid>("Id");
+                    line.HasKey("Id");
+                    line.Property(value => value.Spread).HasConversion(value => value.Value, value => new Spread(value));
+                    line.Property(value => value.HomeMoneyline);
+                    line.Property(value => value.AwayMoneyline);
+                    line.Property(value => value.Source);
+                    line.Property(value => value.EnteredAt);
+                    line.Property(value => value.EnteredBy).HasConversion(id => id.Value, value => new UserId(value));
+                });
             });
             entity.OwnsMany<DogOption>(nameof(DogOption), nameof(Week.DogOptions), option =>
             {
@@ -390,6 +404,18 @@ public sealed class SwanDbContext(DbContextOptions<SwanDbContext> options) : DbC
             entity.Property(subscription => subscription.P256Dh);
             entity.Property(subscription => subscription.Auth);
             entity.HasIndex(subscription => subscription.Endpoint).IsUnique();
+        });
+        modelBuilder.Entity<QueuedEmail>(entity =>
+        {
+            entity.ToTable("queued_emails", "communication");
+            entity.HasKey(email => email.Id);
+            entity.Property(email => email.Id).HasConversion(id => id.Value, value => new QueuedEmailId(value));
+            entity.Property(email => email.Recipient).HasMaxLength(320);
+            entity.Property(email => email.Subject).HasMaxLength(300);
+            entity.Property(email => email.Body);
+            entity.Property(email => email.QueuedAt);
+            entity.Property(email => email.SentAt);
+            entity.HasIndex(email => new { email.SentAt, email.QueuedAt });
         });
     }
 

@@ -20,7 +20,12 @@ type Draft = {
   deadline: string | null;
   draftOpen: boolean;
   serverTime: string;
-  teams: { teamId: string; name: string; division: string }[];
+  teams: {
+    teamId: string;
+    name: string;
+    division: string;
+    pointValue?: number | null;
+  }[];
   coaches: Coach[];
   picksRemoved?: number;
 };
@@ -39,6 +44,44 @@ const statusText: Record<Coach["status"], string> = {
   locked: "Locked",
 };
 
+type Filter = "not-locked" | "locked" | "all";
+
+// The datetime-local value for a day N days after the server's Eastern date, at 8:00 PM Eastern.
+function daysFromNow(serverTime: string, days: number) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .formatToParts(new Date(serverTime))
+      .map((part) => [part.type, part.value]),
+  );
+  const day = new Date(
+    Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)),
+  );
+  day.setUTCDate(day.getUTCDate() + days);
+  return `${day.toISOString().slice(0, 10)}T20:00`;
+}
+
+// A datetime-local value is already Eastern wall-clock time, so it is formatted as-is.
+const wallClock = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+const formatEastern = (local: string) => {
+  const date = new Date(`${local}:00Z`);
+  return Number.isNaN(date.getTime()) ? "" : `${wallClock.format(date)} ET`;
+};
+
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n} ${n === 1 ? one : many}`;
+
 async function problemOf(response: Response) {
   try {
     const body = await response.json();
@@ -56,6 +99,9 @@ export default function CommissionerDraft() {
   const [deadline, setDeadline] = useState("");
   const [startProblem, setStartProblem] = useState("");
   const [starting, setStarting] = useState(false);
+  const [filter, setFilter] = useState<Filter>("not-locked");
+  const [reminding, setReminding] = useState(false);
+  const [remindProblem, setRemindProblem] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -175,26 +221,83 @@ export default function CommissionerDraft() {
     }
   }
 
+  async function remind() {
+    setReminding(true);
+    setRemindProblem("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/commissioner/roster-draft/reminders", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) return setRemindProblem(await problemOf(response));
+      const { queued } = (await response.json()) as { queued: number };
+      setNotice(
+        queued === 0
+          ? "Every coach has locked, so no reminders were needed."
+          : `Reminder emails are on their way to ${plural(queued, "coach", "coaches")}.`,
+      );
+    } catch {
+      setRemindProblem("Could not reach the server. No reminders were sent.");
+    } finally {
+      setReminding(false);
+    }
+  }
+
+  const unlocked = draft.coaches.length - counts.locked;
+  const shown = draft.coaches.filter((coach) =>
+    filter === "all"
+      ? true
+      : filter === "locked"
+        ? coach.status === "locked"
+        : coach.status !== "locked",
+  );
+  const pill = draft.deadline
+    ? draft.draftOpen
+      ? {
+          text: `Open · ${timeLeft(draft.deadline, draft.serverTime)} left`,
+          tone: "open",
+        }
+      : { text: "Closed", tone: "closed" }
+    : { text: "Not opened", tone: "unopened" };
+  const tally = [
+    { key: "locked", label: "Locked", count: counts.locked },
+    { key: "complete", label: "9 saved, not locked", count: counts.complete },
+    { key: "incomplete", label: "Short of 9", count: counts.incomplete },
+    { key: "missing", label: "Not started", count: counts.missing },
+  ];
+  const filters: { key: Filter; label: string; count: number }[] = [
+    { key: "not-locked", label: "Not locked", count: unlocked },
+    { key: "locked", label: "Locked", count: counts.locked },
+    { key: "all", label: "All", count: draft.coaches.length },
+  ];
+
   return (
-    <section aria-labelledby="draft-title">
-      <p className="eyebrow">{draft.seasonName}</p>
-      <h1 id="draft-title">Draft</h1>
-      <p className="lede">
-        {draft.deadline
-          ? draft.draftOpen
-            ? `Coaches can choose and lock nine teams until ${formatDeadline(draft.deadline)} (${timeLeft(draft.deadline, draft.serverTime)} left).`
-            : `The draft closed ${formatDeadline(draft.deadline)}. Only you can change a roster now.`
-          : "No draft deadline was set for this season. Only you can change a roster."}
-      </p>
+    <section aria-labelledby="draft-title" className="commish-draft">
+      <header className="draft-head">
+        <div className="draft-head-line">
+          <p className="eyebrow">{draft.seasonName} · Draft</p>
+          <span className={`state-pill ${pill.tone}`}>{pill.text}</span>
+        </div>
+        <h1 id="draft-title">Draft</h1>
+        <p className="lede">
+          {draft.deadline
+            ? draft.draftOpen
+              ? `Coaches can choose and lock nine teams until ${formatDeadline(draft.deadline)} (${timeLeft(draft.deadline, draft.serverTime)} left).`
+              : `The draft closed ${formatDeadline(draft.deadline)}. Only you can change a roster now.`
+            : "No draft deadline was set for this season. Only you can change a roster."}
+        </p>
+      </header>
       {!draft.deadline && (
         <form
-          className="editor"
+          className="editor open-draft"
           onSubmit={(event) => void startDraft(event)}
           noValidate
         >
           <h2>Open the draft</h2>
           <p>
-            Choose when coaches must lock their rosters. Times are Eastern Time.
+            {plural(draft.coaches.length, "coach", "coaches")} will choose nine
+            teams. Pick when the draft closes; times are Eastern Time.
           </p>
           <label>
             Draft deadline (Eastern Time)
@@ -208,8 +311,31 @@ export default function CommissionerDraft() {
               }}
             />
           </label>
+          <div className="quick-picks" role="group" aria-label="Quick picks">
+            {[3, 7].map((days) => (
+              <button
+                key={days}
+                type="button"
+                className="ghost"
+                disabled={starting}
+                onClick={() => {
+                  setDeadline(daysFromNow(draft.serverTime, days));
+                  setStartProblem("");
+                }}
+              >
+                In {days} days
+              </button>
+            ))}
+          </div>
+          {deadline && formatEastern(deadline) && (
+            <p className="consequence">
+              Coaches can choose and lock their nine teams until{" "}
+              {formatEastern(deadline)}. Once the draft is open you can't move
+              the deadline; after it, only you can change a roster.
+            </p>
+          )}
           {startProblem && <p role="alert">{startProblem}</p>}
-          <button type="submit" disabled={starting}>
+          <button type="submit" className="primary" disabled={starting}>
             Open draft
           </button>
         </form>
@@ -217,23 +343,81 @@ export default function CommissionerDraft() {
       <p role="status" className="notice-line">
         {notice}
       </p>
-      <p className="count">
-        {counts.missing} missing · {counts.incomplete} incomplete ·{" "}
-        {counts.complete} complete · {counts.locked} locked
-      </p>
-      <section aria-labelledby="coaches-title" className="week-games">
-        <h2 id="coaches-title">Coaches</h2>
+      {draft.coaches.length > 0 && (
+        <div className="draft-tally">
+          <div className="tally-bar" aria-hidden="true">
+            {tally
+              .filter((item) => item.count > 0)
+              .map((item) => (
+                <span
+                  key={item.key}
+                  className={`tally-${item.key}`}
+                  style={{ flexGrow: item.count }}
+                />
+              ))}
+          </div>
+          <ul aria-label="Draft status" className="tally-list">
+            {tally.map((item) => (
+              <li key={item.key} className={`tally-${item.key}`}>
+                <span>{item.label}</span>
+                <strong>{item.count}</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="coach-tools">
+        <div className="filter-chips" role="group" aria-label="Filter coaches">
+          {filters.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              aria-pressed={filter === item.key}
+              className={filter === item.key ? "on" : ""}
+              onClick={() => setFilter(item.key)}
+            >
+              {item.label} <span className="chip-count">{item.count}</span>
+            </button>
+          ))}
+        </div>
+        {draft.draftOpen && unlocked > 0 && (
+          <button
+            type="button"
+            className="ghost"
+            disabled={reminding}
+            onClick={() => void remind()}
+          >
+            Remind {plural(unlocked, "coach", "coaches")}
+          </button>
+        )}
+      </div>
+      {remindProblem && (
+        <p role="alert" className="problem">
+          {remindProblem}
+        </p>
+      )}
+      <section aria-labelledby="coaches-title" className="coach-list">
+        <h2 id="coaches-title" className="sr-only">
+          Coaches
+        </h2>
         {draft.coaches.length === 0 && (
           <p>No coaches have been added to this season.</p>
         )}
+        {draft.coaches.length > 0 && shown.length === 0 && (
+          <p className="empty-filter">
+            {filter === "locked"
+              ? "No coach has locked a roster yet."
+              : "Every coach has locked a roster."}
+          </p>
+        )}
         <ol>
-          {draft.coaches.map((coach) => (
+          {shown.map((coach) => (
             <li
               key={coach.membershipId}
-              className={`game coach-${coach.status}`}
+              className={`coach-row coach-${coach.status}`}
             >
-              <div className="game-line">
-                <p className="teams">{coach.name}</p>
+              <div className="coach-line">
+                <p className="coach-name">{coach.name}</p>
                 <p className="status">
                   <strong>{statusText[coach.status]}</strong>
                   {coach.teamCount > 0
@@ -246,23 +430,21 @@ export default function CommissionerDraft() {
                     : ""}
                 </p>
                 {coach.teams.length > 0 && (
-                  <p className="muted">{coach.teams.join(", ")}</p>
+                  <p className="coach-teams">{coach.teams.join(", ")}</p>
                 )}
                 {editing !== coach.membershipId && (
-                  <div className="game-actions">
-                    <button
-                      type="button"
-                      id={`correct-${coach.membershipId}`}
-                      className="ghost"
-                      onClick={() => {
-                        setEditing(coach.membershipId);
-                        setNotice("");
-                      }}
-                    >
-                      Correct roster
-                      <span className="sr-only"> for {coach.name}</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    id={`correct-${coach.membershipId}`}
+                    className="ghost"
+                    onClick={() => {
+                      setEditing(coach.membershipId);
+                      setNotice("");
+                    }}
+                  >
+                    Correct roster
+                    <span className="sr-only"> for {coach.name}</span>
+                  </button>
                 )}
               </div>
               {editing === coach.membershipId && (
@@ -407,7 +589,10 @@ function Correction({
           .filter((team) => !onRoster.has(team.teamId))
           .map((team) => (
             <option key={team.teamId} value={team.teamId}>
-              {team.name}
+              {team.name} · {team.division}
+              {team.pointValue
+                ? ` · ${team.pointValue} ${team.pointValue === 1 ? "pt" : "pts"}`
+                : ""}
             </option>
           ))}
       </select>

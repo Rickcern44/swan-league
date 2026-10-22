@@ -199,16 +199,44 @@ export default function RosterDraft() {
       "Roster locked.",
     );
 
+  const points = (n: number) => `${n} ${n === 1 ? "point" : "points"}`;
+  const slug = (text: string) => text.replace(/\W+/g, "-");
+
   const header = (
-    <>
-      {desk.seasonName && <p className="eyebrow">{desk.seasonName}</p>}
+    <header className="week-hero draft-hero">
+      <p className="eyebrow">
+        {desk.seasonName ? `${desk.seasonName} · Draft` : "Draft"}
+      </p>
       <h1 id="roster-title">{editable ? "Choose your nine" : "Your roster"}</h1>
-    </>
+      {editable && (
+        <p className="hero-line">
+          Choose exactly nine teams. You can change your mind until you lock the
+          roster or the draft closes
+          {desk.deadline ? ` on ${formatDeadline(desk.deadline)}` : ""}
+          {desk.deadline
+            ? ` (${timeLeft(desk.deadline, desk.serverTime)} left)`
+            : ""}
+          ; after that only the commissioner can change it.
+        </p>
+      )}
+      {editable && desk.deadline && (
+        <div className="hero-clocks">
+          <div className="clock">
+            <span>Draft closes</span>
+            <strong>{formatDeadline(desk.deadline)}</strong>
+          </div>
+          <div className="clock next">
+            <span>Time left</span>
+            <strong>{timeLeft(desk.deadline, desk.serverTime)}</strong>
+          </div>
+        </div>
+      )}
+    </header>
   );
 
   if (!editable)
     return (
-      <section aria-labelledby="roster-title">
+      <section aria-labelledby="roster-title" className="draft-desk">
         {header}
         <div className="band">
           {desk.state === "locked" && (
@@ -257,18 +285,27 @@ export default function RosterDraft() {
           )}
         </div>
         {mine.length > 0 && (
-          <section aria-labelledby="mine-title" className="week-games">
+          <section aria-labelledby="mine-title" className="draft-mine">
             <h2 id="mine-title">Your teams</h2>
-            <ol>
-              {mine.map((team) => (
-                <li key={team.teamId} className="game">
-                  <p className="teams">{team.name}</p>
-                  <p className="status">
-                    {team.division} · {team.pointValue}{" "}
-                    {team.pointValue === 1 ? "point" : "points"} if they win
-                  </p>
-                </li>
-              ))}
+            <ol className="tile-grid">
+              {[...mine]
+                .sort((a, b) => a.pointValue - b.pointValue)
+                .map((team) => (
+                  <li key={team.teamId} className="tile ro">
+                    <span
+                      className={`tier tier-${team.pointValue}`}
+                      aria-hidden="true"
+                    >
+                      {team.pointValue}
+                    </span>
+                    <span className="tile-text">
+                      <span className="teams">{team.name}</span>
+                      <span className="status">
+                        {team.division} · {points(team.pointValue)} if they win
+                      </span>
+                    </span>
+                  </li>
+                ))}
             </ol>
           </section>
         )}
@@ -277,88 +314,91 @@ export default function RosterDraft() {
 
   const complete = chosen.size === 9;
   const savedComplete = desk.complete && !dirty;
+  const picked = desk.teams
+    .filter((t) => chosen.has(t.teamId))
+    .map((t) => t.pointValue)
+    .sort((a, b) => a - b);
+  const mix = [1, 2, 3, 4].map(
+    (value) =>
+      `${value} ${value === 1 ? "pt" : "pts"}: ${picked.filter((p) => p === value).length}`,
+  );
   return (
-    <div className="workspace desk">
-      <section aria-labelledby="roster-title" className="ws-main">
-        {header}
-        <p className="lede">
-          Choose exactly nine teams. You can change your mind until you lock the
-          roster or the draft closes
-          {desk.deadline ? ` on ${formatDeadline(desk.deadline)}` : ""}
-          {desk.deadline
-            ? ` (${timeLeft(desk.deadline, desk.serverTime)} left)`
-            : ""}
-          ; after that only the commissioner can change it.
-        </p>
-        <p role="status" className="notice-line">
-          {notice}
-        </p>
+    <div className="draft-desk">
+      {header}
+      <p role="status" className="notice-line">
+        {notice}
+      </p>
+      <section aria-label="Your draft so far" className="draft-summary">
         <p className="count">
           {chosen.size} of 9 chosen
           {chosen.size < 9 ? ` · ${9 - chosen.size} to go` : " · ready to save"}
         </p>
-        {divisions.map((division) => (
-          <section
-            key={division}
-            aria-labelledby={`div-${division.replace(/\W+/g, "-")}`}
-            className="week-games division-block"
-          >
-            <h2 id={`div-${division.replace(/\W+/g, "-")}`}>{division}</h2>
-            <ol>
-              {desk.teams
-                .filter((t) => t.division === division)
-                .map((team) => {
-                  const on = chosen.has(team.teamId);
-                  return (
-                    <li
-                      key={team.teamId}
-                      className={`game pick${on ? " on" : ""}`}
-                    >
-                      <div className="game-line">
-                        <p className="teams">{team.name}</p>
-                        <p className="status">
-                          {team.pointValue}{" "}
-                          {team.pointValue === 1 ? "point" : "points"} if they
-                          win
-                        </p>
-                        <div className="game-actions">
-                          <button
-                            type="button"
-                            className={on ? "primary" : "ghost"}
-                            aria-pressed={on}
-                            disabled={busy || (!on && chosen.size >= 9)}
-                            onClick={() => toggle(team.teamId)}
-                          >
-                            {on ? "Chosen" : "Choose"}
-                            <span className="sr-only"> {team.name}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-            </ol>
-          </section>
-        ))}
+        <div
+          className="meter"
+          role="img"
+          aria-label={`${chosen.size} of 9 chosen`}
+        >
+          {Array.from({ length: 9 }, (_, i) => (
+            <span
+              // biome-ignore lint/suspicious/noArrayIndexKey: the nine slots are fixed.
+              key={i}
+              className={picked[i] ? `tier-${picked[i]}` : "empty"}
+            />
+          ))}
+        </div>
+        <p className="mix" aria-label="Point mix">
+          {mix.map((text, i) => (
+            <span key={text}>
+              {i > 0 && " · "}
+              {text}
+            </span>
+          ))}
+        </p>
       </section>
+      {divisions.map((division) => (
+        <section
+          key={division}
+          aria-labelledby={`div-${slug(division)}`}
+          className="division-block"
+        >
+          <h2 id={`div-${slug(division)}`}>{division}</h2>
+          <ul className="tile-grid" aria-labelledby={`div-${slug(division)}`}>
+            {desk.teams
+              .filter((t) => t.division === division)
+              .map((team) => {
+                const on = chosen.has(team.teamId);
+                return (
+                  <li key={team.teamId}>
+                    <button
+                      type="button"
+                      className={`tile${on ? " on" : ""}`}
+                      aria-pressed={on}
+                      aria-describedby={`about-${team.teamId}`}
+                      disabled={busy || (!on && chosen.size >= 9)}
+                      onClick={() => toggle(team.teamId)}
+                    >
+                      <span
+                        className={`tier tier-${team.pointValue}`}
+                        aria-hidden="true"
+                      >
+                        {team.pointValue}
+                      </span>
+                      <span className="sr-only">
+                        {on ? "Chosen" : "Choose"}{" "}
+                      </span>
+                      <span className="teams">{team.name}</span>
+                    </button>
+                    <span id={`about-${team.teamId}`} className="sr-only">
+                      {points(team.pointValue)} · {team.division}
+                    </span>
+                  </li>
+                );
+              })}
+          </ul>
+        </section>
+      ))}
 
-      <aside className="pulse" aria-labelledby="roster-summary">
-        <h2 id="roster-summary">Your roster</h2>
-        <dl className="counts">
-          <dt>Chosen</dt>
-          <dd>{chosen.size} of 9</dd>
-          <dt>Saved</dt>
-          <dd>{desk.complete ? "Yes, nine teams" : "Not yet"}</dd>
-          {desk.deadline && (
-            <>
-              <dt>Closes</dt>
-              <dd>{formatDeadline(desk.deadline)}</dd>
-            </>
-          )}
-        </dl>
-      </aside>
-
-      <div className="dock" role="region" aria-label="Save roster">
+      <div className="dock" role="region" aria-label="Save draft">
         {confirming ? (
           <div
             role="group"
@@ -372,18 +412,9 @@ export default function RosterDraft() {
             }}
           >
             <p>
-              Lock your roster? You will not be able to change these nine teams
-              afterwards; only the commissioner can.
+              Lock these nine teams for the season? You can't change them after
+              this; only the commissioner can correct a locked roster.
             </p>
-            <button
-              type="button"
-              className="primary"
-              autoFocus
-              disabled={busy}
-              onClick={() => void lock()}
-            >
-              Confirm lock
-            </button>
             <button
               type="button"
               className="ghost"
@@ -392,7 +423,16 @@ export default function RosterDraft() {
                 setConfirming(false);
               }}
             >
-              Cancel
+              Keep editing
+            </button>
+            <button
+              type="button"
+              className="primary"
+              autoFocus
+              disabled={busy}
+              onClick={() => void lock()}
+            >
+              Confirm lock
             </button>
           </div>
         ) : (
@@ -443,7 +483,7 @@ export default function RosterDraft() {
             >
               {complete
                 ? dirty
-                  ? "Save roster"
+                  ? "Save draft"
                   : "Saved"
                 : `Choose ${9 - chosen.size} more`}
             </button>

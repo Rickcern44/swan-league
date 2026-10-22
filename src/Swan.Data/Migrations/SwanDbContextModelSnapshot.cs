@@ -107,6 +107,38 @@ namespace Swan.Data.Migrations
                     b.ToTable("push_subscriptions", "communication");
                 });
 
+            modelBuilder.Entity("Swan.Core.Communication.QueuedEmail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("QueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SentAt", "QueuedAt");
+
+                    b.ToTable("queued_emails", "communication");
+                });
+
             modelBuilder.Entity("Swan.Core.Finance.Ledger", b =>
                 {
                     b.Property<Guid>("Id")
@@ -823,6 +855,45 @@ namespace Swan.Data.Migrations
 
                             b1.WithOwner()
                                 .HasForeignKey("WeekId");
+
+                            b1.OwnsMany("Swan.Core.Schedule.GameLine", "LineDetails", b2 =>
+                                {
+                                    b2.Property<Guid>("Id")
+                                        .ValueGeneratedOnAdd()
+                                        .HasColumnType("uuid");
+
+                                    b2.Property<int?>("AwayMoneyline")
+                                        .HasColumnType("integer");
+
+                                    b2.Property<DateTimeOffset>("EnteredAt")
+                                        .HasColumnType("timestamp with time zone");
+
+                                    b2.Property<Guid>("EnteredBy")
+                                        .HasColumnType("uuid");
+
+                                    b2.Property<Guid>("GameId")
+                                        .HasColumnType("uuid");
+
+                                    b2.Property<int?>("HomeMoneyline")
+                                        .HasColumnType("integer");
+
+                                    b2.Property<int>("Source")
+                                        .HasColumnType("integer");
+
+                                    b2.Property<decimal>("Spread")
+                                        .HasColumnType("numeric");
+
+                                    b2.HasKey("Id");
+
+                                    b2.HasIndex("GameId");
+
+                                    b2.ToTable("game_lines", "schedule");
+
+                                    b2.WithOwner()
+                                        .HasForeignKey("GameId");
+                                });
+
+                            b1.Navigation("LineDetails");
                         });
 
                     b.Navigation("DogOptions");

@@ -10,64 +10,45 @@ namespace Swan.Data.Seed;
 
 public static class DevelopmentSeeder
 {
+    private static readonly SeasonId ReferenceSeasonId = new(Guid.Parse("220ceec6-d804-43b6-974b-d46b974f35b4"));
+    private static readonly UserId AdminId = new(Guid.Parse("b548d5d9-272d-4f4d-b2b4-f179ad8b289d"));
+
     public static async Task SeedAsync(SwanDbContext database, CancellationToken cancellationToken = default)
     {
-        if (await database.Teams.AnyAsync(cancellationToken)) return;
-
-        var teams = await LoadTeams(cancellationToken);
-        var seasonId = new SeasonId(Guid.Parse("3908b3ef-4b67-4cf8-890f-4d72a295c8aa"));
-        // A live 2026 season whose roster draft is already underway: the admin is its commissioner and each seeded coach has already chosen and locked nine teams.
-        var season = Season.CreateBlank(seasonId, 2026, "2026 Swan League", isSimulation: true).Value!;
-        season.SaveDoubleDogWeeks([2, 12, 17]);
-        season.CompleteSetup();
-        var now = DateTimeOffset.UtcNow;
-        season.StartRosterDraft(now.AddDays(3), now, hasActiveCommissioner: true);
-
-        var seededTeams = teams.Select((team, index) => new Team(new TeamId(DeterministicGuid(index)), team.Name, null, DateTimeOffset.UtcNow, team.Division)).ToList();
-        database.Teams.AddRange(seededTeams);
-        database.Seasons.Add(season);
-        database.SeasonTeams.AddRange(teams.Select((team, index) => new SeasonTeam(new SeasonTeamId(DeterministicGuid(index + 100)), seasonId, seededTeams[index].Id, team.Division, team.Finish, 0)));
-
-        var adminId = new UserId(Guid.Parse("b548d5d9-272d-4f4d-b2b4-f179ad8b289d"));
-        database.Users.Add(new User(adminId, Email.Create("admin@swan.local").Value!, "Swan Admin", UserRole.Admin));
-        var coaches = Enumerable.Range(1, 6).Select(index => new User(new UserId(DeterministicGuid(index + 200)), Email.Create($"coach{index}@swan.local").Value!, $"Coach {index}")).ToList();
-        database.Users.AddRange(coaches);
-        database.Memberships.Add(new Membership(new MembershipId(DeterministicGuid(300)), adminId, seasonId, MembershipRole.Commissioner));
-        database.Memberships.AddRange(coaches.Select((coach, index) => new Membership(new MembershipId(DeterministicGuid(index + 301)), coach.Id, seasonId, MembershipRole.Coach)));
-        // Nine teams each (R1), spread so rosters overlap a little; a real league drafts these, which is not built yet.
-        database.Rosters.AddRange(coaches.Select((coach, index) =>
+        if (!await database.Teams.AnyAsync(cancellationToken))
         {
-            var roster = new Roster(new RosterId(DeterministicGuid(index + 400)), seasonId, new MembershipId(DeterministicGuid(index + 301)));
-            roster.SaveDraft(Enumerable.Range(0, 9).Select(offset => seededTeams[(index * 5 + offset) % seededTeams.Count].Id).ToList(), seededTeams.Select(team => team.Id).ToHashSet(), draftOpen: true);
-            roster.Lock(draftOpen: true, now);
-            return roster;
-        }));
+            var teams = await LoadTeams(cancellationToken);
+            database.Teams.AddRange(teams.Select((team, index) => new Team(new TeamId(DeterministicGuid(index)), team.Name, null, DateTimeOffset.UtcNow, team.Division)));
+        }
 
-        var week = new Week(new WeekId(DeterministicGuid(500)), seasonId, 1, new WeekType(WeekKind.Regular, null, true));
-        week.AddGame(new Game(new GameId(DeterministicGuid(501)), seededTeams[0].Id, seededTeams[1].Id, Kickoff.Create(DateTimeOffset.UtcNow.AddDays(7)).Value!));
-        database.Weeks.Add(week);
-        database.Weeks.Add(OpenDoubleDogWeek(seasonId, seededTeams));
+        if (!await database.Users.AnyAsync(user => user.Id == AdminId, cancellationToken))
+            database.Users.Add(new User(AdminId, Email.Create("admin@swan.local").Value!, "Swan Admin", UserRole.Admin));
+        var coaches = Enumerable.Range(1, 6).Select(index => new User(new UserId(DeterministicGuid(index + 200)), Email.Create($"coach{index}@swan.local").Value!, $"Coach {index}")).ToList();
+        var knownCoachIds = await database.Users.Where(user => coaches.Select(coach => coach.Id).Contains(user.Id)).Select(user => user.Id).ToListAsync(cancellationToken);
+        database.Users.AddRange(coaches.Where(coach => !knownCoachIds.Contains(coach.Id)));
+
+        if (!await database.Seasons.AnyAsync(season => season.Id == ReferenceSeasonId, cancellationToken))
+            database.Seasons.Add(CreateReferenceSeason());
+        if (!await database.Memberships.AnyAsync(membership => membership.Id == new MembershipId(DeterministicGuid(320)), cancellationToken))
+        {
+            database.Memberships.AddRange(
+            [
+                new Membership(new MembershipId(DeterministicGuid(320)), AdminId, ReferenceSeasonId, MembershipRole.Coach),
+                new Membership(new MembershipId(DeterministicGuid(321)), coaches[0].Id, ReferenceSeasonId, MembershipRole.Coach),
+            ]);
+        }
+
         await database.SaveChangesAsync(cancellationToken);
     }
 
-    // Week 2 is a double-dog week (R7). It is published with approved lines and dog options so a seeded coach has something to pick for.
-    private static Week OpenDoubleDogWeek(SeasonId seasonId, IReadOnlyList<Team> seededTeams)
+    private static Season CreateReferenceSeason()
     {
-        var week = new Week(new WeekId(DeterministicGuid(510)), seasonId, 2, new WeekType(WeekKind.Regular, null, true));
-        decimal[] lines = [-3m, 2.5m, -7m, 1.5m];
-        var first = DateTimeOffset.UtcNow.AddDays(7);
-        for (var index = 0; index < 16; index++)
-        {
-            var game = new Game(new GameId(DeterministicGuid(511 + index)), seededTeams[index].Id, seededTeams[index + 16].Id, Kickoff.Create(first.AddDays(index / 4).AddHours(index % 4)).Value!);
-            week.AddGame(game);
-            week.AddLine(game.Id, Spread.Create(lines[index % 4]).Value!);
-            week.ApproveLatestLine(game.Id);
-        }
-
-        week.GenerateDogOptions();
-        week.ApproveLines();
-        week.Publish();
-        return week;
+        var season = Season.CreateBlank(ReferenceSeasonId, 2025, "2025 Swan League", isSimulation: true).Value!;
+        season.SaveDoubleDogWeeks([2, 12, 17]);
+        season.CompleteSetup();
+        season.Start(hasActiveCommissioner: true);
+        season.Complete();
+        return season;
     }
 
     private static async Task<List<NflTeamSeed>> LoadTeams(CancellationToken cancellationToken)

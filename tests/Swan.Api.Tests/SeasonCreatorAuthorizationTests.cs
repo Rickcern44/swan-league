@@ -55,7 +55,7 @@ public sealed class SeasonCreatorAuthorizationTests(SessionApiFixture fixture) :
     private async Task<(int Setup, int Memberships, int Audits)> Footprint() => await fixture.WithDatabase(fixture.Development, async (database, _) =>
         (await database.Seasons.CountAsync(season => season.State == SeasonState.Setup), await database.Memberships.CountAsync(), await database.AuditEntries.CountAsync(entry => entry.Action == "season.setup.created")));
 
-    // Removes any season newer than the seeded 2026 one (a test that started a season leaves it Live), so tests do not depend on each other's order.
+    // Removes seasons created by these tests while retaining the fixture's 2026 session season.
     private Task RemoveSeasonsNewerThanTheSeededOne() => fixture.WithDatabase(fixture.Development, async (database, _) =>
     {
         await database.Database.ExecuteSqlRawAsync("""
@@ -305,12 +305,28 @@ public sealed class SeasonCreatorAuthorizationTests(SessionApiFixture fixture) :
         await RemoveSeasonsNewerThanTheSeededOne();
         var seededAdmin = await SessionFor(new UserId(Guid.Parse("b548d5d9-272d-4f4d-b2b4-f179ad8b289d")));
         var coach = await SessionFor(SeededCoach);
-        var commissionerCoach = await SessionFor(await UserAsync("live.commissioner@example.com", UserRole.Coach, commissioner: true));
+        var commissionerUser = await UserAsync("live.commissioner@example.com", UserRole.Coach, commissioner: true);
+        var commissionerCoach = await SessionFor(commissionerUser);
         var plainAdmin = await SessionFor(await UserAsync("live.plain.admin@example.com", UserRole.Admin));
+
+        await fixture.WithDatabase(fixture.Development, async (database, _) =>
+        {
+            var live = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2032, "Live access test season", true).Value!;
+            Assert.True(live.SaveDoubleDogWeeks([2, 12, 17]).IsSuccess);
+            live.CompleteSetup();
+            Assert.True(live.Start(hasActiveCommissioner: true).IsSuccess);
+            database.Seasons.Add(live);
+            database.Memberships.AddRange(
+                new Membership(new MembershipId(Guid.NewGuid()), new UserId(Guid.Parse("b548d5d9-272d-4f4d-b2b4-f179ad8b289d")), live.Id, MembershipRole.Commissioner),
+                new Membership(new MembershipId(Guid.NewGuid()), commissionerUser, live.Id, MembershipRole.Commissioner));
+            await database.SaveChangesAsync();
+            return 0;
+        });
 
         Assert.True((await MeAsync(seededAdmin)).GetProperty("commissionsLiveSeason").GetBoolean());
         Assert.True((await MeAsync(commissionerCoach)).GetProperty("commissionsLiveSeason").GetBoolean());
         Assert.False((await MeAsync(coach)).GetProperty("commissionsLiveSeason").GetBoolean());
         Assert.False((await MeAsync(plainAdmin)).GetProperty("commissionsLiveSeason").GetBoolean());
+        await RemoveSeasonsNewerThanTheSeededOne();
     }
 }

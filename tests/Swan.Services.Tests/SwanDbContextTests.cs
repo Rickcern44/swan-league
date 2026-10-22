@@ -35,41 +35,61 @@ public sealed class SwanDbContextTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task DevelopmentSeedIsIdempotentAndProvidesDivisionFinishes()
+    public async Task DevelopmentSeedIsIdempotentAndProvidesOnlyTheCatalogAndReferenceSeason()
     {
         await using var database = await CreateMigratedDatabase();
 
         await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
         var firstTeamCount = await database.Teams.CountAsync(cancellationToken: TestContext.Current.CancellationToken);
-        var firstSeasonTeamCount = await database.SeasonTeams.CountAsync(cancellationToken: TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
         await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
 
-        var finishes = await database.SeasonTeams.ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(32, firstTeamCount);
-        Assert.Equal(32, firstSeasonTeamCount);
         Assert.Equal(32, await database.Teams.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
         Assert.All(await database.Teams.ToListAsync(cancellationToken: TestContext.Current.CancellationToken), team => Assert.False(string.IsNullOrWhiteSpace(team.Division)));
-        Assert.All(finishes.GroupBy(team => team.Division), division => Assert.Equal(new[] { 1, 2, 3, 4 }, division.Select(team => team.FinishPosition).Order()));
+        Assert.Equal(0, await database.SeasonTeams.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(0, await database.Weeks.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(0, await database.Rosters.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(2025, (await database.Seasons.SingleAsync(cancellationToken: TestContext.Current.CancellationToken)).Year);
     }
 
     [Fact]
-    public async Task DevelopmentSeedGivesEachCoachNineTeamsAndAnOpenDoubleDogWeekToPickFor()
+    public async Task DevelopmentSeedProvidesA2025ReferenceSeasonForTheAdminAndCoachOne()
     {
         await using var database = await CreateMigratedDatabase();
 
         await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
         database.ChangeTracker.Clear();
 
-        var rosters = await database.Rosters.AsNoTracking().ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
-        var open = await database.Weeks.AsNoTracking().SingleAsync(week => week.State == WeekState.Open, cancellationToken: TestContext.Current.CancellationToken);
-        Assert.Equal(6, rosters.Count);
-        Assert.All(rosters, roster => Assert.Equal(9, roster.Teams.Count));
-        Assert.Equal((2, 16), (open.Number, open.Games.Count));
-        Assert.All(open.Games, game => Assert.NotNull(game.ApprovedLine));
-        Assert.NotEmpty(open.DogOptions);
-        Assert.All(open.Games, game => Assert.True(game.Kickoff.Value > DateTimeOffset.UtcNow));
-        Assert.Equal(WeekState.Draft, (await database.Weeks.AsNoTracking().SingleAsync(week => week.Number == 1, cancellationToken: TestContext.Current.CancellationToken)).State);
+        var referenceSeason = await database.Seasons.SingleAsync(season => season.Year == 2025, cancellationToken: TestContext.Current.CancellationToken);
+        var referenceMemberships = await database.Memberships
+            .Where(membership => membership.SeasonId == referenceSeason.Id)
+            .Join(database.Users, membership => membership.UserId, user => user.Id, (membership, user) => new { user.Email, membership.Role })
+            .ToListAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal("2025 Swan League", referenceSeason.Name);
+        Assert.Equal(SeasonState.Completed, referenceSeason.State);
+        Assert.Equal(
+            [("admin@swan.local", MembershipRole.Coach), ("coach1@swan.local", MembershipRole.Coach)],
+            referenceMemberships.Select(membership => (membership.Email.Value, membership.Role)).OrderBy(membership => membership.Value).ToArray());
+        Assert.Equal(6, await database.Users.CountAsync(user => user.Role == UserRole.Coach, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DevelopmentSeedAddsThe2025ReferenceSeasonToAnExistingDevelopmentDatabase()
+    {
+        await using var database = await CreateMigratedDatabase();
+
+        await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
+        var referenceSeason = await database.Seasons.SingleAsync(season => season.Year == 2025, cancellationToken: TestContext.Current.CancellationToken);
+        database.Memberships.RemoveRange(await database.Memberships.Where(membership => membership.SeasonId == referenceSeason.Id).ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        database.Seasons.Remove(referenceSeason);
+        await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+        database.ChangeTracker.Clear();
+
+        await DevelopmentSeeder.SeedAsync(database, TestContext.Current.CancellationToken);
+
+        Assert.Single(await database.Seasons.ToListAsync(cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(2, await database.Memberships.CountAsync(membership => membership.SeasonId == referenceSeason.Id, TestContext.Current.CancellationToken));
     }
 
     [Fact]

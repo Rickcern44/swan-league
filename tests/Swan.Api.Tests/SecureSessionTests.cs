@@ -11,6 +11,7 @@ using Swan.Core;
 using Swan.Core.Common;
 using Swan.Core.Identity;
 using Swan.Core.Integrations;
+using Swan.Core.League;
 using Swan.Data;
 using Swan.Data.Seed;
 using Swan.Services.Identity;
@@ -34,12 +35,20 @@ public sealed class SessionApiFixture : IAsyncLifetime
         {
             await database.Database.MigrateAsync();
             await DevelopmentSeeder.SeedAsync(database);
+            var season = Season.CreateBlank(new SeasonId(Guid.NewGuid()), 2026, "Session test season", true).Value!;
+            season.SaveDoubleDogWeeks([2, 12, 17]);
+            season.CompleteSetup();
+            season.Start(hasActiveCommissioner: true);
+            database.Seasons.Add(season);
+            database.Memberships.Add(new Membership(new MembershipId(Guid.NewGuid()), new UserId(Guid.Parse("00000000-0000-0000-0000-000000000204")), season.Id, Swan.Core.League.MembershipRole.Coach));
+            await database.SaveChangesAsync();
         }
 
         WebApplicationFactory<Program> Create(string environment) => new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
             builder.UseSetting("ConnectionStrings:swan", postgres.GetConnectionString());
+            builder.UseSetting("Development:ResetOnStart", "false");
             builder.ConfigureServices(services => services.AddSingleton<IEmailSender>(Email));
         });
         Development = Create("Development");

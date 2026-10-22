@@ -81,6 +81,7 @@ export default function Shell({
   role,
   access,
   route,
+  decisions = 0,
   onNavigate,
   onSignOut,
   children,
@@ -89,6 +90,7 @@ export default function Shell({
   role: "Admin" | "Coach";
   access: Access;
   route: Route;
+  decisions?: number;
   onNavigate: (to: string) => void;
   onSignOut: () => void;
   children: ReactNode;
@@ -142,10 +144,22 @@ export default function Shell({
               <a
                 href={item.path}
                 aria-current={item.current ? "page" : undefined}
+                aria-label={
+                  item.path === "/commish" && decisions > 0
+                    ? `${item.label}, ${decisions} need a decision`
+                    : undefined
+                }
                 onClick={go(item.path)}
               >
                 <item.icon aria-hidden="true" size={20} strokeWidth={2} />
                 {item.label}
+                {item.path === "/commish" && decisions > 0 && (
+                  <>
+                    <span className="nav-badge" aria-hidden="true">
+                      {decisions}
+                    </span>
+                  </>
+                )}
               </a>
             </li>
           ))}

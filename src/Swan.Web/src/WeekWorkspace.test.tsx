@@ -27,6 +27,14 @@ type Game = {
   hasResult: boolean;
   homeScore: number | null;
   awayScore: number | null;
+  latestLine?: {
+    spread: number;
+    homeMoneyline: number | null;
+    awayMoneyline: number | null;
+    source: string;
+    enteredAt: string;
+    enteredBy: string;
+  } | null;
 };
 
 const game = (id: string, over: Partial<Game> = {}): Game => ({
@@ -45,7 +53,7 @@ const game = (id: string, over: Partial<Game> = {}): Game => ({
   ...over,
 });
 
-function week(state: string, games: Game[]) {
+function week(state: string, games: Game[], dogs: string[] = []) {
   const included = games.filter((g) => !g.excluded);
   const lines = included.filter((g) => g.approvedLine !== null).length;
   const results = included.filter((g) => g.hasResult).length;
@@ -112,7 +120,7 @@ function week(state: string, games: Game[]) {
     linesApproved: lines,
     resultsConfirmed: results,
     nextAction: next,
-    dogOptionTeamIds: [],
+    dogOptionTeamIds: dogs,
   };
 }
 
@@ -166,139 +174,612 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-test("a draft week shows its games in order with kickoff, team names and what is missing", async () => {
-  open("Draft", [
-    game(G1, { approvedLine: -3.5, lineHistory: [-3.5] }),
-    game(G2, {
-      lineHistory: [2],
-      homeTeamName: "Chicago Bears",
-      awayTeamName: "Detroit Lions",
-    }),
-    game(G3),
-  ]);
+const RAVENS_AT_BILLS = "Baltimore Ravens at Buffalo Bills";
+const LIONS_AT_BEARS = "Detroit Lions at Chicago Bears";
+const csvLine = (spread: number) => ({
+  spread,
+  homeMoneyline: -160,
+  awayMoneyline: 135,
+  source: "csv",
+  enteredAt: "2026-09-08T13:02:00Z",
+  enteredBy: "u",
+});
+const draftGames = () => [
+  game(G1, {
+    approvedLine: -3.5,
+    lineHistory: [-3.5],
+    latestLine: csvLine(-3.5),
+  }),
+  game(G2, {
+    lineHistory: [2],
+    homeTeamName: "Chicago Bears",
+    awayTeamName: "Detroit Lions",
+    latestLine: { ...csvLine(2), source: "manual" },
+  }),
+  game(G3, {
+    homeTeamName: "Green Bay Packers",
+    awayTeamName: "New York Jets",
+  }),
+];
+const row = (matchup: string) =>
+  screen.getByRole("row", { name: new RegExp(matchup) });
+const lineTab = () => screen.getByRole("tab", { name: /^Lines/ });
+
+test("a draft week shows its stage, its tabs and a line table with what each game still needs", async () => {
+  open("Draft", draftGames());
 
   expect(
     await screen.findByRole("heading", { level: 1, name: "Week 4" }),
   ).toBeVisible();
-  expect(screen.getByText("Regular season")).toBeVisible();
-  const rows = within(
-    screen.getByRole("region", { name: "Games" }),
-  ).getAllByRole("listitem");
-  expect(rows).toHaveLength(3);
-  expect(rows[0]).toHaveTextContent("Bills -3.5 · approved");
-  expect(rows[1]).toHaveTextContent("Bears +2 · awaiting approval");
-  expect(rows[2]).toHaveTextContent("No line yet");
-  expect(rows[0]).toHaveTextContent("Thu 4:15 PM");
+  expect(screen.getByText("Week 4 · Regular season · 3 games")).toBeVisible();
+  expect(screen.getByText("Review Week 4 lines")).toBeVisible();
+  const stages = within(screen.getByRole("list", { name: "Week stages" }));
+  expect(stages.getByRole("listitem", { current: "step" })).toHaveTextContent(
+    "Draft",
+  );
+  expect(lineTab()).toHaveAttribute("aria-selected", "true");
+  expect(lineTab()).toHaveTextContent("Lines 1/3");
+  expect(
+    screen.getAllByRole("tab").map((tab) => tab.textContent?.split(" ")[0]),
+  ).toEqual(["Lines", "Dogs", "Picks", "Results", "Activity"]);
+
+  const ravens = row(RAVENS_AT_BILLS);
+  expect(ravens).toHaveTextContent("Thu 4:15 PM");
+  expect(ravens).toHaveTextContent("Approved");
+  expect(ravens).toHaveTextContent("+135 / -160");
+  expect(ravens).toHaveTextContent("CSV");
+  expect(row(LIONS_AT_BEARS)).toHaveTextContent("Needs review");
+  expect(row(LIONS_AT_BEARS)).toHaveTextContent("Manual");
+  expect(row("New York Jets at Green Bay Packers")).toHaveTextContent(
+    "No line yet",
+  );
+  expect(
+    within(row(LIONS_AT_BEARS)).getByRole("textbox", {
+      name: `Spread for Bears (${LIONS_AT_BEARS})`,
+    }),
+  ).toHaveValue("2");
+
   const dock = screen.getByRole("region", { name: "Next action" });
   expect(dock).toHaveTextContent(
     "2 of 3 included games still need an approved line.",
   );
-  expect(within(dock).queryByRole("button")).not.toBeInTheDocument();
-  const pulse = screen.getByRole("complementary", { name: "Week pulse" });
-  expect(pulse).toHaveTextContent("1 / 3");
   expect(
-    within(pulse).getByRole("listitem", { current: "step" }),
-  ).toHaveTextContent("Draft · current");
+    within(dock).getByRole("button", { name: "Preview as coach" }),
+  ).toBeVisible();
+  expect(
+    within(dock).queryByRole("button", { name: /Approve|Publish/ }),
+  ).toBeNull();
 });
 
-test("saving a line and approving it are two explicit choices sent to the line endpoint", async () => {
+test("a typed spread can be saved without approving, as a manual line", async () => {
   open("Draft", [game(G1)]);
   replies[`POST /games/${G1}/lines`] = () => {
+    server = week("Draft", [game(G1, { lineHistory: [-3.5] })]);
+    return { status: 200, body: server };
+  };
+  await screen.findByRole("table", { name: "Lines" });
+
+  fireEvent.change(screen.getByRole("textbox", { name: /^Spread for Bills/ }), {
+    target: { value: "-3.5" },
+  });
+  expect(row(RAVENS_AT_BILLS)).toHaveTextContent("Unsaved");
+  fireEvent.click(
+    screen.getByRole("button", { name: `Save line for ${RAVENS_AT_BILLS}` }),
+  );
+
+  expect(await screen.findByText("Line saved.")).toBeVisible();
+  expect(calls.find((c) => c.method === "POST")).toMatchObject({
+    url: `/api/admin/weeks/${WEEK}/games/${G1}/lines`,
+    body: { spread: -3.5, approve: false, source: "manual" },
+  });
+  expect(row(RAVENS_AT_BILLS)).toHaveTextContent("Needs review");
+});
+
+test("approve selected approves a reviewed line as it is and saves and approves a typed one", async () => {
+  open("Draft", draftGames());
+  replies[`POST /games/${G2}/lines/approve-latest`] = () => {
     server = week("Draft", [
-      game(G1, { approvedLine: -3.5, lineHistory: [-3.5] }),
+      server.games[0],
+      { ...server.games[1], approvedLine: 2 },
+      server.games[2],
     ]);
     return { status: 200, body: server };
   };
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+  replies[`POST /games/${G3}/lines`] = () => {
+    server = week("Draft", [
+      server.games[0],
+      server.games[1],
+      { ...server.games[2], approvedLine: 7, lineHistory: [7] },
+    ]);
+    return { status: 200, body: server };
+  };
+  await screen.findByRole("table", { name: "Lines" });
 
-  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
-  const form = screen.getByRole("form", {
-    name: "Line for Baltimore Ravens at Buffalo Bills",
+  const approve = () =>
+    screen.getByRole("button", { name: /^Approve \d+ selected$/ });
+  expect(approve()).toBeDisabled();
+  fireEvent.change(
+    screen.getByRole("textbox", { name: /^Spread for Packers/ }),
+    { target: { value: "+7" } },
+  );
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "Select all lines that need review" }),
+  );
+  expect(
+    screen.getByRole("checkbox", { name: `Select ${LIONS_AT_BEARS}` }),
+  ).toBeChecked();
+  expect(
+    screen.getByRole("checkbox", { name: `Select ${RAVENS_AT_BILLS}` }),
+  ).toBeDisabled();
+  fireEvent.click(approve());
+
+  expect(await screen.findByText("Approved 2 lines.")).toBeVisible();
+  expect(calls.filter((c) => c.method === "POST")).toMatchObject([
+    { url: `/api/admin/weeks/${WEEK}/games/${G2}/lines/approve-latest` },
+    {
+      url: `/api/admin/weeks/${WEEK}/games/${G3}/lines`,
+      body: { spread: 7, approve: true, source: "manual" },
+    },
+  ]);
+  expect(lineTab()).toHaveTextContent("Lines 3/3");
+  expect(
+    screen.getByRole("button", { name: /^Approve \d+ selected$/ }),
+  ).toHaveTextContent("Approve 0 selected");
+});
+
+test("a game with no line and nothing typed cannot be selected", async () => {
+  open("Draft", draftGames());
+  await screen.findByRole("table", { name: "Lines" });
+
+  expect(
+    screen.getByRole("checkbox", {
+      name: "Select New York Jets at Green Bay Packers",
+    }),
+  ).toBeDisabled();
+});
+
+test("the needs-review filter hides approved games", async () => {
+  open("Draft", draftGames());
+  await screen.findByRole("table", { name: "Lines" });
+
+  const filter = screen.getByRole("button", { name: "Needs review (2)" });
+  fireEvent.click(filter);
+  expect(filter).toHaveAttribute("aria-pressed", "true");
+  expect(
+    screen.queryByRole("row", { name: new RegExp(RAVENS_AT_BILLS) }),
+  ).toBeNull();
+  expect(row(LIONS_AT_BEARS)).toBeVisible();
+});
+
+test("a refused approval names the game and keeps going with the rest", async () => {
+  open("Draft", draftGames());
+  replies[`POST /games/${G2}/lines/approve-latest`] = {
+    status: 409,
+    body: { code: "game.frozen", message: "Approved lines are frozen." },
+  };
+  replies[`POST /games/${G3}/lines`] = () => ({ status: 200, body: server });
+  await screen.findByRole("table", { name: "Lines" });
+
+  fireEvent.change(
+    screen.getByRole("textbox", { name: /^Spread for Packers/ }),
+    { target: { value: "3" } },
+  );
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "Select all lines that need review" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Approve 2 selected" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    `${LIONS_AT_BEARS}: Approved lines are frozen.`,
+  );
+  expect(calls.filter((c) => c.method === "POST")).toHaveLength(2);
+});
+
+test.each(["35", "-30.5", "1e3", "3,5", "--3", "0x10", "Infinity"])(
+  "the spread %j is refused before anything is sent",
+  async (typed) => {
+    open("Draft", [game(G1)]);
+    await screen.findByRole("table", { name: "Lines" });
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: /^Spread for Bills/ }),
+      { target: { value: typed } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: `Save line for ${RAVENS_AT_BILLS}` }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "a number from -30 to 30",
+    );
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  },
+);
+
+test.each([
+  ["30", 30],
+  ["-30", -30],
+  ["0", 0],
+  ["-3.5", -3.5],
+  ["+7", 7],
+])("the spread %s is sent as the number %d", async (typed, sent) => {
+  open("Draft", [game(G1)]);
+  replies[`POST /games/${G1}/lines`] = () => ({
+    status: 200,
+    body: week("Draft", [game(G1, { lineHistory: [sent] })]),
   });
-  fireEvent.change(within(form).getByLabelText(/Spread for Bills/), {
+  await screen.findByRole("table", { name: "Lines" });
+
+  fireEvent.change(screen.getByRole("textbox", { name: /^Spread for Bills/ }), {
+    target: { value: typed },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: `Save line for ${RAVENS_AT_BILLS}` }),
+  );
+
+  await waitFor(() =>
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({
+      spread: sent,
+      approve: false,
+      source: "manual",
+    }),
+  );
+});
+
+test("the server's refusal of a spread is shown and what was typed is kept", async () => {
+  open("Draft", [game(G1)]);
+  replies[`POST /games/${G1}/lines`] = {
+    status: 400,
+    body: {
+      code: "spread.invalid",
+      message: "A spread must be between -30 and 30.",
+    },
+  };
+  await screen.findByRole("table", { name: "Lines" });
+
+  fireEvent.change(screen.getByRole("textbox", { name: /^Spread for Bills/ }), {
     target: { value: "-3.5" },
   });
   fireEvent.click(
-    within(form).getByRole("button", { name: "Save and approve" }),
+    screen.getByRole("button", { name: `Save line for ${RAVENS_AT_BILLS}` }),
   );
 
-  expect(await screen.findByText("Bills -3.5 · approved")).toBeVisible();
-  expect(calls.find((c) => c.method === "POST")).toMatchObject({
-    url: `/api/admin/weeks/${WEEK}/games/${G1}/lines`,
-    body: { spread: -3.5, approve: true },
-  });
-  expect(screen.getByRole("status")).toHaveTextContent(
-    "Line saved and approved.",
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    `${RAVENS_AT_BILLS}: A spread must be between -30 and 30.`,
   );
-  expect(screen.queryByRole("form")).not.toBeInTheDocument();
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: /Edit line/ })).toHaveFocus(),
-  );
+  expect(
+    screen.getByRole("textbox", { name: /^Spread for Bills/ }),
+  ).toHaveValue("-3.5");
 });
 
-test("Save line without approving leaves it awaiting approval and approve-latest finishes it", async () => {
-  open("Draft", [game(G1)]);
-  replies[`POST /games/${G1}/lines`] = () => {
-    server = week("Draft", [game(G1, { lineHistory: [1.5] })]);
-    return { status: 200, body: server };
-  };
-  replies[`POST /games/${G1}/lines/approve-latest`] = () => {
+test("pasted CSV is previewed first, then saved as CSV lines for the games it matches", async () => {
+  open("Draft", draftGames());
+  replies[`POST /games/${G2}/lines`] = () => ({ status: 200, body: server });
+  replies[`POST /games/${G3}/lines`] = () => ({ status: 200, body: server });
+  await screen.findByRole("table", { name: "Lines" });
+
+  fireEvent.click(screen.getByRole("button", { name: "Paste CSV" }));
+  const panel = within(screen.getByRole("region", { name: "Paste CSV" }));
+  fireEvent.change(panel.getByLabelText(/^CSV lines/), {
+    target: {
+      value:
+        "away,home,home spread,away moneyline,home moneyline\nLions,Bears,+2.5,-140,120\nnew york jets,GREEN BAY PACKERS,-6,240,-290\nRaiders,Chargers,-4,,\nJets,Packers,abc",
+    },
+  });
+  fireEvent.click(panel.getByRole("button", { name: "Preview CSV" }));
+
+  const preview = within(panel.getByRole("table", { name: "CSV preview" }));
+  const rows = preview.getAllByRole("row").slice(1);
+  expect(rows).toHaveLength(4);
+  expect(rows[0]).toHaveTextContent(LIONS_AT_BEARS);
+  expect(rows[0]).toHaveTextContent("Bears +2.5");
+  expect(rows[0]).toHaveTextContent("-140 / +120");
+  expect(rows[1]).toHaveTextContent("Packers -6");
+  expect(rows[2]).toHaveTextContent(
+    "No game this week matches Raiders at Chargers",
+  );
+  expect(rows[3]).toHaveTextContent("The spread must be a number");
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+
+  fireEvent.click(panel.getByRole("button", { name: "Save 2 lines" }));
+
+  expect(await screen.findByText("Saved 2 lines from CSV.")).toBeVisible();
+  expect(calls.filter((c) => c.method === "POST")).toMatchObject([
+    {
+      url: `/api/admin/weeks/${WEEK}/games/${G2}/lines`,
+      body: {
+        spread: 2.5,
+        approve: false,
+        source: "csv",
+        moneyline: { home: 120, away: -140 },
+      },
+    },
+    {
+      url: `/api/admin/weeks/${WEEK}/games/${G3}/lines`,
+      body: {
+        spread: -6,
+        approve: false,
+        source: "csv",
+        moneyline: { home: -290, away: 240 },
+      },
+    },
+  ]);
+});
+
+test("excluding a game asks for a reason and sends it", async () => {
+  open("Draft", draftGames());
+  replies[`POST /games/${G3}/exclusion`] = () => {
     server = week("Draft", [
-      game(G1, { lineHistory: [1.5], approvedLine: 1.5 }),
+      server.games[0],
+      server.games[1],
+      { ...server.games[2], excluded: true },
     ]);
     return { status: 200, body: server };
   };
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+  await screen.findByRole("table", { name: "Lines" });
 
-  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
-  fireEvent.change(screen.getByLabelText(/Spread for Bills/), {
-    target: { value: "1.5" },
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Exclude New York Jets at Green Bay Packers",
+    }),
+  );
+  const form = screen.getByRole("form", {
+    name: "Exclude New York Jets at Green Bay Packers",
   });
-  fireEvent.click(screen.getByRole("button", { name: "Save line" }));
+  fireEvent.click(within(form).getByRole("button", { name: "Exclude game" }));
+  expect(within(form).getByRole("alert")).toHaveTextContent("Give a reason");
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+
+  fireEvent.change(within(form).getByLabelText(/^Reason/), {
+    target: { value: "London game, early kickoff" },
+  });
+  fireEvent.click(within(form).getByRole("button", { name: "Exclude game" }));
+
+  expect(await screen.findByText("Game excluded.")).toBeVisible();
+  expect(calls.find((c) => c.method === "POST")).toMatchObject({
+    url: `/api/admin/weeks/${WEEK}/games/${G3}/exclusion`,
+    body: { excluded: true, reason: "London game, early kickoff" },
+  });
+  expect(row("New York Jets at Green Bay Packers")).toHaveTextContent(
+    "Excluded",
+  );
   expect(
-    await screen.findByText("Bills +1.5 · awaiting approval"),
+    screen.getByRole("button", {
+      name: "Include New York Jets at Green Bay Packers",
+    }),
   ).toBeVisible();
-  expect(calls.find((c) => c.method === "POST")?.body).toEqual({
-    spread: 1.5,
-    approve: false,
-  });
-  fireEvent.click(screen.getByRole("button", { name: /Approve line/ }));
-
-  expect(await screen.findByText("Bills +1.5 · approved")).toBeVisible();
-  expect(screen.getByRole("status")).toHaveTextContent("Line approved.");
 });
 
-test("a rejected line stays beside its editor with what was typed and nothing is claimed saved", async () => {
-  open("Draft", [game(G1)]);
-  replies[`POST /games/${G1}/lines`] = {
-    status: 409,
-    body: { code: "week.state", message: "Approved lines are frozen." },
+test("an excluded game has no spread input and does not count toward the lines", async () => {
+  open("Draft", [
+    game(G1, { excluded: true }),
+    game(G2, { homeTeamName: "Chicago Bears", awayTeamName: "Detroit Lions" }),
+  ]);
+  await screen.findByRole("table", { name: "Lines" });
+
+  expect(row(RAVENS_AT_BILLS)).toHaveTextContent("Excluded");
+  expect(
+    within(row(RAVENS_AT_BILLS)).queryByRole("textbox"),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Next action" })).toHaveTextContent(
+    "1 of 1 included game still needs",
+  );
+});
+
+test("the dogs tab lists each dog with its spread and can generate, add and remove them", async () => {
+  const games = [
+    game(G1, { approvedLine: -3.5, lineHistory: [-3.5] }),
+    game(G2, {
+      approvedLine: 2,
+      lineHistory: [2],
+      homeTeamName: "Chicago Bears",
+      awayTeamName: "Detroit Lions",
+    }),
+  ];
+  open("Draft", games);
+  server = week("Draft", games, ["a" + G1]);
+  replies["GET "] = () => ({ status: 200, body: server });
+  replies["POST /dog-options/generate"] = () => {
+    server = week("Draft", games, ["a" + G1, "h" + G2]);
+    return { status: 200, body: server };
+  };
+  replies["PUT /dog-options"] = () => {
+    const sent = calls.filter((c) => c.method === "PUT").at(-1)?.body as {
+      teamIds: string[];
+    };
+    server = week("Draft", games, sent.teamIds);
+    return { status: 200, body: server };
+  };
+  await screen.findByRole("table", { name: "Lines" });
+
+  fireEvent.click(screen.getByRole("tab", { name: /^Dogs/ }));
+  const dogs = () =>
+    within(screen.getByRole("list", { name: "Dog options" })).getAllByRole(
+      "listitem",
+    );
+  expect(dogs()).toHaveLength(1);
+  expect(dogs()[0]).toHaveTextContent("Baltimore Ravens +3.5");
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Generate from approved lines" }),
+  );
+  await waitFor(() => expect(dogs()).toHaveLength(2));
+  expect(dogs()[1]).toHaveTextContent("Chicago Bears +2");
+  expect(screen.getByRole("tab", { name: /^Dogs/ })).toHaveTextContent(
+    "Dogs 2",
+  );
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove Baltimore Ravens" }),
+  );
+  await waitFor(() => expect(dogs()).toHaveLength(1));
+  expect(calls.find((c) => c.method === "PUT")).toMatchObject({
+    url: `/api/admin/weeks/${WEEK}/dog-options`,
+    body: { teamIds: ["h" + G2] },
+  });
+
+  fireEvent.change(screen.getByLabelText("Add a dog"), {
+    target: { value: "a" + G2 },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add dog" }));
+  await waitFor(() =>
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(2),
+  );
+  expect(calls.filter((c) => c.method === "PUT")[1].body).toEqual({
+    teamIds: ["h" + G2, "a" + G2],
+  });
+});
+
+test("dog options are read-only once the lines are approved", async () => {
+  open("LinesApproved", [
+    game(G1, { approvedLine: -3.5, lineHistory: [-3.5] }),
+  ]);
+  server = week(
+    "LinesApproved",
+    [game(G1, { approvedLine: -3.5, lineHistory: [-3.5] })],
+    ["a" + G1],
+  );
+  replies["GET "] = () => ({ status: 200, body: server });
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  fireEvent.click(screen.getByRole("tab", { name: /^Dogs/ }));
+  expect(screen.getByText(/fixed once the lines are approved/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Generate/ })).toBeNull();
+});
+
+test("the dock warns when the lines would be approved with no dog options", async () => {
+  open("Draft", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  expect(screen.getByRole("region", { name: "Next action" })).toHaveTextContent(
+    "No dog options yet. Generate them on the Dogs tab before approving the lines; they can't change afterwards.",
+  );
+});
+
+test("an open week starts on the picks tab and lists every coach's card", async () => {
+  open("Open", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+  replies["GET /picks"] = {
+    status: 200,
+    body: {
+      coaches: [
+        {
+          membershipId: "m1",
+          name: "Coach One",
+          complete: true,
+          starts: [
+            {
+              teamId: "t1",
+              team: "Buffalo Bills",
+              gameId: G1,
+              pointValue: 3,
+              spread: null,
+              locked: true,
+              result: null,
+            },
+          ],
+          dogs: [
+            {
+              teamId: "t2",
+              team: "Baltimore Ravens",
+              gameId: G1,
+              pointValue: null,
+              spread: 3,
+              locked: false,
+              result: null,
+            },
+          ],
+        },
+        {
+          membershipId: "m2",
+          name: "Coach Two",
+          complete: false,
+          starts: [],
+          dogs: [],
+        },
+      ],
+    },
   };
   await screen.findByRole("heading", { level: 1, name: "Week 4" });
 
-  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
-  fireEvent.change(screen.getByLabelText(/Spread for Bills/), {
-    target: { value: "-7" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save line" }));
-
-  const alert = await screen.findByRole("alert");
-  expect(alert).toHaveTextContent("Approved lines are frozen.");
-  expect(screen.getByLabelText(/Spread for Bills/)).toHaveValue("-7");
-  expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  expect(screen.getByRole("tab", { name: /^Picks/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  const coaches = within(
+    await screen.findByRole("list", { name: "Coach cards" }),
+  ).getAllByRole("listitem");
+  expect(screen.getByText("1 of 2 cards complete")).toBeVisible();
+  expect(coaches[0]).toHaveTextContent("Coach One");
+  expect(coaches[0]).toHaveTextContent("Complete");
+  expect(coaches[0]).toHaveTextContent("Buffalo Bills · 3 pts · locked");
+  expect(coaches[0]).toHaveTextContent("Baltimore Ravens +3");
+  expect(coaches[1]).toHaveTextContent("Coach Two");
+  expect(coaches[1]).toHaveTextContent("No picks yet");
 });
 
-test("a spread that is not a number is refused before anything is sent", async () => {
-  open("Draft", [game(G1)]);
+test("the tab in the address is opened, and activity lists what happened to the week", async () => {
+  replies[`GET /api/admin/audit?weekId=${WEEK}`] = {
+    status: 200,
+    body: [
+      {
+        id: { value: "e2" },
+        userId: { value: "u" },
+        action: "week.game.exclusion.changed",
+        at: "2026-09-08T14:00:00Z",
+        resourceId: WEEK,
+        details: '{"before":null,"after":null,"reason":"London game"}',
+      },
+      {
+        id: { value: "e1" },
+        userId: { value: "u" },
+        action: "week.line.added",
+        at: "2026-09-08T13:02:00Z",
+        resourceId: WEEK,
+        details: '{"before":null,"after":null,"reason":null}',
+      },
+    ],
+  };
+  server = week("Draft", [game(G1)]);
+  replies["GET "] = () => ({ status: 200, body: server });
+  stubApi();
+  window.history.replaceState({}, "", `/commish/weeks/${WEEK}?tab=activity`);
+  render(<App />);
+
+  const entries = within(
+    await screen.findByRole("list", { name: "Week activity" }),
+  ).getAllByRole("listitem");
+  expect(entries).toHaveLength(2);
+  expect(entries[0]).toHaveTextContent("Game included or excluded");
+  expect(entries[0]).toHaveTextContent("London game");
+  expect(entries[0]).toHaveTextContent("Tue, Sep 8, 10:00 AM ET");
+  expect(entries[1]).toHaveTextContent("Line entered");
+});
+
+test("preview as coach shows the games with their lines and the dog options", async () => {
+  const games = [
+    game(G1, { approvedLine: -3.5, lineHistory: [-3.5] }),
+    game(G2, {
+      approvedLine: 2,
+      lineHistory: [2],
+      homeTeamName: "Chicago Bears",
+      awayTeamName: "Detroit Lions",
+    }),
+  ];
+  open("LinesApproved", games);
+  server = week("LinesApproved", games, ["h" + G2]);
+  replies["GET "] = () => ({ status: 200, body: server });
   await screen.findByRole("heading", { level: 1, name: "Week 4" });
 
-  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Save line" }));
-
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Enter the spread as a number",
-  );
-  expect(calls.some((c) => c.method === "POST")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Preview as coach" }));
+  const preview = within(screen.getByRole("region", { name: "Coach preview" }));
+  expect(preview.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+    "Ravens at Bills · Bills -3.5",
+    "Lions at Bears · Bears +2",
+    "Chicago Bears +2",
+  ]);
+  fireEvent.click(preview.getByRole("button", { name: "Close preview" }));
+  expect(screen.queryByRole("region", { name: "Coach preview" })).toBeNull();
 });
 
 test("with every line approved the dock offers the bulk approval and the server answer replaces the page", async () => {
@@ -322,16 +803,14 @@ test("with every line approved the dock offers the bulk approval and the server 
   expect(
     await within(
       screen.getByRole("region", { name: "Next action" }),
-    ).findByRole("button", { name: "Publish week" }),
+    ).findByRole("button", { name: "Publish Week 4" }),
   ).toBeVisible();
   expect(screen.getAllByText("Lines approved").length).toBeGreaterThan(0);
-  expect(
-    screen.queryByRole("button", { name: /Edit line|Add line/ }),
-  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: /^Spread for/ })).toBeNull();
 });
 
 test.each([
-  ["LinesApproved", "Publish week", "publish", "Open"],
+  ["LinesApproved", "Publish Week 4", "publish", "Open"],
   ["Open", "Lock week", "lock", "Locked"],
 ])(
   "%s: the dock calls %s and shows the new state from the server",
@@ -456,20 +935,6 @@ test("result scores must be whole numbers before anything is sent", async () => 
   expect(calls.some((c) => c.method === "POST")).toBe(false);
 });
 
-test("an excluded game is labelled and has no actions", async () => {
-  open("Draft", [game(G1, { excluded: true }), game(G2)]);
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
-
-  const rows = screen
-    .getAllByRole("listitem")
-    .filter((li) => li.classList.contains("game"));
-  expect(rows[0]).toHaveTextContent("Excluded from this week");
-  expect(within(rows[0]).queryByRole("button")).not.toBeInTheDocument();
-  expect(screen.getByRole("region", { name: "Next action" })).toHaveTextContent(
-    "1 of 1 included game still needs",
-  );
-});
-
 test("a final week shows scores and no editing", async () => {
   open("Final", [
     game(G1, {
@@ -546,68 +1011,18 @@ test("a coach on a week address gets their own desk and no admin call is made", 
   expect(calls.some((c) => c.url.includes("/api/admin"))).toBe(false);
 });
 
-test("Escape closes an open editor without sending anything and returns focus to its button", async () => {
-  open("Draft", [game(G1)]);
+test("Escape closes an open result editor without sending anything and returns focus to its button", async () => {
+  open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
   await screen.findByRole("heading", { level: 1, name: "Week 4" });
 
-  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
-  fireEvent.keyDown(screen.getByLabelText(/Spread for Bills/), {
-    key: "Escape",
-  });
+  fireEvent.click(screen.getByRole("button", { name: /Enter result/ }));
+  fireEvent.keyDown(screen.getByLabelText("Ravens score"), { key: "Escape" });
 
   expect(screen.queryByRole("form")).not.toBeInTheDocument();
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: /Add line/ })).toHaveFocus(),
+    expect(screen.getByRole("button", { name: /Enter result/ })).toHaveFocus(),
   );
   expect(calls.some((c) => c.method === "POST")).toBe(false);
-});
-
-test.each(["35", "-30.5", "1e3", "3,5", "--3", "0x10", "Infinity", ""])(
-  "the spread %j is refused beside the editor before anything is sent",
-  async (typed) => {
-    open("Draft", [game(G1)]);
-    await screen.findByRole("heading", { level: 1, name: "Week 4" });
-
-    fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
-    fireEvent.change(screen.getByLabelText(/Spread for Bills/), {
-      target: { value: typed },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save and approve" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "a number from -30 to 30",
-    );
-    expect(calls.some((c) => c.method === "POST")).toBe(false);
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
-  },
-);
-
-test.each([
-  ["30", 30],
-  ["-30", -30],
-  ["0", 0],
-  ["-3.5", -3.5],
-  ["+7", 7],
-])("the spread %s is sent as the number %d", async (typed, sent) => {
-  open("Draft", [game(G1)]);
-  replies[`POST /games/${G1}/lines`] = () => ({
-    status: 200,
-    body: week("Draft", [game(G1, { lineHistory: [sent] })]),
-  });
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
-
-  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
-  fireEvent.change(screen.getByLabelText(/Spread for Bills/), {
-    target: { value: typed },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save line" }));
-
-  await waitFor(() =>
-    expect(calls.find((c) => c.method === "POST")?.body).toEqual({
-      spread: sent,
-      approve: false,
-    }),
-  );
 });
 
 test.each([
@@ -671,29 +1086,6 @@ test("scores of 0 and 100 are accepted", async () => {
       awayScore: 0,
     }),
   );
-});
-
-test("the server's refusal of an out-of-range spread is shown beside the editor", async () => {
-  open("Draft", [game(G1)]);
-  replies[`POST /games/${G1}/lines`] = {
-    status: 400,
-    body: {
-      code: "spread.invalid",
-      message: "A spread must be between -30 and 30.",
-    },
-  };
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
-
-  fireEvent.click(screen.getByRole("button", { name: /Add line/ }));
-  fireEvent.change(screen.getByLabelText(/Spread for Bills/), {
-    target: { value: "-3.5" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save line" }));
-
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "A spread must be between -30 and 30.",
-  );
-  expect(screen.getByLabelText(/Spread for Bills/)).toHaveValue("-3.5");
 });
 
 test("recompute asks first, can be cancelled, and calls the endpoint only after confirming", async () => {
@@ -806,4 +1198,60 @@ test("the other dock actions need no confirmation", async () => {
   expect(
     screen.queryByRole("group", { name: /Confirm/ }),
   ).not.toBeInTheDocument();
+});
+
+const W3 = "33333333-3333-3333-3333-333333333333";
+const W5 = "55555555-5555-5555-5555-555555555555";
+const seasonWeeks = [
+  { id: W3, number: 3, kind: "Regular", state: "Final" },
+  { id: WEEK, number: 4, kind: "Regular", state: "Open" },
+  { id: W5, number: 5, kind: "Regular", state: "Draft" },
+];
+
+test("the week picker lists the season's weeks with their state and moves between them", async () => {
+  replies["GET /api/admin/seasons/s/weeks"] = {
+    status: 200,
+    body: seasonWeeks,
+  };
+  open("Draft", [game(G1)]);
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  const picker = within(
+    await screen.findByRole("navigation", { name: "Weeks" }),
+  );
+  const select = picker.getByLabelText("Week");
+  expect(select).toHaveValue(WEEK);
+  expect(
+    within(select)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["Week 3 · Final", "Week 4 · Open for picks", "Week 5 · Draft"]);
+
+  fireEvent.click(picker.getByRole("button", { name: "Next week, Week 5" }));
+  expect(window.location.pathname).toBe(`/commish/weeks/${W5}`);
+  expect(window.location.search).toBe("?tab=lines");
+});
+
+test("choosing a week in the picker opens it, and the first week has no previous", async () => {
+  replies["GET /api/admin/seasons/s/weeks"] = {
+    status: 200,
+    body: [seasonWeeks[1], seasonWeeks[2]],
+  };
+  open("Draft", [game(G1)]);
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  const picker = within(
+    await screen.findByRole("navigation", { name: "Weeks" }),
+  );
+  expect(picker.getByRole("button", { name: "Previous week" })).toBeDisabled();
+  fireEvent.change(picker.getByLabelText("Week"), { target: { value: W5 } });
+  expect(window.location.pathname).toBe(`/commish/weeks/${W5}`);
+});
+
+test("without the season's weeks the workspace still works and offers no picker", async () => {
+  open("Draft", [game(G1)]);
+  await screen.findByRole("table", { name: "Lines" });
+
+  expect(screen.queryByRole("navigation", { name: "Weeks" })).toBeNull();
+  expect(screen.getByRole("button", { name: "‹ Today" })).toBeVisible();
 });

@@ -88,7 +88,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-test("the admin lands on the decision queue in ranked order with the current week beside it", async () => {
+test("today states the week, marks its stage and puts the top decision in the next-action card", async () => {
   dashboard = {
     status: 200,
     body: {
@@ -104,20 +104,201 @@ test("the admin lands on the decision queue in ranked order with the current wee
   expect(
     await screen.findByRole("heading", { level: 1, name: "Week 4" }),
   ).toBeVisible();
+  expect(
+    screen.getByText("2026 Swan League · Regular season · Double dogs"),
+  ).toBeVisible();
+  expect(screen.getByText("Lines are being prepared")).toBeVisible();
+  const stages = within(screen.getByRole("list", { name: "Week 4 stages" }));
+  expect(stages.getAllByRole("listitem")).toHaveLength(5);
+  expect(stages.getByRole("listitem", { current: "step" })).toHaveTextContent(
+    "Draft",
+  );
+  expect(screen.getByText("13 of 16 lines approved")).toBeVisible();
+
+  const next = within(screen.getByRole("region", { name: "Next action" }));
+  expect(next.getByRole("heading", { level: 2 })).toHaveTextContent(
+    "Results to confirm",
+  );
+  expect(
+    next.getByText("2 of 16 included games are missing results"),
+  ).toBeVisible();
+  expect(next.getByRole("link", { name: "Open Week 3" })).toHaveAttribute(
+    "href",
+    "/commish/weeks/w3",
+  );
+
   const queue = screen.getByRole("region", { name: "Needs your decision" });
   const items = within(queue).getAllByRole("listitem");
-  expect(items).toHaveLength(2);
-  expect(items[0]).toHaveTextContent("Results to confirm");
-  expect(items[0]).toHaveTextContent(
-    "2 of 16 included games are missing results",
+  expect(items).toHaveLength(1);
+  expect(items[0]).toHaveTextContent("Lines need approval");
+  expect(items[0]).toHaveTextContent("Week 4 · Draft");
+});
+
+test("an open week with coaches still owing picks makes that the next action and lists who owes what", async () => {
+  dashboard = {
+    status: 200,
+    body: {
+      season,
+      currentWeek: week({
+        state: "Open",
+        linesApproved: 16,
+        submissions: {
+          complete: 24,
+          of: 30,
+          incomplete: [
+            {
+              membershipId: "m4",
+              name: "Coach 4",
+              starts: 0,
+              startLimit: 3,
+              dogs: 0,
+              dogLimit: 2,
+            },
+            {
+              membershipId: "m2",
+              name: "Coach 2",
+              starts: 2,
+              startLimit: 3,
+              dogs: 1,
+              dogLimit: 2,
+            },
+            ...[5, 6, 7, 8].map((n) => ({
+              membershipId: `m${n}`,
+              name: `Coach ${n}`,
+              starts: 3,
+              startLimit: 3,
+              dogs: 1,
+              dogLimit: 2,
+            })),
+          ],
+        },
+      }),
+      attention: [],
+      caughtUp: false,
+    },
+  };
+  stubApi("Admin");
+  render(<App />);
+
+  const next = within(
+    await screen.findByRole("region", { name: "Next action" }),
   );
-  expect(items[0]).toHaveTextContent("Week 3 · Locked");
-  expect(items[1]).toHaveTextContent("Lines need approval");
-  expect(items[1]).toHaveTextContent("Week 4 · Draft");
-  const current = screen.getByRole("region", { name: "This week" });
-  expect(current).toHaveTextContent("Week 4 · Regular season · Draft");
-  expect(current).toHaveTextContent("13 / 16");
-  expect(current).toHaveTextContent("Week 4 is a double-dog week");
+  expect(next.getByRole("heading", { level: 2 })).toHaveTextContent(
+    "6 coaches still owe picks",
+  );
+  expect(
+    screen.getByText("Open for picks", { selector: ".today-state" }),
+  ).toBeVisible();
+
+  const subs = within(
+    screen.getByRole("region", { name: "Week 4 submissions" }),
+  );
+  expect(subs.getByText("24 of 30 complete")).toBeVisible();
+  expect(subs.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "24");
+  const owing = subs.getAllByRole("listitem");
+  expect(owing).toHaveLength(5);
+  expect(owing[0]).toHaveTextContent("Coach 4");
+  expect(owing[0]).toHaveTextContent("0 of 3 starts · 0 of 2 dogs");
+  expect(owing[1]).toHaveTextContent("2 of 3 starts · 1 of 2 dogs");
+  expect(subs.getByText("+ 1 more")).toBeVisible();
+  expect(subs.getByRole("link", { name: "See all picks" })).toHaveAttribute(
+    "href",
+    "/commish/weeks/w4?tab=picks",
+  );
+});
+
+test("money and job cards appear only when the server reports them", async () => {
+  dashboard = {
+    status: 200,
+    body: {
+      season,
+      currentWeek: week(),
+      attention: [lines],
+      caughtUp: false,
+      money: null,
+      jobs: null,
+    },
+  };
+  stubApi("Admin");
+  const { unmount } = render(<App />);
+  await screen.findByRole("region", { name: "Next action" });
+  expect(screen.queryByRole("region", { name: "Money" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Jobs" })).toBeNull();
+  unmount();
+
+  dashboard = {
+    status: 200,
+    body: {
+      season,
+      currentWeek: week(),
+      attention: [lines],
+      caughtUp: false,
+      money: {
+        buyInsPaid: 27,
+        buyInsDue: 30,
+        finePoolCents: 1000,
+        pendingFines: 3,
+        pendingFinesCents: 1500,
+      },
+      jobs: {
+        healthy: false,
+        lastScoreSync: "2026-10-22T13:00:00Z",
+        nextReminder: null,
+        failures: 2,
+      },
+    },
+  };
+  render(<App />);
+  const money = within(await screen.findByRole("region", { name: "Money" }));
+  expect(money.getByText("27 of 30 buy-ins paid")).toBeVisible();
+  expect(
+    money.getByText("$10.00 fine pool · $15.00 pending (3)"),
+  ).toBeVisible();
+  const jobs = within(screen.getByRole("region", { name: "Jobs" }));
+  expect(jobs.getByText("2 failures")).toBeVisible();
+  expect(jobs.getByText(/Score sync Thu, Oct 22, 9:00 AM ET/)).toBeVisible();
+});
+
+test("the Today link carries a count of decisions waiting", async () => {
+  dashboard = {
+    status: 200,
+    body: {
+      season,
+      currentWeek: week(),
+      attention: [results, lines],
+      caughtUp: false,
+    },
+  };
+  stubApi("Admin");
+  render(<App />);
+  await screen.findByRole("region", { name: "Next action" });
+
+  const nav = screen.getByRole("navigation", { name: "Primary" });
+  expect(
+    await within(nav).findByRole("link", { name: "Today, 2 need a decision" }),
+  ).toHaveAttribute("aria-current", "page");
+});
+
+test("quick actions lead to the week, the draft and season setup", async () => {
+  dashboard = {
+    status: 200,
+    body: { season, currentWeek: week(), attention: [lines], caughtUp: false },
+  };
+  stubApi("Admin");
+  render(<App />);
+
+  const quick = within(
+    await screen.findByRole("region", { name: "Quick actions" }),
+  );
+  expect(
+    quick
+      .getAllByRole("link")
+      .map((link) => [link.textContent, link.getAttribute("href")]),
+  ).toEqual([
+    ["Open Week 4", "/commish/weeks/w4"],
+    ["Draft status", "/commish/draft"],
+    ["Season setup", "/commish/setup"],
+  ]);
 });
 
 test("the main landmarks, a skip link and a labelled navigation are present with sign-out in the header", async () => {
@@ -142,7 +323,7 @@ test("keyboard order follows the page: skip link, header, navigation, then the c
   };
   stubApi("Admin");
   const { container } = render(<App />);
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+  await screen.findByRole("link", { name: "Today, 1 need a decision" });
 
   // Tab order is DOM order when nothing sets a positive tabindex, so assert both.
   const focusable = Array.from(
@@ -157,19 +338,28 @@ test("keyboard order follows the page: skip link, header, navigation, then the c
   ).toBe(true);
   const names = focusable
     .filter((element) => element.tabIndex >= 0)
-    .map((element) => element.textContent?.replace(/\s+/g, " ").trim());
-  expect(names).toHaveLength(10);
+    .map(
+      (element) =>
+        element.getAttribute("aria-label") ??
+        element.textContent?.replace(/\s+/g, " ").trim(),
+    );
   expect(names.slice(0, 7)).toEqual([
     "Skip to main content",
     "Coach",
     "Commish",
     "Sign out",
-    "Today",
+    "Today, 1 need a decision",
     "Draft",
     "Season setup",
   ]);
-  expect(names[7]).toContain("Lines need approval");
-  expect(names.slice(8)).toEqual(["Refresh", "Open Week 4"]);
+  // The next action, then the quick actions, then refresh.
+  expect(names.slice(7)).toEqual([
+    "Open Week 4",
+    "Open Week 4",
+    "Draft status",
+    "Season setup",
+    "Refresh",
+  ]);
 });
 
 test("only destinations that exist are listed, with Today marked current", async () => {
@@ -251,7 +441,7 @@ test("a season with no name is identified by its year", async () => {
     name: "Needs your decision",
   });
   expect(queue).toHaveTextContent("Every week of 2026 season is final");
-  expect(screen.getByText("2026 season")).toBeVisible();
+  expect(screen.getByText(/^2026 season · Regular season/)).toBeVisible();
 });
 
 test("an informational item is kept apart from decisions", async () => {
@@ -374,12 +564,14 @@ test("a season with neither a name nor a year is called this season", async () =
   stubApi("Admin");
   render(<App />);
 
-  expect(await screen.findByText("This season")).toBeVisible();
-  expect(screen.getByText(/Every week of this season is final/)).toBeVisible();
+  expect(await screen.findByText(/^This season · /)).toBeVisible();
+  expect(
+    screen.getByRole("region", { name: "Needs your decision" }),
+  ).toHaveTextContent(/Every week of this season is final/);
   expect(screen.queryByText(/^0 season/)).not.toBeInTheDocument();
 });
 
-test("a decision row and the current week both open that exact week's workspace", async () => {
+test("a decision row and the next action both open that exact week's workspace", async () => {
   dashboard = {
     status: 200,
     body: {
@@ -396,11 +588,12 @@ test("a decision row and the current week both open that exact week's workspace"
     await screen.findByRole("region", { name: "Needs your decision" }),
   ).findAllByRole("link");
   expect(rows.map((row) => row.getAttribute("href"))).toEqual([
-    "/commish/weeks/w3",
     "/commish/weeks/w4",
   ]);
-  expect(screen.getByRole("link", { name: "Open Week 4" })).toHaveAttribute(
-    "href",
-    "/commish/weeks/w4",
-  );
+  expect(
+    within(screen.getByRole("region", { name: "Next action" })).getByRole(
+      "link",
+      { name: "Open Week 3" },
+    ),
+  ).toHaveAttribute("href", "/commish/weeks/w3");
 });
