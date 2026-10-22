@@ -86,22 +86,49 @@ public static class ScheduleImportPlan
 
 public sealed record DogOption(TeamId TeamId);
 
+public enum LineSource { Manual, Csv }
+
+public sealed record AmericanMoneyline(int Home, int Away)
+{
+    public static Result<AmericanMoneyline> Create(int home, int away) => home == 0 || away == 0
+        ? Result<AmericanMoneyline>.Failure("moneyline.invalid", "American odds cannot be zero.")
+        : Result<AmericanMoneyline>.Success(new(home, away));
+}
+
+public sealed record GameLine(Spread Spread, int? HomeMoneyline, int? AwayMoneyline, LineSource Source, DateTimeOffset EnteredAt, UserId EnteredBy);
+
 public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickoff kickoff, bool excluded = false, string? providerGameId = null)
 {
     private readonly List<Spread> lineHistory = [];
+    private readonly List<GameLine> lineDetails = [];
     public GameId Id { get; } = id;
     public TeamId HomeTeamId { get; } = homeTeamId;
     public TeamId AwayTeamId { get; } = awayTeamId;
     public Kickoff Kickoff { get; } = kickoff;
-    public bool Excluded { get; } = excluded;
+    public bool Excluded { get; private set; } = excluded;
     // Set only for games imported from a schedule provider; a source game can be imported once.
     public string? ProviderGameId { get; } = providerGameId;
     public Spread? ApprovedLine { get; private set; }
     public GameResult? Result { get; private set; }
     public IReadOnlyCollection<Spread> LineHistory => lineHistory.AsReadOnly();
+    public IReadOnlyCollection<GameLine> LineDetails => lineDetails.AsReadOnly();
+    public GameLine? LatestLine => lineDetails.LastOrDefault();
     // A line was added after the one that is approved (or none is approved yet), so approving the week now would freeze an out-of-date spread.
     public bool HasUnapprovedLine => lineHistory.Count > 0 && lineHistory[^1] != ApprovedLine;
-    internal Result<bool> AddLine(Spread line, bool frozen) { if (frozen) return Result<bool>.Failure("game.frozen", "Approved lines are frozen."); lineHistory.Add(line); return Result<bool>.Success(true); }
+    internal Result<bool> AddLine(Spread line, bool frozen) => AddLine(line, null, LineSource.Manual, DateTimeOffset.UtcNow, default, frozen);
+    internal Result<bool> AddLine(Spread line, AmericanMoneyline? moneyline, LineSource source, DateTimeOffset enteredAt, UserId enteredBy, bool frozen)
+    {
+        if (frozen) return Result<bool>.Failure("game.frozen", "Approved lines are frozen.");
+        lineHistory.Add(line);
+        lineDetails.Add(new GameLine(line, moneyline?.Home, moneyline?.Away, source, enteredAt, enteredBy));
+        return Result<bool>.Success(true);
+    }
+    internal Result<bool> SetExcluded(bool excluded, WeekState state)
+    {
+        if (state is not WeekState.Draft and not WeekState.LinesApproved) return Result<bool>.Failure("week.state", "Games can only be included or excluded while lines are being prepared.");
+        Excluded = excluded;
+        return Result<bool>.Success(true);
+    }
     internal Result<bool> ApproveLine(bool frozen) { if (frozen || lineHistory.Count == 0) return Result<bool>.Failure("game.line", "A line is required and must not be frozen."); ApprovedLine = lineHistory[^1]; return Result<bool>.Success(true); }
     internal Result<bool> ConfirmResult(GameResult result) { Result = result; return Result<bool>.Success(true); }
 }
@@ -137,6 +164,14 @@ public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type
         return Result<bool>.Success(true);
     }
     public Result<bool> AddLine(GameId gameId, Spread line) => games.FirstOrDefault(game => game.Id == gameId)?.AddLine(line, State is not WeekState.Draft) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
+    public Result<bool> AddLine(GameId gameId, Spread line, AmericanMoneyline? moneyline, LineSource source, DateTimeOffset enteredAt, UserId enteredBy) => games.FirstOrDefault(game => game.Id == gameId)?.AddLine(line, moneyline, source, enteredAt, enteredBy, State is not WeekState.Draft) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
+    public Result<bool> SetGameExclusion(GameId gameId, bool excluded)
+    {
+        var game = games.FirstOrDefault(candidate => candidate.Id == gameId);
+        var result = game?.SetExcluded(excluded, State) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
+        if (result.IsSuccess && excluded && game is not null) dogOptions.RemoveAll(option => option.TeamId == game.HomeTeamId || option.TeamId == game.AwayTeamId);
+        return result;
+    }
     public Result<bool> ApproveLines() => State != WeekState.Draft || games.Any(game => !game.Excluded && (game.ApprovedLine is null || game.HasUnapprovedLine)) ? Result<bool>.Failure("week.lines", "Every included game needs its latest line approved.") : Transition(WeekState.LinesApproved);
     public Result<bool> ApproveLatestLine(GameId gameId) => games.FirstOrDefault(game => game.Id == gameId)?.ApproveLine(State is not WeekState.Draft) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
     public Result<bool> Publish() => State != WeekState.LinesApproved ? Result<bool>.Failure("week.state", "Lines must be approved.") : PublishInternal();

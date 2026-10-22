@@ -4,7 +4,15 @@ import { signIn } from "./signin";
 
 type Coach = { email: string; name: string };
 type WeekResponse = {
-  games: { id: string; approvedLine: number | null; hasResult: boolean }[];
+  number: number;
+  games: {
+    id: string;
+    approvedLine: number | null;
+    hasResult: boolean;
+    excluded: boolean;
+    homeTeamName: string;
+    awayTeamName: string;
+  }[];
 };
 type RosterResponse = {
   seasonId: string;
@@ -225,44 +233,74 @@ test("commissioner publishes a prepared draft week", async ({ browser }) => {
   );
   try {
     const weekId = await currentWeek(admin);
-    await admin.goto(`/weeks/${weekId}`);
-    await admin
-      .getByRole("button", { name: /^Add line/ })
-      .first()
-      .click();
-    await admin.getByLabel(/^Spread for/).fill("-3.5");
-    await admin.getByRole("button", { name: "Save and approve" }).click();
     const week = (await (
       await admin.request.get(`/api/admin/weeks/${weekId}`)
     ).json()) as WeekResponse;
-    for (const game of week.games.filter(
-      (game) => game.approvedLine === null,
-    )) {
-      await expectOk(
-        await admin.request.post(
-          `/api/admin/weeks/${weekId}/games/${game.id}/lines`,
-          {
-            data: { spread: -3.5, approve: true },
-          },
-        ),
+    const included = week.games.filter((game) => !game.excluded);
+
+    // Today leads with the week's lines as the next action.
+    await admin.goto("/commish");
+    const next = admin.getByRole("region", { name: "Next action" });
+    await expect(next).toBeVisible();
+    await next.getByRole("link", { name: `Open Week ${week.number}` }).click();
+    await expect(admin).toHaveURL(new RegExp(`/commish/weeks/${weekId}`));
+
+    // Paste every line as CSV, preview it, then save.
+    await admin.getByRole("button", { name: "Paste CSV" }).click();
+    const paste = admin.getByRole("region", { name: "Paste CSV" });
+    await paste
+      .getByLabel(/^CSV lines/)
+      .fill(
+        included
+          .map((game) => `${game.awayTeamName},${game.homeTeamName},-3.5`)
+          .join("\n"),
       );
-    }
-    await expectOk(
-      await admin.request.post(
-        `/api/admin/weeks/${weekId}/dog-options/generate`,
+    await paste.getByRole("button", { name: "Preview CSV" }).click();
+    await paste
+      .getByRole("button", {
+        name: `Save ${included.length} ${included.length === 1 ? "line" : "lines"}`,
+      })
+      .click();
+    await expect(
+      admin.getByText(
+        `Saved ${included.length} ${included.length === 1 ? "line" : "lines"} from CSV.`,
       ),
-    );
-    await admin.reload();
+    ).toBeVisible();
+
+    // Approve them all from the table.
     await admin
-      .getByRole("region", { name: "Next action" })
+      .getByRole("checkbox", { name: "Select all lines that need review" })
+      .check();
+    await admin
+      .getByRole("button", { name: `Approve ${included.length} selected` })
+      .click();
+    await expect(
+      admin.getByRole("tab", {
+        name: `Lines ${included.length}/${included.length}`,
+      }),
+    ).toBeVisible();
+
+    // Build the dog list before the lines freeze.
+    await admin.getByRole("tab", { name: /^Dogs/ }).click();
+    await admin
+      .getByRole("button", { name: "Generate from approved lines" })
+      .click();
+    await expect(
+      admin.getByRole("list", { name: "Dog options" }).getByRole("listitem"),
+    ).toHaveCount(included.length);
+
+    const nextAction = admin.getByRole("region", { name: "Next action" });
+    await nextAction
       .getByRole("button", { name: /^Approve \d+ lines?$/ })
       .click();
-    const nextAction = admin.getByRole("region", { name: "Next action" });
+    await nextAction
+      .getByRole("button", { name: `Publish Week ${week.number}` })
+      .click();
     await expect(
-      nextAction.getByRole("button", { name: "Publish week" }),
-    ).toBeVisible();
-    await nextAction.getByRole("button", { name: "Publish week" }).click();
-    await expect(admin.getByText("Open for picks")).toBeVisible();
+      admin
+        .getByRole("list", { name: "Week stages" })
+        .locator('[aria-current="step"]'),
+    ).toContainText("Open for picks");
   } finally {
     await adminContext.close();
   }
@@ -281,7 +319,7 @@ test("coach saves picks for an open week", async ({ browser }) => {
     "coach4@swan.local",
   );
   try {
-    await prepareOpenWeek(admin);
+    const weekId = await prepareOpenWeek(admin);
     await coach.goto("/");
     await coach.getByRole("link", { name: /^Finish Week \d+ picks$/ }).click();
     const starts = coach.getByRole("button", { name: /^Start / });
@@ -293,6 +331,14 @@ test("coach saves picks for an open week", async ({ browser }) => {
       .click();
     await coach.getByRole("button", { name: "Save 3 picks and 1 dog" }).click();
     await expect(coach.getByText("Picks saved.")).toBeVisible();
+
+    // The commissioner sees the coach's full card on the week's Picks tab.
+    await admin.goto(`/commish/weeks/${weekId}?tab=picks`);
+    const card = admin
+      .getByRole("list", { name: "Coach cards" })
+      .getByRole("listitem")
+      .filter({ hasText: "Coach 4" });
+    await expect(card).toContainText("Complete");
   } finally {
     await Promise.all([adminContext.close(), coachContext.close()]);
   }

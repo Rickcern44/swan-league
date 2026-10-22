@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Swan.Core.Common;
+using Swan.Core.Schedule;
 using Swan.Services.Platform;
 
 namespace Swan.Api.Endpoints.Admin;
@@ -16,10 +17,11 @@ public static class AuditEndpoints
     private static async Task<IResult> GetAudit(
         Guid? actor,
         string? action,
+        Guid? weekId,
         DateTimeOffset? from,
         DateTimeOffset? to,
         IAuditService audit,
-        CancellationToken cancellationToken) => Results.Ok(await audit.QueryAsync(new AuditFilter(actor is { } value ? new UserId(value) : null, action, from, to), cancellationToken));
+        CancellationToken cancellationToken) => Results.Ok(await audit.QueryAsync(new AuditFilter(actor is { } actorId ? new UserId(actorId) : null, action, from, to, weekId is { } requestedWeekId ? new WeekId(requestedWeekId) : null), cancellationToken));
 
     private static async Task<IResult> RecordAdminPing(
         ClaimsPrincipal principal,

@@ -1,10 +1,14 @@
 using System.Security.Claims;
 using Swan.Core.Common;
+using Swan.Core.Schedule;
 using Swan.Services.Schedule;
 
 namespace Swan.Api.Endpoints.Admin;
 
-public sealed record AddLineRequest(decimal Spread, bool Approve = false);
+public sealed record MoneylineRequest(int Home, int Away);
+public sealed record AddLineRequest(decimal Spread, bool Approve = false, MoneylineRequest? Moneyline = null, string? Source = null);
+public sealed record SetGameExclusionRequest(bool Excluded, string? Reason);
+public sealed record SeasonWeekResponse(Guid Id, int Number, string Kind, string State);
 public sealed record ConfirmResultRequest(int HomeScore, int AwayScore);
 public sealed record ReplaceDogOptionsRequest(IReadOnlyList<Guid> TeamIds);
 
@@ -15,10 +19,31 @@ public static class WeekEndpoints
         var weeks = endpoints.MapGroup("/api/admin/weeks/{weekId:guid}").RequireAuthorization("Admin");
         weeks.MapGet("", async (Guid weekId, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             ToResult(await service.GetAsync(new WeekId(weekId), cancellationToken)));
+        endpoints.MapGet("/api/admin/seasons/{seasonId:guid}/weeks", async (Guid seasonId, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetSeasonWeeksAsync(new SeasonId(seasonId), cancellationToken);
+            return result.IsSuccess
+                ? Results.Ok(result.Value!.Select(week => new SeasonWeekResponse(week.Id.Value, week.Number, week.Kind.ToString(), week.State.ToString())))
+                : Results.NotFound(result.Error);
+        }).RequireAuthorization("Admin");
         weeks.MapPost("/games/{gameId:guid}/lines", (Guid weekId, Guid gameId, AddLineRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
-            Act(principal, actor => service.AddLineAsync(actor, new WeekId(weekId), new GameId(gameId), request.Spread, request.Approve, cancellationToken)));
+        {
+            var source = ParseSource(request.Source);
+            if (!source.IsSuccess) return Task.FromResult<IResult>(Results.BadRequest(source.Error));
+            var parsedMoneyline = request.Moneyline is null ? null : AmericanMoneyline.Create(request.Moneyline.Home, request.Moneyline.Away);
+            var moneyline = parsedMoneyline is null
+                ? Result<AmericanMoneyline?>.Success(null)
+                : parsedMoneyline.IsSuccess
+                    ? Result<AmericanMoneyline?>.Success(parsedMoneyline.Value)
+                    : Result<AmericanMoneyline?>.Failure(parsedMoneyline.Error!.Code, parsedMoneyline.Error.Message);
+            return !moneyline.IsSuccess
+                ? Task.FromResult<IResult>(Results.BadRequest(moneyline.Error))
+                : Act(principal, actor => service.AddLineAsync(actor, new WeekId(weekId), new GameId(gameId), request.Spread, moneyline.Value, source.Value!, request.Approve, cancellationToken));
+        });
         weeks.MapPost("/games/{gameId:guid}/lines/approve-latest", (Guid weekId, Guid gameId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.ApproveLatestLineAsync(actor, new WeekId(weekId), new GameId(gameId), cancellationToken)));
+        weeks.MapPost("/games/{gameId:guid}/exclusion", (Guid weekId, Guid gameId, SetGameExclusionRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.SetGameExclusionAsync(actor, new WeekId(weekId), new GameId(gameId), request.Excluded, request.Reason ?? string.Empty, cancellationToken)));
         weeks.MapPost("/dog-options/generate", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.GenerateDogOptionsAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPut("/dog-options", (Guid weekId, ReplaceDogOptionsRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
@@ -49,7 +74,13 @@ public static class WeekEndpoints
     {
         { IsSuccess: true } => Results.Ok(result.Value is WeekDashboard week ? WeekResponse.From(week) : result.Value),
         { Error.Code: "week.missing" or "game.missing" or "season.missing" } => Results.NotFound(result.Error),
-        { Error.Code: "spread.invalid" or "game-result.invalid" } => Results.BadRequest(result.Error),
+        { Error.Code: "spread.invalid" or "game-result.invalid" or "moneyline.invalid" or "game.exclusion.reason" } => Results.BadRequest(result.Error),
         _ => Results.Conflict(result.Error)
     };
+
+    private static Result<LineSource> ParseSource(string? source) => string.IsNullOrWhiteSpace(source) || string.Equals(source, "manual", StringComparison.OrdinalIgnoreCase)
+        ? Result<LineSource>.Success(LineSource.Manual)
+        : string.Equals(source, "csv", StringComparison.OrdinalIgnoreCase)
+            ? Result<LineSource>.Success(LineSource.Csv)
+            : Result<LineSource>.Failure("line.source", "Source must be manual or csv.");
 }

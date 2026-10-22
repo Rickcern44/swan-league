@@ -34,6 +34,7 @@ export default function App() {
   );
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [path, setPath] = useState(window.location.pathname);
+  const [decisions, setDecisions] = useState(0);
 
   useEffect(() => {
     const onPop = () => setPath(window.location.pathname);
@@ -54,7 +55,8 @@ export default function App() {
   function navigate(to: string, replace = false) {
     if (replace) window.history.replaceState({}, "", to);
     else window.history.pushState({}, "", to);
-    setPath(to);
+    // A query (such as a week tab) stays in the address; routing reads only the path.
+    setPath(to.split("?")[0]);
   }
 
   const access: Access | null = user
@@ -144,6 +146,7 @@ export default function App() {
             role={user.role}
             access={access}
             route={route}
+            decisions={decisions}
             onNavigate={(to) => navigate(to)}
             onSignOut={() => void signOut()}
           >
@@ -166,11 +169,20 @@ export default function App() {
                 key={route.weekId}
                 weekId={route.weekId}
                 onBack={() => navigate("/commish")}
+                onOpenWeek={(id, tab) =>
+                  navigate(`/commish/weeks/${id}?tab=${tab}`)
+                }
               />
             ) : (
               <Dashboard
                 onSeasonSetup={() => navigate("/commish/setup")}
-                onOpenWeek={(id) => navigate(`/commish/weeks/${id}`)}
+                onOpenWeek={(id, tab) =>
+                  navigate(`/commish/weeks/${id}${tab ? `?tab=${tab}` : ""}`)
+                }
+                onNavigate={(to) => navigate(to)}
+                onDecisions={setDecisions}
+                canDraft={access.canDraft}
+                canSetup={access.canSetup}
               />
             )}
           </Shell>
