@@ -97,6 +97,10 @@ public sealed record AmericanMoneyline(int Home, int Away)
 
 public sealed record GameLine(Spread Spread, int? HomeMoneyline, int? AwayMoneyline, LineSource Source, DateTimeOffset EnteredAt, UserId EnteredBy);
 
+public enum ResultDraftSource { Provider, Manual, Override }
+
+public sealed record ResultDraft(GameResult Result, ResultDraftSource Source, DateTimeOffset UpdatedAt, string? Reason);
+
 public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickoff kickoff, bool excluded = false, string? providerGameId = null)
 {
     private readonly List<Spread> lineHistory = [];
@@ -110,6 +114,7 @@ public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickof
     public string? ProviderGameId { get; } = providerGameId;
     public Spread? ApprovedLine { get; private set; }
     public GameResult? Result { get; private set; }
+    public ResultDraft? ProposedResult { get; private set; }
     public IReadOnlyCollection<Spread> LineHistory => lineHistory.AsReadOnly();
     public IReadOnlyCollection<GameLine> LineDetails => lineDetails.AsReadOnly();
     public GameLine? LatestLine => lineDetails.LastOrDefault();
@@ -131,6 +136,17 @@ public sealed class Game(GameId id, TeamId homeTeamId, TeamId awayTeamId, Kickof
     }
     internal Result<bool> ApproveLine(bool frozen) { if (frozen || lineHistory.Count == 0) return Result<bool>.Failure("game.line", "A line is required and must not be frozen."); ApprovedLine = lineHistory[^1]; return Result<bool>.Success(true); }
     internal Result<bool> ConfirmResult(GameResult result) { Result = result; return Result<bool>.Success(true); }
+    internal Result<bool> ProposeResult(GameResult result, ResultDraftSource source, DateTimeOffset updatedAt, string? reason)
+    {
+        if (Result is not null) return Result<bool>.Failure("game.result.confirmed", "A confirmed result cannot be overwritten.");
+        if (source == ResultDraftSource.Override && string.IsNullOrWhiteSpace(reason)) return Result<bool>.Failure("result.override.reason", "An override reason is required.");
+        if (ProposedResult is { Source: ResultDraftSource.Manual or ResultDraftSource.Override } && source == ResultDraftSource.Provider) return Result<bool>.Success(true);
+        ProposedResult = new ResultDraft(result, source, updatedAt, string.IsNullOrWhiteSpace(reason) ? null : reason.Trim());
+        return Result<bool>.Success(true);
+    }
+    internal Result<bool> ConfirmProposedResult() => ProposedResult is null
+        ? Result<bool>.Failure("game.result.missing", "The game has no proposed result.")
+        : ConfirmResult(ProposedResult.Result);
 }
 
 public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type) : AggregateRoot
@@ -179,6 +195,19 @@ public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type
     public Result<bool> FinalizeResults() => State != WeekState.Locked || games.Any(game => !game.Excluded && game.Result is null) ? Result<bool>.Failure("week.results", "Every included game needs a result.") : FinalizeInternal();
     public Result<bool> Reopen() => State is WeekState.Locked or WeekState.Final ? Transition(WeekState.Open) : Result<bool>.Failure("week.state", "Only locked or final weeks can reopen.");
     public Result<bool> ConfirmResult(GameId gameId, GameResult result) => State != WeekState.Locked ? Result<bool>.Failure("week.state", "Results can only be confirmed while the week is locked.") : games.FirstOrDefault(game => game.Id == gameId)?.ConfirmResult(result) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
+    public Result<bool> ProposeResult(GameId gameId, GameResult result, ResultDraftSource source, DateTimeOffset updatedAt, string? reason) => State != WeekState.Locked
+        ? Result<bool>.Failure("week.state", "Results can only be proposed while the week is locked.")
+        : games.FirstOrDefault(game => game.Id == gameId)?.ProposeResult(result, source, updatedAt, reason) ?? Result<bool>.Failure("game.missing", "Game does not exist.");
+    public Result<bool> ConfirmProposedResults()
+    {
+        if (State != WeekState.Locked) return Result<bool>.Failure("week.state", "Results can only be confirmed while the week is locked.");
+        foreach (var game in games.Where(game => !game.Excluded && game.Result is null))
+        {
+            var confirmed = game.ConfirmProposedResult();
+            if (!confirmed.IsSuccess) return confirmed;
+        }
+        return Result<bool>.Success(true);
+    }
     private Result<bool> Transition(WeekState state) { State = state; return Result<bool>.Success(true); }
     private Result<bool> PublishInternal() { State = WeekState.Open; Raise(new WeekPublished(Id)); return Result<bool>.Success(true); }
     private Result<bool> LockInternal() { State = WeekState.Locked; Raise(new WeekLocked(Id)); return Result<bool>.Success(true); }
