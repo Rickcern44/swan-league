@@ -15,6 +15,7 @@ import {
 } from "./routes";
 import SeasonSetup from "./SeasonSetup";
 import Shell from "./Shell";
+import Standings from "./Standings";
 import WeekWorkspace from "./WeekWorkspace";
 
 // setupAccess and commissionsLiveSeason come from the server, which reads them from the database on each request: they say what this person may do as a season's commissioner.
@@ -164,6 +165,8 @@ export default function App() {
                 <RosterDraft />
               ) : route.page === "picks" ? (
                 <PickDesk />
+              ) : route.page === "standings" ? (
+                <Standings />
               ) : (
                 <CoachHome />
               )

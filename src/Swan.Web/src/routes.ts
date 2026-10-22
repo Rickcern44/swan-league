@@ -12,7 +12,7 @@ export type Access = {
 };
 
 export type Route =
-  | { mode: "coach"; page: "home" | "picks" | "draft" }
+  | { mode: "coach"; page: "home" | "picks" | "standings" | "draft" }
   | { mode: "commish"; page: "today" | "draft" | "setup" }
   | { mode: "commish"; page: "week"; weekId: string };
 
@@ -52,6 +52,9 @@ export function resolve(
 
   if (path === "/picks" || path === "/picks/")
     return { route: { mode: "coach", page: "picks" }, path: "/picks" };
+
+  if (path === "/standings" || path === "/standings/")
+    return { route: { mode: "coach", page: "standings" }, path: "/standings" };
 
   if (path === "/roster" || path === "/roster/")
     return { route: { mode: "coach", page: "draft" }, path: "/roster" };

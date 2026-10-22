@@ -1,5 +1,6 @@
 import {
   CalendarCheck,
+  ChartNoAxesColumn,
   House,
   LayoutGrid,
   ListChecks,
@@ -33,6 +34,12 @@ function destinations(access: Access, route: Route): Destination[] {
         path: "/picks",
         icon: ListChecks,
         current: route.page === "picks",
+      },
+      {
+        label: "Standings",
+        path: "/standings",
+        icon: ChartNoAxesColumn,
+        current: route.page === "standings",
       },
       {
         label: "Draft",

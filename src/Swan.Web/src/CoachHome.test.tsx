@@ -3,6 +3,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -266,4 +267,90 @@ test("a failed load says so and can be retried", async () => {
     }),
   ).toBeVisible();
   expect(calls.some((url) => url.includes("/api/admin"))).toBe(false);
+});
+
+const standing = (pool: string, rank: number, points: number) => ({
+  state: "ready",
+  seasonName: "2026 Swan League",
+  pool,
+  throughWeek: 3,
+  coachCount: 30,
+  rows: [],
+  you: {
+    membershipId: "m",
+    rank,
+    name: "Coach One",
+    points,
+    wins: 4,
+    isYou: true,
+    movement: null,
+    behindLeader: 2,
+  },
+});
+
+function openWithStandings(
+  main: { status: number; body?: unknown },
+  dog: { status: number; body?: unknown },
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      calls.push(url);
+      const answer =
+        url === "/api/me"
+          ? {
+              status: 200,
+              body: { id: "u", name: "Coach One", role: "Coach" },
+            }
+          : url === "/api/coach/picks/current"
+            ? reply()
+            : url === "/api/coach/standings?pool=Main"
+              ? main
+              : url === "/api/coach/standings?pool=Dog"
+                ? dog
+                : { status: 404 };
+      return {
+        ok: answer.status < 400,
+        status: answer.status,
+        json: async () => answer.body,
+      };
+    }),
+  );
+  window.history.replaceState({}, "", "/");
+  return render(<App />);
+}
+
+test("home shows where you stand in the main and dog pools with a link to all standings", async () => {
+  openWithStandings(
+    { status: 200, body: standing("Main", 7, 33) },
+    { status: 200, body: standing("Dog", 3, 6) },
+  );
+
+  const stand = within(
+    await screen.findByRole("region", { name: "Where you stand" }),
+  );
+  const cards = stand.getAllByRole("listitem");
+  expect(cards[0]).toHaveTextContent("Main pool");
+  expect(cards[0]).toHaveTextContent("7th of 30");
+  expect(cards[0]).toHaveTextContent("33 pts");
+  expect(cards[1]).toHaveTextContent("Dog pool");
+  expect(cards[1]).toHaveTextContent("3rd of 30");
+  expect(stand.getByRole("link", { name: "All standings" })).toHaveAttribute(
+    "href",
+    "/standings",
+  );
+});
+
+test.each([
+  ["a failed call", { status: 500 }],
+  [
+    "no scores yet",
+    { status: 200, body: { ...standing("Dog", 1, 0), state: "no-scores" } },
+  ],
+])("home leaves out where you stand on %s", async (_, dog) => {
+  openWithStandings({ status: 200, body: standing("Main", 7, 33) }, dog);
+
+  await screen.findByRole("region", { name: "Your Week 4 card" });
+  await waitFor(() => expect(calls).toContain("/api/coach/standings?pool=Dog"));
+  expect(screen.queryByRole("region", { name: "Where you stand" })).toBeNull();
 });
