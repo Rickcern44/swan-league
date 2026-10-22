@@ -3200,3 +3200,197 @@ form.card.wide
   min-height: 2.75rem;
   font-size: 1.2rem;
 }
+
+/* Coach standings: pool chips, your position, then the table with your row marked. */
+.standings {
+  display: grid;
+  gap: 1rem;
+  max-width: 40rem;
+}
+
+.standings-head {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.shell .standings-head .eyebrow,
+.shell .standings-head h1 {
+  margin: 0;
+}
+
+.standings .filter-chips {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.shell .standings .filter-chips button {
+  flex: none;
+}
+
+.you-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.9rem;
+  background: var(--ink-2);
+  color: #fff;
+}
+
+.you-rank {
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.you-text {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.you-text span {
+  font-size: 0.85rem;
+  color: #c3d0dd;
+}
+
+.standings-card {
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 0.9rem;
+  background: #fff;
+}
+
+.standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.standings-table caption {
+  padding: 0.75rem 0.9rem 0.25rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.standings-table th {
+  padding: 0.5rem 0.9rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.standings-table td {
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid #e6edf3;
+}
+
+.standings-table td:first-child {
+  width: 2.5rem;
+  font-weight: 600;
+}
+
+.standings-table .num {
+  text-align: right;
+}
+
+.standings-table td.num:last-child {
+  font-weight: 600;
+}
+
+.standings-table abbr {
+  text-decoration: none;
+}
+
+.standings-table tr.you td {
+  background: #eef3f8;
+  font-weight: 700;
+}
+
+.standings-table tr.you td:first-child {
+  box-shadow: inset 4px 0 0 var(--ink-2);
+}
+
+.standings-table tr.gap td {
+  border-top: 2px dashed var(--rule);
+}
+
+.you-tag {
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.shell .standings-card .show-all {
+  width: 100%;
+  min-height: 3rem;
+  border: 0;
+  border-top: 1px solid #e6edf3;
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.where-you-stand {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.stand-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.shell-main .stand-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.stand-head a {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.stand-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stand-cards li {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.stand-pool,
+.stand-points {
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.stand-rank {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stand-rank span {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+}

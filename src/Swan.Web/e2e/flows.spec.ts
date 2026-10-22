@@ -349,6 +349,18 @@ test("coach saves picks for an open week", async ({ browser }) => {
     await coach.getByRole("button", { name: "Save 3 picks and 1 dog" }).click();
     await expect(coach.getByText("Picks saved.")).toBeVisible();
 
+    // Standings are reachable from the coach navigation; nothing is scored yet this season.
+    await coach
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: "Standings" })
+      .click();
+    await expect(
+      coach.getByRole("heading", { level: 1, name: "Standings" }),
+    ).toBeVisible();
+    await expect(
+      coach.getByText(/^Standings start once Week 1 is final\./),
+    ).toBeVisible();
+
     // The commissioner sees the coach's full card on the week's Picks tab.
     await admin.goto(`/commish/weeks/${weekId}?tab=picks`);
     const card = admin

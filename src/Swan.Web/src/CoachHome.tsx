@@ -10,6 +10,14 @@ import {
   when,
 } from "./coachDesk";
 import { goTo, timeLeft } from "./draftTime";
+import {
+  fetchStandings,
+  ordinal,
+  type Pool,
+  poolLabel,
+  pts,
+  type StandingsData,
+} from "./standingsData";
 
 const ordinals = ["first", "second", "third", "fourth", "fifth"];
 
@@ -34,6 +42,52 @@ function AppLink({
     >
       {children}
     </a>
+  );
+}
+
+// Main and Dog pool positions, shown only when both load and the season has scores; Home never fails because of them.
+function WhereYouStand() {
+  const [pools, setPools] = useState<StandingsData[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void Promise.all(
+      (["Main", "Dog"] as Pool[]).map((pool) => fetchStandings(pool)),
+    ).then((results) => {
+      if (!live) return;
+      const ready = results.flatMap((result) =>
+        result.status === "ready" &&
+        result.data.state === "ready" &&
+        result.data.you
+          ? [result.data]
+          : [],
+      );
+      setPools(ready.length === results.length ? ready : null);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (!pools) return null;
+  return (
+    <section className="where-you-stand" aria-labelledby="stand-title">
+      <div className="stand-head">
+        <h2 id="stand-title">Where you stand</h2>
+        <AppLink to="/standings">All standings</AppLink>
+      </div>
+      <ul className="stand-cards">
+        {pools.map((pool) => (
+          <li key={pool.pool}>
+            <span className="stand-pool">{`${poolLabel(pool.pool)} pool`}</span>
+            <span className="stand-rank">
+              {ordinal(pool.you?.rank ?? 0)}{" "}
+              <span>{`of ${pool.coachCount}`}</span>
+            </span>
+            <span className="stand-points">{pts(pool.you?.points ?? 0)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -92,6 +146,7 @@ export default function CoachHome() {
             Check again
           </button>
         </div>
+        <WhereYouStand />
       </section>
     );
 
@@ -223,6 +278,7 @@ export default function CoachHome() {
             : `Review Week ${week.number} picks`}
         </AppLink>
       </section>
+      <WhereYouStand />
     </div>
   );
 }

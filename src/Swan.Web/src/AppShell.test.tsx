@@ -57,6 +57,7 @@ test("a coach with no commissioner access gets the coach destinations and no mod
   ).toEqual([
     ["Home", "/"],
     ["Picks", "/picks"],
+    ["Standings", "/standings"],
     ["Draft", "/roster"],
   ]);
   expect(within(nav()).getByRole("link", { name: "Home" })).toHaveAttribute(
