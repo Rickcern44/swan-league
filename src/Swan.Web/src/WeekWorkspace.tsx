@@ -1003,11 +1003,19 @@ function LineRow({
               <input
                 id={`reason-${game.id}`}
                 value={reason}
+                aria-invalid={problem ? true : undefined}
+                aria-describedby={
+                  problem ? `reason-problem-${game.id}` : undefined
+                }
                 autoFocus
                 onChange={(event) => setReason(event.target.value)}
               />
               {problem && (
-                <p role="alert" className="problem">
+                <p
+                  role="alert"
+                  id={`reason-problem-${game.id}`}
+                  className="problem"
+                >
                   {problem}
                 </p>
               )}
@@ -1585,189 +1593,233 @@ function ActivityPanel({ weekId }: { weekId: string }) {
   );
 }
 
+type ScoreDraft = { away: string; home: string };
+const scoreProblem = "Enter both scores as whole numbers from 0 to 100.";
+const parseScore = (text: string) => {
+  const trimmed = text.trim();
+  const value = Number(trimmed);
+  return wholeNumber.test(trimmed) && value <= 100 ? value : null;
+};
+
+// Scores are entered in a table like the lines: both scores inline, Save per row or for every complete row.
 function ResultsPanel({ week, busy, send, run, say }: PanelProps) {
-  const [editing, setEditing] = useState<string | null>(null);
-  const [problem, setProblem] = useState<{ id: string; text: string } | null>(
-    null,
-  );
-  const trigger = useRef<string | null>(null);
-
-  // After an editor closes, focus goes back to the control that opened it.
-  useEffect(() => {
-    if (editing === null && trigger.current) {
-      document.getElementById(trigger.current)?.focus();
-      trigger.current = null;
-    }
-  }, [editing]);
-
+  const [drafts, setDrafts] = useState<Record<string, ScoreDraft>>({});
+  const [problems, setProblems] = useState<string[]>([]);
   const entering = week.state === "Locked";
-  return (
-    <section
-      aria-labelledby="results-title"
-      className="week-games results-panel"
-    >
-      <h2 id="results-title" className="sr-only">
-        Results
-      </h2>
-      {!entering && week.state !== "Final" && (
-        <p className="hint">Results are entered once the week locks.</p>
-      )}
-      {week.games.length === 0 && <p>This week has no games.</p>}
-      <ol>
-        {week.games.map((game) => {
-          const matchup = matchupOf(game);
-          const id = `result-${game.id}`;
-          const status = game.excluded
-            ? "Excluded from this week"
-            : game.hasResult
-              ? `${shortName(game.awayTeamName)} ${game.awayScore} · ${shortName(game.homeTeamName)} ${game.homeScore}`
-              : "No result yet";
-          return (
-            <li
-              key={game.id}
-              className={game.excluded ? "game excluded" : "game"}
-            >
-              <div className="game-line">
-                <p className="kick">
-                  {kickoffFormat.format(new Date(game.kickoff))}
-                </p>
-                <p className="teams">
-                  <span className="sr-only">{matchup}</span>
-                  <span aria-hidden="true">
-                    {shortName(game.awayTeamName)} <i>@</i>{" "}
-                    {shortName(game.homeTeamName)}
-                  </span>
-                </p>
-                <p className="status">{status}</p>
-                {entering && !game.excluded && editing !== game.id && (
-                  <div className="game-actions">
-                    <button
-                      type="button"
-                      id={id}
-                      className="ghost"
-                      onClick={() => {
-                        trigger.current = id;
-                        setProblem(null);
-                        setEditing(game.id);
-                      }}
-                    >
-                      {game.hasResult ? "Edit result" : "Enter result"}
-                      <span className="sr-only"> for {matchup}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-              {editing === game.id && (
-                <ResultEditor
-                  game={game}
-                  matchup={matchup}
-                  busy={busy}
-                  problem={problem?.id === game.id ? problem.text : ""}
-                  onCancel={() => {
-                    setProblem(null);
-                    setEditing(null);
-                  }}
-                  onSave={async (homeScore, awayScore) => {
-                    const result = await run(() =>
-                      send(`games/${game.id}/result`, { homeScore, awayScore }),
-                    );
-                    if (result.ok) {
-                      setProblem(null);
-                      setEditing(null);
-                      say("Result saved.");
-                    } else setProblem({ id: game.id, text: result.message });
-                  }}
-                />
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-  );
-}
 
-function ResultEditor({
-  game,
-  matchup,
-  busy,
-  problem,
-  onCancel,
-  onSave,
-}: {
-  game: Game;
-  matchup: string;
-  busy: boolean;
-  problem: string;
-  onCancel: () => void;
-  onSave: (home: number, away: number) => Promise<void>;
-}) {
-  const [home, setHome] = useState(
-    game.homeScore === null ? "" : String(game.homeScore),
+  const saved = (game: Game): ScoreDraft => ({
+    away: game.awayScore === null ? "" : String(game.awayScore),
+    home: game.homeScore === null ? "" : String(game.homeScore),
+  });
+  const draftOf = (game: Game) => drafts[game.id] ?? saved(game);
+  const dirty = (game: Game) => {
+    const draft = drafts[game.id];
+    if (!draft) return false;
+    const was = saved(game);
+    return draft.away.trim() !== was.away || draft.home.trim() !== was.home;
+  };
+  const complete = (game: Game) => {
+    const draft = draftOf(game);
+    return draft.away.trim() !== "" && draft.home.trim() !== "";
+  };
+  const ready = week.games.filter(
+    (game) => !game.excluded && dirty(game) && complete(game),
   );
-  const [away, setAway] = useState(
-    game.awayScore === null ? "" : String(game.awayScore),
-  );
-  const [invalid, setInvalid] = useState("");
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    const h = Number(home.trim());
-    const a = Number(away.trim());
-    if (
-      !wholeNumber.test(home.trim()) ||
-      !wholeNumber.test(away.trim()) ||
-      h > 100 ||
-      a > 100
-    ) {
-      setInvalid("Enter both scores as whole numbers from 0 to 100.");
-      return;
-    }
-    setInvalid("");
-    void onSave(h, a);
+  function edit(game: Game, side: keyof ScoreDraft, value: string) {
+    setDrafts((current) => ({
+      ...current,
+      [game.id]: { ...draftOf(game), [side]: value },
+    }));
+  }
+
+  function revert(game: Game) {
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[game.id];
+      return next;
+    });
+  }
+
+  async function save(games: Game[]) {
+    const failed: string[] = [];
+    const done: string[] = [];
+    await run(async () => {
+      for (const game of games) {
+        const draft = draftOf(game);
+        const away = parseScore(draft.away);
+        const home = parseScore(draft.home);
+        if (away === null || home === null) {
+          failed.push(`${matchupOf(game)}: ${scoreProblem}`);
+          continue;
+        }
+        const result = await send(`games/${game.id}/result`, {
+          homeScore: home,
+          awayScore: away,
+        });
+        if (result.ok) done.push(game.id);
+        else failed.push(`${matchupOf(game)}: ${result.message}`);
+      }
+    });
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const id of done) delete next[id];
+      return next;
+    });
+    setProblems(failed);
+    if (done.length > 0)
+      say(
+        games.length === 1
+          ? "Result saved."
+          : `Saved ${done.length} ${done.length === 1 ? "result" : "results"}.`,
+      );
   }
 
   return (
-    <form
-      className="editor"
-      aria-label={`Result for ${matchup}`}
-      noValidate
-      onKeyDown={(event) => event.key === "Escape" && onCancel()}
-      onSubmit={submit}
-    >
-      <label htmlFor={`away-${game.id}`}>
-        {shortName(game.awayTeamName)} score
-      </label>
-      <input
-        id={`away-${game.id}`}
-        inputMode="numeric"
-        value={away}
-        autoFocus
-        onChange={(event) => setAway(event.target.value)}
-      />
-      <label htmlFor={`home-${game.id}`}>
-        {shortName(game.homeTeamName)} score
-      </label>
-      <input
-        id={`home-${game.id}`}
-        inputMode="numeric"
-        value={home}
-        onChange={(event) => setHome(event.target.value)}
-      />
-      {(invalid || problem) && (
-        <p role="alert" className="problem">
-          {invalid || problem}
-        </p>
+    <section aria-label="Results" className="results-panel">
+      {entering ? (
+        <div className="lines-tools">
+          <p className="hint">
+            Enter both scores for each game. Finalize the week once every
+            included game has a result.
+          </p>
+          <button
+            type="button"
+            className="primary"
+            disabled={busy || ready.length === 0}
+            onClick={() => void save(ready)}
+          >
+            Save {ready.length} {ready.length === 1 ? "result" : "results"}
+          </button>
+        </div>
+      ) : (
+        week.state !== "Final" && (
+          <p className="hint">Results are entered once the week locks.</p>
+        )
       )}
-      <div className="editor-actions">
-        <button type="submit" className="primary" disabled={busy}>
-          Save result
-        </button>
-        <button type="button" className="ghost" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
+      {problems.length > 0 && (
+        <div role="alert" className="notice problem">
+          {problems.map((text) => (
+            <p key={text}>{text}</p>
+          ))}
+        </div>
+      )}
+      {week.games.length === 0 ? (
+        <p>This week has no games.</p>
+      ) : (
+        <table className="lines-table results-table" aria-label="Results">
+          <thead>
+            <tr>
+              <th scope="col">Kickoff</th>
+              <th scope="col">Game</th>
+              <th scope="col">Score (away · home)</th>
+              <th scope="col">Line</th>
+              <th scope="col">Status</th>
+              {entering && (
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {week.games.map((game) => {
+              const matchup = matchupOf(game);
+              const away = shortName(game.awayTeamName);
+              const home = shortName(game.homeTeamName);
+              const draft = draftOf(game);
+              const changed = dirty(game);
+              const editable = entering && !game.excluded;
+              const status = game.excluded
+                ? "excluded"
+                : changed
+                  ? "unsaved"
+                  : game.hasResult
+                    ? "approved"
+                    : "none";
+              const label = game.excluded
+                ? "Excluded"
+                : changed
+                  ? "Unsaved"
+                  : game.hasResult
+                    ? "Saved"
+                    : "No result yet";
+              const line = game.approvedLine ?? game.lineHistory.at(-1) ?? null;
+              return (
+                <tr
+                  key={game.id}
+                  className={`line-row ${game.excluded ? "excluded" : ""}`}
+                >
+                  <td data-label="Kickoff">
+                    {kickoffFormat.format(new Date(game.kickoff))}
+                  </td>
+                  <td data-label="Game" className="game-cell">
+                    {matchup}
+                  </td>
+                  <td data-label="Score">
+                    {editable ? (
+                      <span
+                        className="score-edit"
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") revert(game);
+                        }}
+                      >
+                        <input
+                          inputMode="numeric"
+                          aria-label={`${away} score (${matchup})`}
+                          value={draft.away}
+                          disabled={busy}
+                          onChange={(event) =>
+                            edit(game, "away", event.target.value)
+                          }
+                        />
+                        <span aria-hidden="true">·</span>
+                        <input
+                          inputMode="numeric"
+                          aria-label={`${home} score (${matchup})`}
+                          value={draft.home}
+                          disabled={busy}
+                          onChange={(event) =>
+                            edit(game, "home", event.target.value)
+                          }
+                        />
+                      </span>
+                    ) : game.hasResult ? (
+                      `${away} ${game.awayScore} · ${home} ${game.homeScore}`
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td data-label="Line">
+                    {line === null || game.excluded
+                      ? "—"
+                      : lineText(game, line)}
+                  </td>
+                  <td data-label="Status">
+                    <span className={`line-pill ${status}`}>{label}</span>
+                  </td>
+                  {entering && (
+                    <td className="row-actions">
+                      {editable && changed && complete(game) && (
+                        <button
+                          type="button"
+                          className="ghost small"
+                          disabled={busy}
+                          onClick={() => void save([game])}
+                        >
+                          Save
+                          <span className="sr-only"> result for {matchup}</span>
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }
 

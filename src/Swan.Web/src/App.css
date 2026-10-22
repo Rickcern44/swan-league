@@ -3664,3 +3664,113 @@ form.card.wide
     font-size: 1.9rem;
   }
 }
+
+/* Forms on the newer pages share one look: labelled fields, a red border and message when something is wrong. */
+.editor {
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+}
+
+.editor label {
+  gap: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.editor input,
+.editor select,
+.editor textarea {
+  width: 100%;
+  max-width: 28rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1.5px solid #9fb3c8;
+  border-radius: 0.55rem;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.editor input:focus-visible,
+.editor select:focus-visible,
+.editor textarea:focus-visible {
+  outline: 3px solid #f6d78f;
+  outline-offset: 1px;
+  border-color: var(--ink-2);
+}
+
+.editor [aria-invalid="true"] {
+  border-color: #b42318;
+}
+
+.shell .editor .problem {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #f3b8b2;
+  border-radius: 0.55rem;
+  background: #fde8e6;
+  color: #7a1a12;
+  font-size: 0.9rem;
+}
+
+/* Results: both scores inline, as narrow as a score needs. */
+.score-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink-muted);
+}
+
+.score-edit input {
+  width: 3.5rem;
+  min-height: 2.5rem;
+  padding: 0 0.4rem;
+  border: 1px solid #9fb3c8;
+  border-radius: 0.45rem;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Commish draft: on a wide screen the correction opens beside the list. */
+.coach-area.with-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  align-items: start;
+  gap: 1.25rem;
+}
+
+.correction-panel {
+  position: sticky;
+  top: 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.shell-main .correction-panel h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.correction-panel .editor {
+  margin-top: 0;
+}
+
+.coach-row.correcting {
+  background: #eef3f8;
+}
+
+.coach-area.with-panel .coach-line {
+  grid-template-columns: minmax(8rem, 1fr) minmax(10rem, 1.2fr) auto;
+}
+
+.coach-area.with-panel .coach-line .coach-teams {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.coach-area.with-panel .coach-line > button {
+  grid-column: 3;
+  grid-row: 1;
+}

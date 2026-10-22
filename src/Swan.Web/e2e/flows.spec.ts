@@ -392,20 +392,15 @@ test("commissioner finalizes a locked week", async ({ browser }) => {
   try {
     const weekId = await prepareLockedWeek(admin);
     await admin.goto(`/weeks/${weekId}`);
-    await admin
-      .getByRole("button", { name: /^Enter result/ })
+    // Enter the first game's scores in the Results table, then save that row.
+    const results = admin.getByRole("table", { name: "Results" });
+    await results.getByRole("textbox").nth(0).fill("17");
+    await results.getByRole("textbox").nth(1).fill("21");
+    await results
+      .getByRole("button", { name: /^Save result for / })
       .first()
       .click();
-    const result = admin.getByRole("form", { name: /^Result for/ });
-    await result
-      .getByLabel(/ score$/)
-      .first()
-      .fill("17");
-    await result
-      .getByLabel(/ score$/)
-      .nth(1)
-      .fill("21");
-    await result.getByRole("button", { name: "Save result" }).click();
+    await expect(admin.getByText("Result saved.")).toBeVisible();
     const week = (await (
       await admin.request.get(`/api/admin/weeks/${weekId}`)
     ).json()) as WeekResponse;

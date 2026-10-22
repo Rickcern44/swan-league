@@ -82,6 +82,24 @@ const formatEastern = (local: string) => {
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n} ${n === 1 ? one : many}`;
 
+// Wide screens show the correction form in a side panel; phones keep it under the coach.
+const WIDE = "(min-width: 64rem)";
+function useWide() {
+  const [wide, setWide] = useState(
+    () =>
+      typeof window.matchMedia === "function" &&
+      window.matchMedia(WIDE).matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(WIDE);
+    const change = () => setWide(query.matches);
+    query.addEventListener?.("change", change);
+    return () => query.removeEventListener?.("change", change);
+  }, []);
+  return wide;
+}
+
 async function problemOf(response: Response) {
   try {
     const body = await response.json();
@@ -95,6 +113,7 @@ async function problemOf(response: Response) {
 export default function CommissionerDraft() {
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
   const [editing, setEditing] = useState<string | null>(null);
+  const wide = useWide();
   const [notice, setNotice] = useState("");
   const [deadline, setDeadline] = useState("");
   const [startProblem, setStartProblem] = useState("");
@@ -272,6 +291,37 @@ export default function CommissionerDraft() {
     { key: "all", label: "All", count: draft.coaches.length },
   ];
 
+  const correcting = draft.coaches.find(
+    (coach) => coach.membershipId === editing,
+  );
+  const correction = (coach: Coach) => (
+    <Correction
+      draft={draft}
+      coach={coach}
+      onCancel={() => {
+        setEditing(null);
+        queueMicrotask(() =>
+          document.getElementById(`correct-${coach.membershipId}`)?.focus(),
+        );
+      }}
+      onDone={(next) => {
+        setLoaded({ status: "ready", draft: next });
+        setEditing(null);
+        setNotice(
+          `Corrected ${coach.name}'s roster.${
+            next.picksRemoved
+              ? ` ${next.picksRemoved === 1 ? "Their pick of the removed team was" : `${next.picksRemoved} of their picks of the removed team were`} also taken off their ballot.`
+              : ""
+          }`,
+        );
+      }}
+      onStale={() => {
+        setEditing(null);
+        void load();
+      }}
+    />
+  );
+
   return (
     <section aria-labelledby="draft-title" className="commish-draft">
       <header className="draft-head">
@@ -396,90 +446,75 @@ export default function CommissionerDraft() {
           {remindProblem}
         </p>
       )}
-      <section aria-labelledby="coaches-title" className="coach-list">
-        <h2 id="coaches-title" className="sr-only">
-          Coaches
-        </h2>
-        {draft.coaches.length === 0 && (
-          <p>No coaches have been added to this season.</p>
+      <div className={`coach-area${wide && correcting ? " with-panel" : ""}`}>
+        <section aria-labelledby="coaches-title" className="coach-list">
+          <h2 id="coaches-title" className="sr-only">
+            Coaches
+          </h2>
+          {draft.coaches.length === 0 && (
+            <p>No coaches have been added to this season.</p>
+          )}
+          {draft.coaches.length > 0 && shown.length === 0 && (
+            <p className="empty-filter">
+              {filter === "locked"
+                ? "No coach has locked a roster yet."
+                : "Every coach has locked a roster."}
+            </p>
+          )}
+          <ol>
+            {shown.map((coach) => (
+              <li
+                key={coach.membershipId}
+                className={`coach-row coach-${coach.status}${
+                  editing === coach.membershipId ? " correcting" : ""
+                }`}
+              >
+                <div className="coach-line">
+                  <p className="coach-name">{coach.name}</p>
+                  <p className="status">
+                    <strong>{statusText[coach.status]}</strong>
+                    {coach.teamCount > 0
+                      ? ` · ${coach.teamCount} of 9 teams`
+                      : ""}
+                    {coach.status === "missing" || coach.status === "incomplete"
+                      ? draft.draftOpen
+                        ? " · still drafting"
+                        : " · needs your correction"
+                      : ""}
+                  </p>
+                  {coach.teams.length > 0 && (
+                    <p className="coach-teams">{coach.teams.join(", ")}</p>
+                  )}
+                  {editing !== coach.membershipId && (
+                    <button
+                      type="button"
+                      id={`correct-${coach.membershipId}`}
+                      className="ghost"
+                      onClick={() => {
+                        setEditing(coach.membershipId);
+                        setNotice("");
+                      }}
+                    >
+                      Correct roster
+                      <span className="sr-only"> for {coach.name}</span>
+                    </button>
+                  )}
+                </div>
+                {editing === coach.membershipId && !wide && correction(coach)}
+              </li>
+            ))}
+          </ol>
+        </section>
+        {wide && correcting && (
+          <aside
+            className="correction-panel"
+            aria-label={`Correct ${correcting.name}'s roster`}
+          >
+            <h2>Correct {correcting.name}'s roster</h2>
+            {correction(correcting)}
+          </aside>
         )}
-        {draft.coaches.length > 0 && shown.length === 0 && (
-          <p className="empty-filter">
-            {filter === "locked"
-              ? "No coach has locked a roster yet."
-              : "Every coach has locked a roster."}
-          </p>
-        )}
-        <ol>
-          {shown.map((coach) => (
-            <li
-              key={coach.membershipId}
-              className={`coach-row coach-${coach.status}`}
-            >
-              <div className="coach-line">
-                <p className="coach-name">{coach.name}</p>
-                <p className="status">
-                  <strong>{statusText[coach.status]}</strong>
-                  {coach.teamCount > 0
-                    ? ` · ${coach.teamCount} of 9 teams`
-                    : ""}
-                  {coach.status === "missing" || coach.status === "incomplete"
-                    ? draft.draftOpen
-                      ? " · still drafting"
-                      : " · needs your correction"
-                    : ""}
-                </p>
-                {coach.teams.length > 0 && (
-                  <p className="coach-teams">{coach.teams.join(", ")}</p>
-                )}
-                {editing !== coach.membershipId && (
-                  <button
-                    type="button"
-                    id={`correct-${coach.membershipId}`}
-                    className="ghost"
-                    onClick={() => {
-                      setEditing(coach.membershipId);
-                      setNotice("");
-                    }}
-                  >
-                    Correct roster
-                    <span className="sr-only"> for {coach.name}</span>
-                  </button>
-                )}
-              </div>
-              {editing === coach.membershipId && (
-                <Correction
-                  draft={draft}
-                  coach={coach}
-                  onCancel={() => {
-                    setEditing(null);
-                    queueMicrotask(() =>
-                      document
-                        .getElementById(`correct-${coach.membershipId}`)
-                        ?.focus(),
-                    );
-                  }}
-                  onDone={(next) => {
-                    setLoaded({ status: "ready", draft: next });
-                    setEditing(null);
-                    setNotice(
-                      `Corrected ${coach.name}'s roster.${
-                        next.picksRemoved
-                          ? ` ${next.picksRemoved === 1 ? "Their pick of the removed team was" : `${next.picksRemoved} of their picks of the removed team were`} also taken off their ballot.`
-                          : ""
-                      }`,
-                    );
-                  }}
-                  onStale={() => {
-                    setEditing(null);
-                    void load();
-                  }}
-                />
-              )}
-            </li>
-          ))}
-        </ol>
-      </section>
+      </div>
     </section>
   );
 }
@@ -501,21 +536,31 @@ function Correction({
   const [add, setAdd] = useState("");
   const [reason, setReason] = useState("");
   const [problem, setProblem] = useState("");
+  // Which field a problem is about, so the field can point at it; server problems belong to the whole form.
+  const [field, setField] = useState<"remove" | "add" | "reason" | null>(null);
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
   const full = coach.teamCount >= 9;
   const onRoster = new Set(coach.teamIds);
   const names = new Map(draft.teams.map((team) => [team.teamId, team.name]));
+  const problemId = `correction-problem-${coach.membershipId}`;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const refuse = (which: "remove" | "add" | "reason", text: string) => {
+      setField(which);
+      setProblem(text);
+    };
     if (full && !remove)
-      return setProblem(
+      return refuse(
+        "remove",
         "Choose which team to replace: this roster already has nine.",
       );
-    if (!add) return setProblem("Choose the team to add.");
-    if (!reason.trim()) return setProblem("Give a reason for the correction.");
+    if (!add) return refuse("add", "Choose the team to add.");
+    if (!reason.trim())
+      return refuse("reason", "Give a reason for the correction.");
     setBusy(true);
+    setField(null);
     setProblem("");
     try {
       const response = await fetch(
@@ -566,6 +611,8 @@ function Correction({
       <select
         id={`remove-${coach.membershipId}`}
         value={remove}
+        aria-invalid={field === "remove" || undefined}
+        aria-describedby={field === "remove" ? problemId : undefined}
         autoFocus
         onChange={(event) => setRemove(event.target.value)}
       >
@@ -582,6 +629,8 @@ function Correction({
       <select
         id={`add-${coach.membershipId}`}
         value={add}
+        aria-invalid={field === "add" || undefined}
+        aria-describedby={field === "add" ? problemId : undefined}
         onChange={(event) => setAdd(event.target.value)}
       >
         <option value="">Choose a team to add</option>
@@ -604,10 +653,12 @@ function Correction({
         id={`reason-${coach.membershipId}`}
         rows={2}
         value={reason}
+        aria-invalid={field === "reason" || undefined}
+        aria-describedby={field === "reason" ? problemId : undefined}
         onChange={(event) => setReason(event.target.value)}
       />
       {problem && (
-        <p role="alert" className="problem">
+        <p role="alert" id={problemId} className="problem">
           {problem}
         </p>
       )}

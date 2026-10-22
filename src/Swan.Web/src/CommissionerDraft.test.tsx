@@ -108,7 +108,10 @@ beforeEach(() => {
   replies = {};
   calls = [];
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const ready = () => screen.findByRole("heading", { level: 1, name: "Draft" });
 const showAll = () =>
@@ -613,4 +616,92 @@ test("a refused reminder says why and no reminder is offered once the draft has 
   );
   await screen.findByText(/The draft closed/);
   expect(screen.queryByRole("button", { name: /^Remind/ })).toBeNull();
+});
+
+function desktop(wide: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: wide,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
+  );
+}
+
+test("on a wide screen the correction opens in a side panel beside the coach list", async () => {
+  desktop(true);
+  open();
+  await ready();
+  await screen.findByRole("region", { name: "Coaches" });
+
+  fireEvent.click(
+    within(rows()[1]).getByRole("button", {
+      name: "Correct roster for Coach B",
+    }),
+  );
+
+  const panel = screen.getByRole("complementary", {
+    name: "Correct Coach B's roster",
+  });
+  expect(
+    within(panel).getByRole("form", { name: "Correct Coach B's roster" }),
+  ).toBeVisible();
+  expect(within(rows()[1]).queryByRole("form")).toBeNull();
+  expect(rows()[1]).toHaveClass("correcting");
+
+  fireEvent.click(within(panel).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("complementary")).toBeNull();
+  await waitFor(() =>
+    expect(
+      within(rows()[1]).getByRole("button", {
+        name: "Correct roster for Coach B",
+      }),
+    ).toHaveFocus(),
+  );
+});
+
+test("on a phone the correction stays inline under the coach", async () => {
+  desktop(false);
+  open();
+  await ready();
+  await screen.findByRole("region", { name: "Coaches" });
+
+  fireEvent.click(
+    within(rows()[1]).getByRole("button", {
+      name: "Correct roster for Coach B",
+    }),
+  );
+
+  expect(
+    within(rows()[1]).getByRole("form", { name: "Correct Coach B's roster" }),
+  ).toBeVisible();
+  expect(screen.queryByRole("complementary")).toBeNull();
+});
+
+test("problems in the correction form are tied to the field they are about", async () => {
+  open();
+  await ready();
+  await screen.findByRole("region", { name: "Coaches" });
+  fireEvent.click(
+    within(rows()[1]).getByRole("button", {
+      name: "Correct roster for Coach B",
+    }),
+  );
+  const form = screen.getByRole("form", { name: "Correct Coach B's roster" });
+
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save correction" }),
+  );
+
+  const alert = within(form).getByRole("alert");
+  expect(alert).toHaveTextContent("Choose the team to add.");
+  expect(within(form).getByLabelText("With")).toHaveAccessibleDescription(
+    "Choose the team to add.",
+  );
+  expect(within(form).getByLabelText("With")).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
 });
