@@ -4,8 +4,9 @@
 
 This is a package-currency audit, not a vulnerability remediation plan. It
 compares the repository's direct .NET, local-tool, and npm dependencies with
-the public registries on 2026-10-23. No package versions or lockfiles were
-changed by this audit.
+the public registries on 2026-10-23. This revision also applies the immediately
+available `lucide-react` lockfile-only update identified by the audit; declared
+package ranges remain unchanged.
 
 Sources and commands:
 
@@ -24,6 +25,7 @@ Sources and commands:
 
 | Priority | Batch | Current → target | Rationale and required validation |
 | --- | --- | --- | --- |
+| 1 | Lucide React lockfile patch | `lucide-react`: 1.60.0 → 1.61.0 | The declared `^1.60.0` range already permits 1.61.0, but the committed lockfile resolved 1.60.0. Regenerate `package-lock.json` without changing `package.json`, then run frontend unit/build checks and E2E tests. |
 | 1 | EF Core design tools | `Microsoft.EntityFrameworkCore.Design` and `dotnet-ef`: 10.0.3 → 10.0.13 | Update the API, Data, and local-tool references together to preserve their documented version alignment. Keep Npgsql at 10.0.3; it is current in the 10.x line. Run EF model verification and the full .NET test suite. |
 | 1 | Aspire family | AppHost SDK, three hosting packages, Npgsql integration, AppHost testing, and `aspire.cli`: 13.6.1 → 13.6.3 | Keep the Aspire family aligned. Evaluate `CommunityToolkit.Aspire.Hosting.MailPit` 13.6.1-beta.930 → beta.935 as part of the same AppHost smoke test, but do not treat it as a stable upgrade. Start the AppHost and run the stack E2E suite. |
 | 1 | Microsoft.Extensions | `Http.Resilience` and `ServiceDiscovery`: 10.8.0 → 10.11.0; `Http`: 10.0.5 → 10.0.13; `Hosting`: 10.0.9 → 10.0.13 | These are same-major updates. Apply after the Aspire batch or in a focused follow-up, then run the .NET tests. |
@@ -40,8 +42,7 @@ Sources and commands:
   `NetArchTest.Rules` 1.3.2.
 - npm production dependencies: `@base-ui/react` 1.9.0,
   `@fontsource-variable/geist` 5.3.0, `class-variance-authority` 0.7.1,
-  `cn` 0.5.0, `lucide-react` resolves to 1.61.0 under its declared range, and
-  `tw-animate-css` 1.4.0.
+  `cn` 0.5.0, and `tw-animate-css` 1.4.0.
 - npm development dependencies: `@tailwindcss/vite` 4.3.3, `shadcn` 4.22.1,
   `tailwindcss` 4.3.3, and `vite-plugin-pwa` 2.0.0.
 
