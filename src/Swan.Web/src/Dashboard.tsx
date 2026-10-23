@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import PageState from "./PageState";
 import { kindLabels, StateChip, stageLabelsInOrder } from "./Swan";
 
 type Attention = {
@@ -150,7 +151,7 @@ export default function Dashboard({
     return (
       <section aria-labelledby="dash-title" aria-busy="true">
         <h1 id="dash-title">Today</h1>
-        <p role="status">Loading the league…</p>
+        <PageState kind="loading" message="Loading the league…" />
       </section>
     );
 
@@ -158,13 +159,12 @@ export default function Dashboard({
     return (
       <section aria-labelledby="dash-title">
         <h1 id="dash-title">Today</h1>
-        <div className="band" role="alert">
-          <h2>Could not load the dashboard</h2>
-          <p>{loaded.error}</p>
-          <button type="button" onClick={() => void load()}>
-            Try again
-          </button>
-        </div>
+        <PageState
+          kind="error"
+          title="Could not load the dashboard."
+          message={loaded.error}
+          onRetry={() => void load()}
+        />
       </section>
     );
 
@@ -174,8 +174,7 @@ export default function Dashboard({
     return (
       <section aria-labelledby="dash-title">
         <h1 id="dash-title">Today</h1>
-        <div className="band">
-          <h2>No season is live</h2>
+        <PageState kind="empty" title="No season is live">
           <p>
             There is no live season, so there is no week to run yet. Finish
             Season setup and activate the season to start the weekly cycle.
@@ -183,7 +182,7 @@ export default function Dashboard({
           <button type="button" onClick={onSeasonSetup}>
             Go to Season setup
           </button>
-        </div>
+        </PageState>
       </section>
     );
 

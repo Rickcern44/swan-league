@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import PageState from "./PageState";
 import {
   fetchStandings,
   type LoadedStandings,
@@ -69,17 +70,15 @@ export default function Standings() {
       </header>
 
       {loaded.status === "loading" && (
-        <p role="status" aria-busy="true">
-          Loading the standings…
-        </p>
+        <PageState kind="loading" message="Loading the standings…" />
       )}
       {loaded.status === "failed" && (
-        <div role="alert" className="notice problem">
-          <strong>Could not load the standings.</strong> {loaded.error}{" "}
-          <button type="button" onClick={() => void load(pool)}>
-            Try again
-          </button>
-        </div>
+        <PageState
+          kind="error"
+          title="Could not load the standings."
+          message={loaded.error}
+          onRetry={() => void load(pool)}
+        />
       )}
       {data && <Board data={data} showAll={showAll} onToggle={setShowAll} />}
     </div>
@@ -97,20 +96,18 @@ function Board({
 }) {
   if (data.state === "no-membership")
     return (
-      <div className="band">
-        <h2>No standings for you yet</h2>
+      <PageState kind="empty" title="No standings for you yet">
         <p>You're not a coach in a live season.</p>
-      </div>
+      </PageState>
     );
 
   if (data.state === "no-scores" || data.rows.length === 0)
     return (
-      <div className="band">
-        <h2>Nothing scored yet</h2>
+      <PageState kind="empty" title="Nothing scored yet">
         <p>
           {`Standings start once Week 1 is final. ${data.coachCount} ${data.coachCount === 1 ? "coach is" : "coaches are"} in the league.`}
         </p>
-      </div>
+      </PageState>
     );
 
   const { you, rows } = data;

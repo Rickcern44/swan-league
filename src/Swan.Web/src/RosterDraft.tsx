@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDeadline, timeLeft } from "./draftTime";
+import PageState from "./PageState";
 
 type DraftTeam = {
   teamId: string;
@@ -91,9 +92,9 @@ export default function RosterDraft() {
 
   if (loaded.status === "loading")
     return (
-      <section aria-busy="true" aria-labelledby="roster-title">
+      <section aria-labelledby="roster-title">
         <h1 id="roster-title">Your roster</h1>
-        <p role="status">Loading your roster…</p>
+        <PageState kind="loading" message="Loading your roster…" />
       </section>
     );
 
@@ -101,18 +102,15 @@ export default function RosterDraft() {
     return (
       <section aria-labelledby="roster-title">
         <h1 id="roster-title">Your roster</h1>
-        <div role="alert" className="notice problem">
-          <strong>Could not load your roster.</strong> {loaded.error}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
+        <PageState
+          kind="error"
+          title="Could not load your roster."
+          message={loaded.error}
+          onRetry={() => {
             setLoaded({ status: "loading" });
             void load();
           }}
-        >
-          Try again
-        </button>
+        />
       </section>
     );
 
@@ -122,13 +120,12 @@ export default function RosterDraft() {
     return (
       <section aria-labelledby="roster-title">
         <h1 id="roster-title">Your roster</h1>
-        <div className="band">
-          <h2>No roster to draft</h2>
+        <PageState kind="empty" title="No roster to draft">
           <p>
             You are not a coach in a live season, so there is no roster for you
             to choose.
           </p>
-        </div>
+        </PageState>
       </section>
     );
 
@@ -238,52 +235,46 @@ export default function RosterDraft() {
     return (
       <section aria-labelledby="roster-title" className="draft-desk">
         {header}
-        <div className="band">
-          {desk.state === "locked" && (
-            <>
-              <h2>Your roster is locked</h2>
-              <p>
-                You locked your nine teams. Only the commissioner can change
-                them now.
-                {desk.deadline &&
-                  ` The draft closes ${formatDeadline(desk.deadline)}.`}
-              </p>
-            </>
-          )}
-          {desk.state === "unopened" && (
-            <>
-              <h2>The draft has not opened yet</h2>
-              <p role="status">
-                The commissioner has started the season and will open the roster
-                draft when it is ready.
-              </p>
-            </>
-          )}
-          {desk.state === "closed" && desk.complete && (
-            <>
-              <h2>The draft is closed</h2>
-              <p>
-                {desk.deadline
-                  ? `It closed ${formatDeadline(desk.deadline)}. `
-                  : ""}
-                These are your nine teams. Only the commissioner can change them
-                now.
-              </p>
-            </>
-          )}
-          {desk.state === "closed" && !desk.complete && (
-            <>
-              <h2>Your roster is incomplete</h2>
-              <p role="status">
-                {desk.deadline
-                  ? `The draft closed ${formatDeadline(desk.deadline)} `
-                  : "The draft is closed "}
-                with {mine.length} of 9 teams chosen. You cannot make weekly
-                picks until the commissioner completes your roster.
-              </p>
-            </>
-          )}
-        </div>
+        {desk.state === "locked" && (
+          <PageState kind="empty" title="Your roster is locked">
+            <p>
+              You locked your nine teams. Only the commissioner can change them
+              now.
+              {desk.deadline &&
+                ` The draft closes ${formatDeadline(desk.deadline)}.`}
+            </p>
+          </PageState>
+        )}
+        {desk.state === "unopened" && (
+          <PageState kind="empty" title="The draft has not opened yet" live>
+            <p>
+              The commissioner has started the season and will open the roster
+              draft when it is ready.
+            </p>
+          </PageState>
+        )}
+        {desk.state === "closed" && desk.complete && (
+          <PageState kind="empty" title="The draft is closed">
+            <p>
+              {desk.deadline
+                ? `It closed ${formatDeadline(desk.deadline)}. `
+                : ""}
+              These are your nine teams. Only the commissioner can change them
+              now.
+            </p>
+          </PageState>
+        )}
+        {desk.state === "closed" && !desk.complete && (
+          <PageState kind="empty" title="Your roster is incomplete" live>
+            <p>
+              {desk.deadline
+                ? `The draft closed ${formatDeadline(desk.deadline)} `
+                : "The draft is closed "}
+              with {mine.length} of 9 teams chosen. You cannot make weekly picks
+              until the commissioner completes your roster.
+            </p>
+          </PageState>
+        )}
         {mine.length > 0 && (
           <section aria-labelledby="mine-title" className="draft-mine">
             <h2 id="mine-title">Your teams</h2>

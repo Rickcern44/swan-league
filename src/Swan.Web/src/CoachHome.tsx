@@ -10,6 +10,7 @@ import {
   when,
 } from "./coachDesk";
 import { goTo, timeLeft } from "./draftTime";
+import PageState from "./PageState";
 import {
   fetchStandings,
   ordinal,
@@ -108,9 +109,9 @@ export default function CoachHome() {
 
   if (loaded.status === "loading")
     return (
-      <section aria-busy="true" aria-labelledby="home-title">
+      <section aria-labelledby="home-title">
         <h1 id="home-title">Your week</h1>
-        <p role="status">Loading your week…</p>
+        <PageState kind="loading" message="Loading your week…" />
       </section>
     );
 
@@ -118,12 +119,12 @@ export default function CoachHome() {
     return (
       <section aria-labelledby="home-title">
         <h1 id="home-title">Your week</h1>
-        <div role="alert" className="notice problem">
-          <strong>Could not load your week.</strong> {loaded.error}
-        </div>
-        <button type="button" onClick={() => void load()}>
-          Try again
-        </button>
+        <PageState
+          kind="error"
+          title="Could not load your week."
+          message={loaded.error}
+          onRetry={() => void load()}
+        />
       </section>
     );
 
@@ -133,8 +134,7 @@ export default function CoachHome() {
       <section aria-labelledby="home-title">
         {desk.seasonName && <p className="eyebrow">{desk.seasonName}</p>}
         <h1 id="home-title">Your week</h1>
-        <div className="band">
-          <h2>Nothing to pick yet</h2>
+        <PageState kind="empty" title="Nothing to pick yet">
           <p>{closedMessages[desk.state as keyof typeof closedMessages]}</p>
           {(desk.state === "no-roster" ||
             desk.state === "roster-incomplete") && (
@@ -145,7 +145,7 @@ export default function CoachHome() {
           <button type="button" className="ghost" onClick={() => void load()}>
             Check again
           </button>
-        </div>
+        </PageState>
         <WhereYouStand />
       </section>
     );
