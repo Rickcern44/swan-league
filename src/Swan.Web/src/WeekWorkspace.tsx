@@ -1,6 +1,8 @@
 import {
+  Dispatch,
   FormEvent,
   KeyboardEvent,
+  SetStateAction,
   useCallback,
   useEffect,
   useRef,
@@ -32,6 +34,13 @@ type Game = {
   homeScore: number | null;
   awayScore: number | null;
   latestLine?: LatestLine | null;
+  proposedResult?: {
+    homeScore: number;
+    awayScore: number;
+    source: string;
+    updatedAt: string;
+    reason: string | null;
+  } | null;
 };
 
 type Week = {
@@ -46,6 +55,8 @@ type Week = {
   resultsConfirmed: number;
   nextAction: { kind: string; label: string; detail: string; canAct: boolean };
   dogOptionTeamIds: string[];
+  coachPickVisibilityOverride?: boolean;
+  coachPickVisibilityOverrideReason?: string | null;
 };
 
 type Loaded =
@@ -491,7 +502,9 @@ export default function WeekWorkspace({
         {current === "dogs" && (
           <DogsPanel week={week} busy={busy} send={send} run={run} say={say} />
         )}
-        {current === "picks" && <PicksPanel weekId={week.id} />}
+        {current === "picks" && (
+          <PicksPanel week={week} busy={busy} send={send} run={run} say={say} />
+        )}
         {current === "results" && (
           <ResultsPanel
             week={week}
@@ -1456,10 +1469,173 @@ function Loading({
   );
 }
 
-function PicksPanel({ weekId }: { weekId: string }) {
-  const [state, load] = useFetched<{ coaches: CoachCard[] }>(
-    `/api/admin/weeks/${weekId}/picks`,
+function CoachPickOverride({
+  coach,
+  busy,
+  send,
+  run,
+  say,
+  onDone,
+}: {
+  coach: CoachCard;
+  busy: boolean;
+  send: Send;
+  run: PanelProps["run"];
+  say: PanelProps["say"];
+  onDone: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [teamIds, setTeamIds] = useState(
+    () => new Set(coach.starts.map((pick) => pick.teamId)),
   );
+  const [dogTeamIds, setDogTeamIds] = useState(
+    () => new Set(coach.dogs.map((pick) => pick.teamId)),
+  );
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState("");
+  const toggle = (set: Dispatch<SetStateAction<Set<string>>>, id: string) =>
+    set((selected) => {
+      const next = new Set(selected);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  async function save() {
+    if (!reason.trim()) {
+      setProblem("A commissioner override requires a reason.");
+      return;
+    }
+    setProblem("");
+    const result = await run(() =>
+      send(
+        `coaches/${coach.membershipId}/picks`,
+        {
+          teamIds: [...teamIds],
+          dogTeamIds: [...dogTeamIds],
+          reason: reason.trim(),
+        },
+        "PUT",
+      ),
+    );
+    if (result.ok) {
+      say(`${coach.name}'s picks were overridden.`);
+      setEditing(false);
+      onDone();
+    } else setProblem(result.message);
+  }
+  if (!editing)
+    return (
+      <button
+        type="button"
+        className="ghost small"
+        disabled={busy}
+        onClick={() => setEditing(true)}
+      >
+        Override picks
+      </button>
+    );
+  return (
+    <form
+      className="override-form"
+      aria-label={`Override ${coach.name}'s picks`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <p className="hint">
+        Select the submitted picks that should remain, then record why this
+        exceptional change is needed.
+      </p>
+      {coach.starts.map((pick) => (
+        <label key={pick.teamId}>
+          <input
+            type="checkbox"
+            checked={teamIds.has(pick.teamId)}
+            disabled={busy}
+            onChange={() => toggle(setTeamIds, pick.teamId)}
+          />{" "}
+          Start {pick.team}
+        </label>
+      ))}
+      {coach.dogs.map((pick) => (
+        <label key={pick.teamId}>
+          <input
+            type="checkbox"
+            checked={dogTeamIds.has(pick.teamId)}
+            disabled={busy}
+            onChange={() => toggle(setDogTeamIds, pick.teamId)}
+          />{" "}
+          Dog {pick.team}
+        </label>
+      ))}
+      <label>
+        Reason
+        <textarea
+          value={reason}
+          disabled={busy}
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </label>
+      {problem && (
+        <p role="alert" className="problem">
+          {problem}
+        </p>
+      )}
+      <div className="editor-actions">
+        <button type="submit" className="primary" disabled={busy}>
+          Save coach-pick override
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          disabled={busy}
+          onClick={() => setEditing(false)}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function PicksPanel({ week, busy, send, run, say }: PanelProps) {
+  const [visibilityEnabled, setVisibilityEnabled] = useState(
+    week.coachPickVisibilityOverride ?? false,
+  );
+  const [visibilityReason, setVisibilityReason] = useState(
+    week.coachPickVisibilityOverrideReason ?? "",
+  );
+  const [visibilityProblem, setVisibilityProblem] = useState("");
+  const [state, load] = useFetched<{ coaches: CoachCard[] }>(
+    `/api/admin/weeks/${week.id}/picks`,
+  );
+
+  async function saveVisibility() {
+    const reason = visibilityReason.trim();
+    if (visibilityEnabled && !reason) {
+      setVisibilityProblem("A visibility override requires a reason.");
+      return;
+    }
+    setVisibilityProblem("");
+    const result = await run(() =>
+      send(
+        "coach-pick-visibility",
+        {
+          enabled: visibilityEnabled,
+          reason: visibilityEnabled ? reason : null,
+        },
+        "PUT",
+      ),
+    );
+    if (result.ok)
+      say(
+        visibilityEnabled
+          ? "Coach-pick visibility override saved."
+          : "Coach-pick visibility override cleared.",
+      );
+    else setVisibilityProblem(result.message);
+  }
   if (state.status !== "ready")
     return (
       <section aria-label="Picks">
@@ -1483,6 +1659,47 @@ function PicksPanel({ weekId }: { weekId: string }) {
       .join(" · ");
   return (
     <section aria-label="Picks" className="picks-panel">
+      <form
+        className="override-form"
+        aria-label="Coach pick visibility"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void saveVisibility();
+        }}
+      >
+        <h2>Coach-pick visibility</h2>
+        <p className="hint">
+          Use only for an exceptional week. Coaches can normally see other
+          coaches’ picks only when the week rules allow it.
+        </p>
+        <label>
+          <input
+            type="checkbox"
+            checked={visibilityEnabled}
+            disabled={busy}
+            onChange={(event) => setVisibilityEnabled(event.target.checked)}
+          />{" "}
+          Show coach picks early for this week
+        </label>
+        {visibilityEnabled && (
+          <label>
+            Reason
+            <textarea
+              value={visibilityReason}
+              disabled={busy}
+              onChange={(event) => setVisibilityReason(event.target.value)}
+            />
+          </label>
+        )}
+        {visibilityProblem && (
+          <p role="alert" className="problem">
+            {visibilityProblem}
+          </p>
+        )}
+        <button type="submit" className="ghost" disabled={busy}>
+          Save visibility override
+        </button>
+      </form>
       <p className="count">
         {complete} of {coaches.length} cards complete
       </p>
@@ -1520,6 +1737,14 @@ function PicksPanel({ weekId }: { weekId: string }) {
                   ))}
                 </>
               )}
+              <CoachPickOverride
+                coach={coach}
+                busy={busy}
+                send={send}
+                run={run}
+                say={say}
+                onDone={() => void load()}
+              />
             </li>
           ))}
         </ul>
@@ -1605,6 +1830,19 @@ function ResultsPanel({ week, busy, send, run, say }: PanelProps) {
   const [drafts, setDrafts] = useState<Record<string, ScoreDraft>>({});
   const [problems, setProblems] = useState<string[]>([]);
   const entering = week.state === "Locked";
+  const proposed = week.games.filter((game) => game.proposedResult);
+
+  async function importScores() {
+    const result = await run(() => send("results/import"));
+    if (result.ok) say("Imported scores are ready for review.");
+    else setProblems([result.message]);
+  }
+
+  async function confirmDrafts() {
+    const result = await run(() => send("results/confirm"));
+    if (result.ok) say("Reviewed results confirmed and week finalized.");
+    else setProblems([result.message]);
+  }
 
   const saved = (game: Game): ScoreDraft => ({
     away: game.awayScore === null ? "" : String(game.awayScore),
@@ -1690,6 +1928,24 @@ function ResultsPanel({ week, busy, send, run, say }: PanelProps) {
           >
             Save {ready.length} {ready.length === 1 ? "result" : "results"}
           </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void importScores()}
+          >
+            Import final scores
+          </button>
+          {proposed.length > 0 && (
+            <button
+              type="button"
+              className="primary"
+              disabled={busy}
+              onClick={() => void confirmDrafts()}
+            >
+              Confirm {proposed.length} reviewed{" "}
+              {proposed.length === 1 ? "result" : "results"}
+            </button>
+          )}
         </div>
       ) : (
         week.state !== "Final" && (
@@ -1744,6 +2000,7 @@ function ResultsPanel({ week, busy, send, run, say }: PanelProps) {
                     ? "Saved"
                     : "No result yet";
               const line = game.approvedLine ?? game.lineHistory.at(-1) ?? null;
+              const proposedScore = game.proposedResult;
               return (
                 <tr
                   key={game.id}
@@ -1796,6 +2053,15 @@ function ResultsPanel({ week, busy, send, run, say }: PanelProps) {
                   </td>
                   <td data-label="Status">
                     <span className={`line-pill ${status}`}>{label}</span>
+                    {proposedScore && (
+                      <p className="hint">
+                        Review: {away} {proposedScore.awayScore} · {home}{" "}
+                        {proposedScore.homeScore} ({proposedScore.source})
+                        {proposedScore.reason
+                          ? ` — ${proposedScore.reason}`
+                          : ""}
+                      </p>
+                    )}
                   </td>
                   {entering && (
                     <td className="row-actions">

@@ -721,6 +721,64 @@ test("an open week starts on the picks tab and lists every coach's card", async 
   expect(coaches[1]).toHaveTextContent("No picks yet");
 });
 
+test("a commissioner can remove a submitted pick only with a recorded reason", async () => {
+  open("Open", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+  replies["GET /picks"] = {
+    status: 200,
+    body: {
+      coaches: [
+        {
+          membershipId: "m1",
+          name: "Coach One",
+          complete: true,
+          starts: [
+            {
+              teamId: "t1",
+              team: "Buffalo Bills",
+              gameId: G1,
+              pointValue: 3,
+              spread: null,
+              locked: true,
+              result: null,
+            },
+          ],
+          dogs: [],
+        },
+      ],
+    },
+  };
+  replies["PUT /coaches/m1/picks"] = () => ({ status: 200, body: server });
+  await screen.findByRole("list", { name: "Coach cards" });
+
+  fireEvent.click(screen.getByRole("button", { name: "Override picks" }));
+  const form = screen.getByRole("form", { name: "Override Coach One's picks" });
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save coach-pick override" }),
+  );
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "A commissioner override requires a reason.",
+  );
+  fireEvent.click(
+    within(form).getByRole("checkbox", { name: "Start Buffalo Bills" }),
+  );
+  fireEvent.change(within(form).getByRole("textbox", { name: "Reason" }), {
+    target: { value: "The coach withdrew the pick." },
+  });
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save coach-pick override" }),
+  );
+
+  await waitFor(() =>
+    expect(
+      calls.find((call) => call.url.endsWith("/coaches/m1/picks"))?.body,
+    ).toEqual({
+      teamIds: [],
+      dogTeamIds: [],
+      reason: "The coach withdrew the pick.",
+    }),
+  );
+});
+
 test("the tab in the address is opened, and activity lists what happened to the week", async () => {
   replies[`GET /api/admin/audit?weekId=${WEEK}`] = {
     status: 200,
@@ -1320,4 +1378,40 @@ test("before the week locks the results tab says when scores can be entered", as
   ).toBeVisible();
   expect(resultRow("Baltimore Ravens")).toHaveTextContent("No result yet");
   expect(screen.queryByRole("textbox", { name: /score/ })).toBeNull();
+});
+
+test("an early coach-pick visibility override requires a reason and uses the admin contract", async () => {
+  open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+  replies["GET /picks"] = { status: 200, body: { coaches: [] } };
+  replies["PUT /coach-pick-visibility"] = () => ({ status: 200, body: server });
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  fireEvent.click(screen.getByRole("tab", { name: "Picks" }));
+  const form = await screen.findByRole("form", {
+    name: "Coach pick visibility",
+  });
+  fireEvent.click(
+    within(form).getByRole("checkbox", {
+      name: "Show coach picks early for this week",
+    }),
+  );
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save visibility override" }),
+  );
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "A visibility override requires a reason.",
+  );
+
+  fireEvent.change(within(form).getByRole("textbox", { name: "Reason" }), {
+    target: { value: "A scoring correction needs review." },
+  });
+  fireEvent.click(
+    within(form).getByRole("button", { name: "Save visibility override" }),
+  );
+  await waitFor(() =>
+    expect(calls.find((call) => call.method === "PUT")?.body).toEqual({
+      enabled: true,
+      reason: "A scoring correction needs review.",
+    }),
+  );
 });
