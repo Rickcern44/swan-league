@@ -252,6 +252,7 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         public Task<Result<WeekDashboard>> SubmitResultDraftAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, string? reason, CancellationToken cancellationToken = default) => Record(actor, weekId, $"draft:{gameId.Value}:{homeScore}:{awayScore}:{reason}");
         public Task<Result<WeekDashboard>> ImportFinalScoresAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "import");
         public Task<Result<WeekDashboard>> ConfirmResultDraftsAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "confirm-results");
+        public Task<Result<WeekDashboard>> SetCoachPickVisibilityOverrideAsync(UserId actor, WeekId weekId, bool enabled, string? reason, CancellationToken cancellationToken = default) => Record(actor, weekId, $"visibility:{enabled}:{reason}");
         public Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "finalize");
         public Task<Result<WeekDashboard>> RecomputeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "recompute");
         public Task<Result<SeasonRecomputeSummary>> RecomputeSeasonAsync(UserId actor, SeasonId seasonId, CancellationToken cancellationToken = default)

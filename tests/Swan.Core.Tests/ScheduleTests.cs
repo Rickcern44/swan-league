@@ -100,6 +100,20 @@ public sealed class ScheduleTests
     }
 
     [Fact]
+    public void ACommissionerCanTemporarilyOverridePickVisibilityOnlyWithAReason()
+    {
+        var week = CreateWeek(out _);
+
+        Assert.Equal("week.visibility.reason", week.SetCoachPickVisibilityOverride(true, "").Error!.Code);
+        Assert.True(week.SetCoachPickVisibilityOverride(true, "Correct a submitted pick").IsSuccess);
+        Assert.True(week.HasCoachPickVisibilityOverride);
+        Assert.Equal("Correct a submitted pick", week.CoachPickVisibilityOverrideReason);
+        Assert.True(week.SetCoachPickVisibilityOverride(false, "").IsSuccess);
+        Assert.False(week.HasCoachPickVisibilityOverride);
+        Assert.Null(week.CoachPickVisibilityOverrideReason);
+    }
+
+    [Fact]
     public void GeneratedDogOptionsFollowTheHomePerspectiveSpread()
     {
         var week = new Week(new WeekId(Guid.NewGuid()), new SeasonId(Guid.NewGuid()), 1, new WeekType(WeekKind.Regular, null, true));

@@ -158,6 +158,8 @@ public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type
     public int Number { get; } = number;
     public WeekType Type { get; } = type;
     public WeekState State { get; private set; } = WeekState.Draft;
+    public bool HasCoachPickVisibilityOverride { get; private set; }
+    public string? CoachPickVisibilityOverrideReason { get; private set; }
     public IReadOnlyCollection<Game> Games => games.AsReadOnly();
     public IReadOnlyCollection<DogOption> DogOptions => dogOptions.AsReadOnly();
     public void AddGame(Game game) => games.Add(game);
@@ -206,6 +208,13 @@ public sealed class Week(WeekId id, SeasonId seasonId, int number, WeekType type
             var confirmed = game.ConfirmProposedResult();
             if (!confirmed.IsSuccess) return confirmed;
         }
+        return Result<bool>.Success(true);
+    }
+    public Result<bool> SetCoachPickVisibilityOverride(bool enabled, string? reason)
+    {
+        if (enabled && string.IsNullOrWhiteSpace(reason)) return Result<bool>.Failure("week.visibility.reason", "A coach-pick visibility override requires a reason.");
+        HasCoachPickVisibilityOverride = enabled;
+        CoachPickVisibilityOverrideReason = enabled ? reason!.Trim() : null;
         return Result<bool>.Success(true);
     }
     private Result<bool> Transition(WeekState state) { State = state; return Result<bool>.Success(true); }

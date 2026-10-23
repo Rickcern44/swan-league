@@ -11,6 +11,7 @@ public sealed record SetGameExclusionRequest(bool Excluded, string? Reason);
 public sealed record SeasonWeekResponse(Guid Id, int Number, string Kind, string State);
 public sealed record ConfirmResultRequest(int HomeScore, int AwayScore);
 public sealed record ResultDraftRequest(int HomeScore, int AwayScore, string? Reason);
+public sealed record CoachPickVisibilityOverrideRequest(bool Enabled, string? Reason);
 public sealed record ReplaceDogOptionsRequest(IReadOnlyList<Guid> TeamIds);
 
 public static class WeekEndpoints
@@ -63,6 +64,8 @@ public static class WeekEndpoints
             Act(principal, actor => service.ImportFinalScoresAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/results/confirm", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.ConfirmResultDraftsAsync(actor, new WeekId(weekId), cancellationToken)));
+        weeks.MapPut("/coach-pick-visibility", (Guid weekId, CoachPickVisibilityOverrideRequest request, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
+            Act(principal, actor => service.SetCoachPickVisibilityOverrideAsync(actor, new WeekId(weekId), request.Enabled, request.Reason, cancellationToken)));
         weeks.MapPost("/finalize", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
             Act(principal, actor => service.FinalizeAsync(actor, new WeekId(weekId), cancellationToken)));
         weeks.MapPost("/recompute", (Guid weekId, ClaimsPrincipal principal, IWeekAdministrationService service, CancellationToken cancellationToken) =>
