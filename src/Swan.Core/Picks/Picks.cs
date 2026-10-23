@@ -135,6 +135,30 @@ public sealed class Ballot(BallotId id, MembershipId membershipId, WeekId weekId
         else Raise(new PickSubmitted(Id));
         return Result<bool>.Success(true);
     }
+
+    // An administrator may repair a ballot after an individual pick has locked, but the same roster and dog invariants
+    // still apply and the reason becomes durable pick history.
+    public Result<bool> OverrideByCommissioner(IReadOnlyCollection<TeamPick> newPicks, IReadOnlyCollection<DogPick> newDogs, bool doubleDog, IReadOnlySet<TeamId> roster, DateTimeOffset now, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) return Result<bool>.Failure("pick.override.reason", "A commissioner override requires a reason.");
+        var dogLimit = doubleDog ? 2 : 1;
+        if (newPicks.Count > 3 || newPicks.Select(pick => pick.TeamId).Distinct().Count() != newPicks.Count || newPicks.Any(pick => pick.IsBye || !roster.Contains(pick.TeamId)))
+            return Result<bool>.Failure("pick.invalid", "Pick three or fewer different teams from the coach's roster.");
+        if (newDogs.Count > dogLimit || newDogs.Select(dog => dog.TeamId).Distinct().Count() != newDogs.Count || newDogs.Select(dog => dog.GameId).Distinct().Count() != newDogs.Count)
+            return Result<bool>.Failure("dog.invalid", doubleDog ? "Pick up to two dogs from two different teams and games." : "Pick at most one dog.");
+
+        var unchanged = picks.Count == newPicks.Count && picks.All(newPicks.Contains) && dogs.Count == newDogs.Count && dogs.All(newDogs.Contains);
+        if (unchanged) return Result<bool>.Success(true);
+
+        picks.Clear();
+        picks.AddRange(newPicks);
+        dogs.Clear();
+        dogs.AddRange(newDogs);
+        Revision++;
+        changes.Add(new(now, reason.Trim()));
+        Raise(new PickChanged(Id));
+        return Result<bool>.Success(true);
+    }
     // When the commissioner takes a team off a coach's roster, that team can no longer be one of the coach's starts: its picks are dropped, locked or not, and the change is recorded.
     // Returns how many picks were removed. Dogs are not roster-limited, so they stay.
     public int RemovePicksFor(TeamId team, DateTimeOffset now, string reason)

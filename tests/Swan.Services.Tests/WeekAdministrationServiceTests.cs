@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Swan.Core.Common;
+using Swan.Core.Integrations;
 using Swan.Core.League;
 using Swan.Core.Picks;
 using Swan.Core.Schedule;
@@ -460,7 +461,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         await database.SaveChangesAsync();
     }
 
-    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular, bool withDog = false, SeasonId? season = null, int number = 1, bool final = false, bool dogTeamIsAlsoPicked = false)
+    private async Task<LockedWeek> SeedLockedWeek(WeekKind kind = WeekKind.Regular, bool withDog = false, SeasonId? season = null, int number = 1, bool final = false, bool dogTeamIsAlsoPicked = false, string? providerGameId = null)
     {
         await using var database = CreateDatabase();
         await database.Database.MigrateAsync();
@@ -469,7 +470,7 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
         var games = new List<GameId>();
         for (var index = 0; index < 3; index++)
         {
-            var game = new Game(new GameId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow.AddDays(3)));
+            var game = new Game(new GameId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new TeamId(Guid.NewGuid()), new Kickoff(DateTimeOffset.UtcNow.AddDays(3)), providerGameId: index == 0 ? providerGameId : null);
             week.AddGame(game);
             games.Add(game.Id);
             Assert.True(week.AddLine(game.Id, new Spread(-3m)).IsSuccess);
@@ -600,6 +601,29 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ImportedScoresAreReviewableOverridableAndConfirmedWithoutProviderOverwrite()
+    {
+        var season = new SeasonId(Guid.NewGuid());
+        await SeedSeason(season);
+        var seeded = await SeedLockedWeek(season: season, providerGameId: "provider-1");
+        var provider = new StaticFinalScoreProvider(new ProviderFinalScores(DateTimeOffset.UtcNow, [new ProviderFinalScore("provider-1", 1, "Home", "Away", 21, 14, DateTimeOffset.UtcNow)]));
+
+        var imported = await Run(provider, service => service.ImportFinalScoresAsync(Admin, seeded.Week));
+        var importedGame = imported.Value!.Games.Single(game => game.Id == seeded.Games[0]);
+        var overridden = await Run(provider, service => service.SubmitResultDraftAsync(Admin, seeded.Week, seeded.Games[0], 21, 17, "Official correction"));
+        var reimported = await Run(provider, service => service.ImportFinalScoresAsync(Admin, seeded.Week));
+        await Run(provider, service => service.SubmitResultDraftAsync(Admin, seeded.Week, seeded.Games[1], 10, 7, null));
+        await Run(provider, service => service.SubmitResultDraftAsync(Admin, seeded.Week, seeded.Games[2], 7, 3, null));
+        var confirmed = await Run(provider, service => service.ConfirmResultDraftsAsync(Admin, seeded.Week));
+
+        Assert.Equal((21, 14, ResultDraftSource.Provider), (importedGame.ProposedResult!.HomeScore, importedGame.ProposedResult.AwayScore, importedGame.ProposedResult.Source));
+        var overrideDraft = overridden.Value!.Games.Single(game => game.Id == seeded.Games[0]).ProposedResult!;
+        Assert.Equal((21, 17, ResultDraftSource.Override, "Official correction"), (overrideDraft.HomeScore, overrideDraft.AwayScore, overrideDraft.Source, overrideDraft.Reason));
+        Assert.Equal(17, reimported.Value!.Games.Single(game => game.Id == seeded.Games[0]).ProposedResult!.AwayScore);
+        Assert.Equal((WeekState.Final, 3, 1), (confirmed.Value!.State, confirmed.Value.Games.Count(game => game.HasResult), await Run((_, database) => database.WeekScores.CountAsync(score => score.WeekId == seeded.Week))));
+    }
+
+    [Fact]
     public async Task ATeamThatIsNotInTheCatalogHasNoNameRatherThanAnInventedOne()
     {
         var (weekId, _) = await SeedWeek();
@@ -629,6 +653,13 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
 
     private Task<T> Run<T>(Func<WeekAdministrationService, Task<T>> action) => Run((service, _) => action(service));
 
+    private async Task<T> Run<T>(IFinalScoreProvider provider, Func<WeekAdministrationService, Task<T>> action)
+    {
+        await using var database = CreateDatabase();
+        var clock = new SystemClock();
+        return await action(new WeekAdministrationService(database, new AuditService(database, clock), clock, provider));
+    }
+
     private async Task<T> Run<T>(Func<WeekAdministrationService, SwanDbContext, Task<T>> action)
     {
         await using var database = CreateDatabase();
@@ -637,4 +668,9 @@ public sealed class WeekAdministrationServiceTests : IAsyncLifetime
     }
 
     private SwanDbContext CreateDatabase() => new(new DbContextOptionsBuilder<SwanDbContext>().UseNpgsql(postgres.GetConnectionString()).Options);
+
+    private sealed class StaticFinalScoreProvider(ProviderFinalScores scores) : IFinalScoreProvider
+    {
+        public Task<Result<ProviderFinalScores>> FetchFinalScoresAsync(int season, int week, CancellationToken cancellationToken = default) => Task.FromResult(Result<ProviderFinalScores>.Success(scores));
+    }
 }

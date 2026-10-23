@@ -2607,7 +2607,9 @@ test("an address for a part not reached yet opens where setup resumes", async ()
   expect(
     await screen.findByRole("form", { name: "Schedule import" }),
   ).toBeVisible();
-  expect(window.location.pathname).toBe("/commish/setup/schedule");
+  await waitFor(() =>
+    expect(window.location.pathname).toBe("/commish/setup/schedule"),
+  );
 });
 
 test("the Coaches page shows what the selected coaches bring in buy-ins", async () => {

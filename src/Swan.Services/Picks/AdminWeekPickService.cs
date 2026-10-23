@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Swan.Core;
 using Swan.Core.Common;
+using Swan.Core.Communication;
 using Swan.Core.League;
 using Swan.Core.Picks;
 using Swan.Core.Schedule;
 using Swan.Data;
+using Swan.Services.Platform;
 
 namespace Swan.Services.Picks;
 
@@ -15,13 +17,15 @@ public sealed record PickSubmission(MembershipId MembershipId, string Name, int 
 public sealed record AdminPick(Guid TeamId, string Team, Guid GameId, int? PointValue, decimal? Spread, bool Locked, string? Result);
 public sealed record AdminCoachPicks(Guid MembershipId, string Name, IReadOnlyList<AdminPick> Starts, IReadOnlyList<AdminPick> Dogs, bool Complete);
 public sealed record AdminWeekPicks(IReadOnlyList<AdminCoachPicks> Coaches);
+public sealed record AdminPickOverride(IReadOnlyList<Guid> TeamIds, IReadOnlyList<Guid> DogTeamIds, string Reason);
 
 public interface IAdminWeekPickService
 {
     Task<Result<AdminWeekPicks>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default);
+    Task<Result<AdminWeekPicks>> OverrideAsync(UserId actor, WeekId weekId, MembershipId membershipId, AdminPickOverride request, CancellationToken cancellationToken = default);
 }
 
-public sealed class AdminWeekPickService(SwanDbContext database, IClock clock) : IAdminWeekPickService
+public sealed class AdminWeekPickService(SwanDbContext database, IClock clock, IAuditService audit) : IAdminWeekPickService
 {
     public async Task<Result<AdminWeekPicks>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default)
     {
@@ -47,5 +51,55 @@ public sealed class AdminWeekPickService(SwanDbContext database, IClock clock) :
             return new AdminCoachPicks(member.Id.Value, users.GetValueOrDefault(member.UserId) ?? "Unknown coach", starts, dogs, starts.Count == 3 && dogs.Count == (doubleDog ? 2 : 1));
         }).OrderBy(value => value.Name, StringComparer.Ordinal).ToList();
         return Result<AdminWeekPicks>.Success(new(coaches));
+    }
+
+    public async Task<Result<AdminWeekPicks>> OverrideAsync(UserId actor, WeekId weekId, MembershipId membershipId, AdminPickOverride request, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Reason)) return Result<AdminWeekPicks>.Failure("pick.override.reason", "A commissioner override requires a reason.");
+        var week = await database.Weeks.SingleOrDefaultAsync(value => value.Id == weekId, cancellationToken);
+        if (week is null) return Result<AdminWeekPicks>.Failure("week.missing", "Week does not exist.");
+        if (week.State is not (WeekState.Open or WeekState.Locked)) return Result<AdminWeekPicks>.Failure("week.state", "Picks can be overridden only while the week is open or locked.");
+        var season = await database.Seasons.SingleAsync(value => value.Id == week.SeasonId, cancellationToken);
+        var membership = await database.Memberships.SingleOrDefaultAsync(value => value.Id == membershipId && value.SeasonId == week.SeasonId && value.Role == MembershipRole.Coach, cancellationToken);
+        if (membership is null) return Result<AdminWeekPicks>.Failure("membership.missing", "Coach membership does not exist for this week.");
+        var roster = await database.Rosters.SingleOrDefaultAsync(value => value.MembershipId == membershipId && value.SeasonId == week.SeasonId, cancellationToken);
+        if (roster is null) return Result<AdminWeekPicks>.Failure("roster.missing", "Coach roster does not exist.");
+        var games = week.Games.Where(game => !game.Excluded).ToList();
+        var finishes = await database.SeasonTeams.Where(value => value.SeasonId == week.SeasonId).ToDictionaryAsync(value => value.TeamId, value => value.FinishPosition, cancellationToken);
+        var picks = new List<TeamPick>();
+        foreach (var id in request.TeamIds)
+        {
+            var team = new TeamId(id); var game = games.SingleOrDefault(value => value.HomeTeamId == team || value.AwayTeamId == team);
+            if (game is null || !roster.Teams.Contains(team) || !finishes.TryGetValue(team, out var points)) return Result<AdminWeekPicks>.Failure("pick.invalid", "Each team pick must be a roster team playing in this week.");
+            picks.Add(TeamPick.ForGame(team, game.Id, game.Kickoff.Value, season.Settings, games.Min(value => value.Kickoff.Value)) with { PointValue = points });
+        }
+        var dogs = new List<DogPick>();
+        foreach (var id in request.DogTeamIds)
+        {
+            var team = new TeamId(id); var game = games.SingleOrDefault(value => value.HomeTeamId == team || value.AwayTeamId == team);
+            if (game is null || !week.DogOptions.Any(value => value.TeamId == team)) return Result<AdminWeekPicks>.Failure("dog.invalid", "Each dog must be an approved dog option for this week.");
+            dogs.Add(DogPick.ForGame(team, game.Id, game.Kickoff.Value));
+        }
+        var ballot = await database.Ballots.SingleOrDefaultAsync(value => value.MembershipId == membershipId && value.WeekId == weekId, cancellationToken) ?? new Ballot(new BallotId(Guid.NewGuid()), membershipId, weekId);
+        var before = string.Join(',', ballot.Picks.Select(value => value.TeamId.Value));
+        var revision = ballot.Revision;
+        var result = ballot.OverrideByCommissioner(picks, dogs, week.IsDoubleDog(season), roster.Teams.ToHashSet(), clock.UtcNow, request.Reason);
+        if (!result.IsSuccess) return Result<AdminWeekPicks>.Failure(result.Error!.Code, result.Error.Message);
+        if (ballot.Id != default && !database.Ballots.Local.Contains(ballot)) database.Ballots.Add(ballot);
+        var changed = ballot.Revision != revision;
+        if (changed)
+        {
+            var coach = await database.Users.SingleAsync(value => value.Id == membership.UserId, cancellationToken);
+            database.QueuedEmails.Add(new QueuedEmail(
+                new QueuedEmailId(Guid.NewGuid()),
+                coach.Email.Value,
+                $"Your Week {week.Number} picks were changed",
+                $"The commissioner changed your Week {week.Number} picks. Reason: {request.Reason.Trim()}",
+                clock.UtcNow));
+        }
+        await database.SaveChangesAsync(cancellationToken);
+        if (changed)
+            await audit.AppendAsync(actor, "coach-picks.overridden", ballot.Id.Value.ToString(), before, string.Join(',', ballot.Picks.Select(value => value.TeamId.Value)), request.Reason.Trim(), cancellationToken);
+        return await GetAsync(weekId, cancellationToken);
     }
 }

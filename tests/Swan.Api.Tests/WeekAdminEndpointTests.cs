@@ -31,6 +31,9 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
     [InlineData("POST", "/publish")]
     [InlineData("POST", "/lock")]
     [InlineData("POST", "/games/00000000-0000-0000-0000-000000000001/result")]
+    [InlineData("POST", "/games/00000000-0000-0000-0000-000000000001/result-draft")]
+    [InlineData("POST", "/results/import")]
+    [InlineData("POST", "/results/confirm")]
     [InlineData("POST", "/finalize")]
     [InlineData("POST", "/recompute")]
     [InlineData("POST", "/dog-options/generate")]
@@ -130,6 +133,8 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
             Assert.Equal(("Buffalo Bills", "Unknown team", -3.5m), (game.GetProperty("homeTeamName").GetString(), game.GetProperty("awayTeamName").GetString(), game.GetProperty("approvedLine").GetDecimal()));
             Assert.Equal([-3m, -3.5m], game.GetProperty("lineHistory").EnumerateArray().Select(line => line.GetDecimal()));
             Assert.False(game.GetProperty("hasResult").GetBoolean());
+            var proposed = game.GetProperty("proposedResult");
+            Assert.Equal((21, 17, "Override", "Official correction"), (proposed.GetProperty("homeScore").GetInt32(), proposed.GetProperty("awayScore").GetInt32(), proposed.GetProperty("source").GetString(), proposed.GetProperty("reason").GetString()));
             Assert.Equal((1, 1, 0), (root.GetProperty("includedGames").GetInt32(), root.GetProperty("linesApproved").GetInt32(), root.GetProperty("resultsConfirmed").GetInt32()));
             var next = root.GetProperty("nextAction");
             Assert.Equal(("approve-lines", true), (next.GetProperty("kind").GetString(), next.GetProperty("canAct").GetBoolean()));
@@ -162,13 +167,16 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         var publish = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/publish", null, TestContext.Current.CancellationToken);
         var @lock = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/lock", null, TestContext.Current.CancellationToken);
         var result = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result", new { homeScore = 21, awayScore = 21 }, cancellationToken: TestContext.Current.CancellationToken);
+        var draft = await client.PostAsJsonAsync($"/api/admin/weeks/{WeekGuid}/games/{GameGuid}/result-draft", new { homeScore = 21, awayScore = 21, reason = "Corrected box score" }, cancellationToken: TestContext.Current.CancellationToken);
+        var import = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/results/import", null, TestContext.Current.CancellationToken);
+        var confirm = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/results/confirm", null, TestContext.Current.CancellationToken);
         var finalize = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/finalize", null, TestContext.Current.CancellationToken);
         var recompute = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/recompute", null, TestContext.Current.CancellationToken);
         var generate = await client.PostAsync($"/api/admin/weeks/{WeekGuid}/dog-options/generate", null, TestContext.Current.CancellationToken);
         var replace = await client.PutAsJsonAsync($"/api/admin/weeks/{WeekGuid}/dog-options", new { teamIds = new[] { TeamGuid } }, cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.All(new[] { line, latest, approve, publish, @lock, result, finalize, recompute, generate, replace }, response => response.EnsureSuccessStatusCode());
-        Assert.Equal([$"line:{GameGuid}:-3.5:True", $"latest:{GameGuid}", "approve", "publish", "lock", $"result:{GameGuid}:21:21", "finalize", "recompute", "generate", $"replace:{TeamGuid}"], service.Calls);
+        Assert.All(new[] { line, latest, approve, publish, @lock, result, draft, import, confirm, finalize, recompute, generate, replace }, response => response.EnsureSuccessStatusCode());
+        Assert.Equal([$"line:{GameGuid}:-3.5:True", $"latest:{GameGuid}", "approve", "publish", "lock", $"result:{GameGuid}:21:21", $"draft:{GameGuid}:21:21:Corrected box score", "import", "confirm-results", "finalize", "recompute", "generate", $"replace:{TeamGuid}"], service.Calls);
         Assert.All(service.Actors, actor => Assert.Equal(new UserId(Guid.Parse("9c9b2c10-a312-4b77-a26a-ef546e87f3c9")), actor));
     }
 
@@ -241,6 +249,10 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
         public Task<Result<WeekDashboard>> SetGameExclusionAsync(UserId actor, WeekId weekId, GameId gameId, bool excluded, string reason, CancellationToken cancellationToken = default) => Record(actor, weekId, $"exclusion:{gameId.Value}:{excluded}");
         public Task<Result<WeekDashboard>> ApproveLatestLineAsync(UserId actor, WeekId weekId, GameId gameId, CancellationToken cancellationToken = default) => Record(actor, weekId, $"latest:{gameId.Value}");
         public Task<Result<WeekDashboard>> ConfirmResultAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, CancellationToken cancellationToken = default) => Record(actor, weekId, $"result:{gameId.Value}:{homeScore}:{awayScore}");
+        public Task<Result<WeekDashboard>> SubmitResultDraftAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, string? reason, CancellationToken cancellationToken = default) => Record(actor, weekId, $"draft:{gameId.Value}:{homeScore}:{awayScore}:{reason}");
+        public Task<Result<WeekDashboard>> ImportFinalScoresAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "import");
+        public Task<Result<WeekDashboard>> ConfirmResultDraftsAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "confirm-results");
+        public Task<Result<WeekDashboard>> SetCoachPickVisibilityOverrideAsync(UserId actor, WeekId weekId, bool enabled, string? reason, CancellationToken cancellationToken = default) => Record(actor, weekId, $"visibility:{enabled}:{reason}");
         public Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "finalize");
         public Task<Result<WeekDashboard>> RecomputeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) => Record(actor, weekId, "recompute");
         public Task<Result<SeasonRecomputeSummary>> RecomputeSeasonAsync(UserId actor, SeasonId seasonId, CancellationToken cancellationToken = default)
@@ -265,6 +277,6 @@ public sealed class WeekAdminEndpointTests(WebApplicationFactory<Program> factor
             return Task.FromResult(Failure is { } error ? Result<WeekDashboard>.Failure(error.Code, error.Message) : Ok(weekId));
         }
 
-        private static Result<WeekDashboard> Ok(WeekId weekId) => Result<WeekDashboard>.Success(new WeekDashboard(weekId, new SeasonId(Guid.NewGuid()), 1, WeekKind.Regular, WeekState.Draft, [new GameDashboard(new GameId(GameGuid), new TeamId(TeamGuid), new TeamId(Guid.NewGuid()), new DateTimeOffset(2026, 9, 10, 20, 15, 0, TimeSpan.Zero), false, -3.5m, [-3m, -3.5m], false, HomeTeamName: "Buffalo Bills")], [], new WeekNextAction("approve-lines", "Approve 1 line", "Freezes the lines.", true)));
+        private static Result<WeekDashboard> Ok(WeekId weekId) => Result<WeekDashboard>.Success(new WeekDashboard(weekId, new SeasonId(Guid.NewGuid()), 1, WeekKind.Regular, WeekState.Draft, [new GameDashboard(new GameId(GameGuid), new TeamId(TeamGuid), new TeamId(Guid.NewGuid()), new DateTimeOffset(2026, 9, 10, 20, 15, 0, TimeSpan.Zero), false, -3.5m, [-3m, -3.5m], false, HomeTeamName: "Buffalo Bills", ProposedResult: new ResultDraftDashboard(21, 17, ResultDraftSource.Override, new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero), "Official correction"))], [], new WeekNextAction("approve-lines", "Approve 1 line", "Freezes the lines.", true)));
     }
 }

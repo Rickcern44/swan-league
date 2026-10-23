@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Swan.Core;
 using Swan.Core.Common;
+using Swan.Core.Integrations;
 using Swan.Core.Schedule;
 using Swan.Core.Scoring;
 using Swan.Data;
@@ -9,8 +10,9 @@ using Swan.Services.Platform;
 namespace Swan.Services.Schedule;
 
 public sealed record LatestLineDashboard(decimal Spread, int? HomeMoneyline, int? AwayMoneyline, LineSource Source, DateTimeOffset EnteredAt, UserId EnteredBy);
-public sealed record GameDashboard(GameId Id, TeamId HomeTeamId, TeamId AwayTeamId, DateTimeOffset Kickoff, bool Excluded, decimal? ApprovedLine, IReadOnlyList<decimal> LineHistory, bool HasResult, int? HomeScore = null, int? AwayScore = null, string? HomeTeamName = null, string? AwayTeamName = null, LatestLineDashboard? LatestLine = null);
-public sealed record WeekDashboard(WeekId Id, SeasonId SeasonId, int Number, WeekKind Kind, WeekState State, IReadOnlyList<GameDashboard> Games, IReadOnlyList<TeamId> DogOptions, WeekNextAction? NextAction = null);
+public sealed record ResultDraftDashboard(int HomeScore, int AwayScore, ResultDraftSource Source, DateTimeOffset UpdatedAt, string? Reason);
+public sealed record GameDashboard(GameId Id, TeamId HomeTeamId, TeamId AwayTeamId, DateTimeOffset Kickoff, bool Excluded, decimal? ApprovedLine, IReadOnlyList<decimal> LineHistory, bool HasResult, int? HomeScore = null, int? AwayScore = null, string? HomeTeamName = null, string? AwayTeamName = null, LatestLineDashboard? LatestLine = null, ResultDraftDashboard? ProposedResult = null);
+public sealed record WeekDashboard(WeekId Id, SeasonId SeasonId, int Number, WeekKind Kind, WeekState State, IReadOnlyList<GameDashboard> Games, IReadOnlyList<TeamId> DogOptions, WeekNextAction? NextAction = null, bool CoachPickVisibilityOverride = false, string? CoachPickVisibilityOverrideReason = null);
 public sealed record SeasonWeek(WeekId Id, int Number, WeekKind Kind, WeekState State);
 
 public sealed record RecomputedWeek(WeekId WeekId, int Number);
@@ -30,12 +32,16 @@ public interface IWeekAdministrationService
     Task<Result<WeekDashboard>> PublishAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> LockAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> ConfirmResultAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, CancellationToken cancellationToken = default);
+    Task<Result<WeekDashboard>> SubmitResultDraftAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, string? reason, CancellationToken cancellationToken = default);
+    Task<Result<WeekDashboard>> ImportFinalScoresAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
+    Task<Result<WeekDashboard>> ConfirmResultDraftsAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
+    Task<Result<WeekDashboard>> SetCoachPickVisibilityOverrideAsync(UserId actor, WeekId weekId, bool enabled, string? reason, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
     Task<Result<WeekDashboard>> RecomputeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default);
     Task<Result<SeasonRecomputeSummary>> RecomputeSeasonAsync(UserId actor, SeasonId seasonId, CancellationToken cancellationToken = default);
 }
 
-public sealed class WeekAdministrationService(SwanDbContext database, IAuditService audit, IClock? clock = null) : IWeekAdministrationService
+public sealed class WeekAdministrationService(SwanDbContext database, IAuditService audit, IClock? clock = null, IFinalScoreProvider? finalScores = null) : IWeekAdministrationService
 {
     public async Task<Result<WeekDashboard>> GetAsync(WeekId weekId, CancellationToken cancellationToken = default) =>
         await database.Weeks.AsNoTracking().FirstOrDefaultAsync(week => week.Id == weekId, cancellationToken) is { } week
@@ -93,6 +99,54 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
             var result = GameResult.Create(homeScore, awayScore);
             return result.IsSuccess ? week.ConfirmResult(gameId, result.Value!) : Result<bool>.Failure(result.Error!.Code, result.Error.Message);
         }, cancellationToken);
+
+    public Task<Result<WeekDashboard>> SubmitResultDraftAsync(UserId actor, WeekId weekId, GameId gameId, int homeScore, int awayScore, string? reason, CancellationToken cancellationToken = default) =>
+        ActAsync(actor, weekId, "week.result.drafted", week =>
+        {
+            var result = GameResult.Create(homeScore, awayScore);
+            if (!result.IsSuccess) return Result<bool>.Failure(result.Error!.Code, result.Error.Message);
+            var game = week.Games.SingleOrDefault(value => value.Id == gameId);
+            if (game is null) return Result<bool>.Failure("game.missing", "Game does not exist.");
+            var source = game.ProposedResult is null ? ResultDraftSource.Manual : ResultDraftSource.Override;
+            return week.ProposeResult(gameId, result.Value!, source, clock?.UtcNow ?? DateTimeOffset.UtcNow, reason);
+        }, cancellationToken, reason);
+
+    public async Task<Result<WeekDashboard>> ImportFinalScoresAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default)
+    {
+        var week = await database.Weeks.FirstOrDefaultAsync(value => value.Id == weekId, cancellationToken);
+        if (week is null) return Missing;
+        if (week.State != WeekState.Locked) return Result<WeekDashboard>.Failure("week.state", "Results can only be reviewed for a locked week.");
+        if (finalScores is null) return Result<WeekDashboard>.Failure("scores.config", "A final score provider is not configured.");
+        var season = await database.Seasons.AsNoTracking().FirstOrDefaultAsync(value => value.Id == week.SeasonId, cancellationToken);
+        if (season is null) return Result<WeekDashboard>.Failure("season.missing", "Season does not exist.");
+        var fetched = await finalScores.FetchFinalScoresAsync(season.Year, week.Number, cancellationToken);
+        if (!fetched.IsSuccess) return Result<WeekDashboard>.Failure(fetched.Error!.Code, fetched.Error.Message);
+
+        var before = ToDashboard(week);
+        var byProviderId = week.Games.Where(game => game.ProviderGameId is not null).ToDictionary(game => game.ProviderGameId!, StringComparer.Ordinal);
+        foreach (var score in fetched.Value!.Scores.Where(value => value.Week == week.Number))
+        {
+            if (!byProviderId.TryGetValue(score.ProviderGameId, out var game)) continue;
+            var result = GameResult.Create(score.HomeScore, score.AwayScore);
+            if (!result.IsSuccess) continue;
+            var proposed = week.ProposeResult(game.Id, result.Value!, ResultDraftSource.Provider, score.UpdatedAt, null);
+            if (!proposed.IsSuccess && proposed.Error!.Code != "game.result.confirmed") return Result<WeekDashboard>.Failure(proposed.Error.Code, proposed.Error.Message);
+        }
+
+        var after = ToDashboard(week);
+        await audit.AppendAsync(actor, "week.results.imported", weekId.Value.ToString(), before, after, null, cancellationToken);
+        return Result<WeekDashboard>.Success(await PresentAsync(week, cancellationToken));
+    }
+
+    public Task<Result<WeekDashboard>> ConfirmResultDraftsAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) =>
+        ActAsync(actor, weekId, "week.results.confirmed", async week =>
+        {
+            var confirmed = week.ConfirmProposedResults();
+            return confirmed.IsSuccess ? await Finalize(week, cancellationToken) : confirmed;
+        }, cancellationToken);
+
+    public Task<Result<WeekDashboard>> SetCoachPickVisibilityOverrideAsync(UserId actor, WeekId weekId, bool enabled, string? reason, CancellationToken cancellationToken = default) =>
+        ActAsync(actor, weekId, "week.coach-pick-visibility.overridden", week => week.SetCoachPickVisibilityOverride(enabled, reason), cancellationToken, enabled ? reason : null);
 
     public Task<Result<WeekDashboard>> FinalizeAsync(UserId actor, WeekId weekId, CancellationToken cancellationToken = default) =>
         ActAsync(actor, weekId, "week.finalized", async week => UnsupportedScoring(week) ?? await Finalize(week, cancellationToken), cancellationToken);
@@ -192,6 +246,6 @@ public sealed class WeekAdministrationService(SwanDbContext database, IAuditServ
 
     private static WeekDashboard ToDashboard(Week week) => new(
         week.Id, week.SeasonId, week.Number, week.Type.Kind, week.State,
-        week.Games.Select(game => new GameDashboard(game.Id, game.HomeTeamId, game.AwayTeamId, game.Kickoff.Value, game.Excluded, game.ApprovedLine?.Value, game.LineHistory.Select(line => line.Value).ToList(), game.Result is not null, game.Result?.HomeScore, game.Result?.AwayScore, LatestLine: game.LatestLine is { } line ? new LatestLineDashboard(line.Spread.Value, line.HomeMoneyline, line.AwayMoneyline, line.Source, line.EnteredAt, line.EnteredBy) : null)).ToList(),
-        week.DogOptions.Select(option => option.TeamId).ToList());
+        week.Games.Select(game => new GameDashboard(game.Id, game.HomeTeamId, game.AwayTeamId, game.Kickoff.Value, game.Excluded, game.ApprovedLine?.Value, game.LineHistory.Select(line => line.Value).ToList(), game.Result is not null, game.Result?.HomeScore, game.Result?.AwayScore, LatestLine: game.LatestLine is { } line ? new LatestLineDashboard(line.Spread.Value, line.HomeMoneyline, line.AwayMoneyline, line.Source, line.EnteredAt, line.EnteredBy) : null, ProposedResult: game.ProposedResult is { } draft ? new ResultDraftDashboard(draft.Result.HomeScore, draft.Result.AwayScore, draft.Source, draft.UpdatedAt, draft.Reason) : null)).ToList(),
+        week.DogOptions.Select(option => option.TeamId).ToList(), CoachPickVisibilityOverride: week.HasCoachPickVisibilityOverride, CoachPickVisibilityOverrideReason: week.CoachPickVisibilityOverrideReason);
 }
