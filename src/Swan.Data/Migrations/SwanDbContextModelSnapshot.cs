@@ -532,6 +532,12 @@ namespace Swan.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CoachPickVisibilityOverrideReason")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("HasCoachPickVisibilityOverride")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("Number")
                         .HasColumnType("integer");
 
