@@ -13,7 +13,7 @@ public static class WeekPickEndpoints
             var result = await service.GetAsync(new WeekId(weekId), cancellationToken);
             return result.IsSuccess ? Results.Ok(result.Value) : Results.NotFound(result.Error);
         }).RequireAuthorization("Admin");
-        endpoints.MapPut("/api/admin/weeks/{weekId:guid}/picks/{membershipId:guid}", async (Guid weekId, Guid membershipId, AdminPickOverride? request, ClaimsPrincipal principal, IAdminWeekPickService service, CancellationToken cancellationToken) =>
+        endpoints.MapPut("/api/admin/weeks/{weekId:guid}/coaches/{membershipId:guid}/picks", async (Guid weekId, Guid membershipId, AdminPickOverride? request, ClaimsPrincipal principal, IAdminWeekPickService service, CancellationToken cancellationToken) =>
         {
             if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var actor)) return Results.Unauthorized();
             if (request is null) return Results.BadRequest(new Error("pick.override.request", "teamIds, dogTeamIds, and reason are required."));

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Swan.Core;
 using Swan.Core.Common;
+using Swan.Core.Communication;
 using Swan.Core.League;
 using Swan.Core.Picks;
 using Swan.Core.Schedule;
@@ -81,11 +82,24 @@ public sealed class AdminWeekPickService(SwanDbContext database, IClock clock, I
         }
         var ballot = await database.Ballots.SingleOrDefaultAsync(value => value.MembershipId == membershipId && value.WeekId == weekId, cancellationToken) ?? new Ballot(new BallotId(Guid.NewGuid()), membershipId, weekId);
         var before = string.Join(',', ballot.Picks.Select(value => value.TeamId.Value));
+        var revision = ballot.Revision;
         var result = ballot.OverrideByCommissioner(picks, dogs, week.IsDoubleDog(season), roster.Teams.ToHashSet(), clock.UtcNow, request.Reason);
         if (!result.IsSuccess) return Result<AdminWeekPicks>.Failure(result.Error!.Code, result.Error.Message);
         if (ballot.Id != default && !database.Ballots.Local.Contains(ballot)) database.Ballots.Add(ballot);
+        var changed = ballot.Revision != revision;
+        if (changed)
+        {
+            var coach = await database.Users.SingleAsync(value => value.Id == membership.UserId, cancellationToken);
+            database.QueuedEmails.Add(new QueuedEmail(
+                new QueuedEmailId(Guid.NewGuid()),
+                coach.Email.Value,
+                $"Your Week {week.Number} picks were changed",
+                $"The commissioner changed your Week {week.Number} picks. Reason: {request.Reason.Trim()}",
+                clock.UtcNow));
+        }
         await database.SaveChangesAsync(cancellationToken);
-        await audit.AppendAsync(actor, "ballot.overridden", ballot.Id.Value.ToString(), before, string.Join(',', ballot.Picks.Select(value => value.TeamId.Value)), request.Reason.Trim(), cancellationToken);
+        if (changed)
+            await audit.AppendAsync(actor, "coach-picks.overridden", ballot.Id.Value.ToString(), before, string.Join(',', ballot.Picks.Select(value => value.TeamId.Value)), request.Reason.Trim(), cancellationToken);
         return await GetAsync(weekId, cancellationToken);
     }
 }
