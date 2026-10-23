@@ -1,6 +1,14 @@
-import { FormEvent, useContext, useEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { DevelopmentTools, RefreshAccess } from "./AccessContext";
 import { formatDeadline, goTo } from "./draftTime";
+import PageState from "./PageState";
 
 type Money = { amount: number; currency: string };
 type Season = {
@@ -85,18 +93,21 @@ export default function SeasonSetup({
     createOnly ? { status: "none" } : { status: "loading" },
   );
 
+  const load = useCallback(async () => {
+    const result = await send("GET", "/api/admin/seasons/setup");
+    setLoaded(
+      "value" in result
+        ? { status: "ready", season: result.value }
+        : result.missing
+          ? { status: "none" }
+          : { status: "failed", error: result.error },
+    );
+  }, []);
+
   useEffect(() => {
     if (createOnly) return;
-    void send("GET", "/api/admin/seasons/setup").then((result) =>
-      setLoaded(
-        "value" in result
-          ? { status: "ready", season: result.value }
-          : result.missing
-            ? { status: "none" }
-            : { status: "failed", error: result.error },
-      ),
-    );
-  }, [createOnly]);
+    void load();
+  }, [createOnly, load]);
 
   const apply = (season: Season) => setLoaded({ status: "ready", season });
   const refreshAccess = useContext(RefreshAccess);
@@ -107,8 +118,19 @@ export default function SeasonSetup({
     <section className="setup" aria-labelledby="setup-title">
       <h1 id="setup-title">Season setup</h1>
       <p>Set the foundation for the next Swan League season.</p>
+      {loaded.status === "loading" && (
+        <PageState kind="loading" message="Loading the Setup season…" />
+      )}
       {loaded.status === "failed" && (
-        <p role="alert">Could not load the Setup season: {loaded.error}</p>
+        <PageState
+          kind="error"
+          title="Could not load the Setup season."
+          message={loaded.error}
+          onRetry={() => {
+            setLoaded({ status: "loading" });
+            void load();
+          }}
+        />
       )}
       {resetDone && loaded.status === "none" && (
         <p role="status">

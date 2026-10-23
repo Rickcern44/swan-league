@@ -23,7 +23,7 @@
   --muted-foreground: #4d6076;
   --accent: #f1e3bf;
   --accent-foreground: #7d5410;
-  --destructive: #b42318;
+  --destructive: var(--red);
   --border: #d3dde7;
   --input: #d3dde7;
   --ring: #b07a1f;
@@ -94,7 +94,7 @@ input,
 select,
 textarea,
 button {
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.5rem;
   font: inherit;
   padding: 0.75rem;
@@ -151,12 +151,12 @@ button {
 }
 
 .actions [role="alert"] {
-  color: #b42318;
+  color: var(--red);
   margin-right: auto;
 }
 
 .actions [role="status"] {
-  color: #1a7f4b;
+  color: var(--green);
   margin-right: auto;
 }
 
@@ -223,7 +223,7 @@ button.secondary {
 }
 
 .team-row select {
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.5rem;
   font: inherit;
   padding: 0.4rem;
@@ -367,7 +367,7 @@ form.card.wide {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  border-left: 0.25rem solid #b42318;
+  border-left: 0.25rem solid var(--red);
   padding-left: 0.6rem;
 }
 
@@ -376,7 +376,7 @@ form.card.wide {
 }
 
 .done {
-  color: #1a7f4b;
+  color: var(--green);
   font-weight: 600;
 }
 
@@ -400,6 +400,26 @@ button:disabled {
   --brass-text: #7d5410;
   --ink-muted: #4d6076;
   --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  /* Point-value tiers (R18 defaults) and status colours; the number or word is always shown too. */
+  --green: #1a7f4b;
+  --blue: #1f5fbf;
+  --gold: #8a6400;
+  --red: #b42318;
+  --field-border: #9fb3c8;
+  --danger-tint: #fde8e6;
+  --danger-line: #f3b8b2;
+  --danger-ink: #7a1a12;
+  --brass-tint: #fbf6ea;
+  --brass-line: #e7cf98;
+  --brass-ink: #5c3d08;
+  --ok-tint: #e3f3ea;
+  --ok-ink: #11603a;
+  --warn-tint: #fbf0d9;
+  --warn-ink: #6b4708;
+  --select-tint: #eef3f8;
+  --on-ink-muted: #c3d0dd;
+  --on-ink-brass: #f6d78f;
+  --hairline: #e6edf3;
   color: var(--ink);
   background: var(--ice);
 }
@@ -620,16 +640,6 @@ main.shell-main > * + * {
 }
 
 /* One canvas, divided by hairlines instead of a stack of boxes. */
-.band {
-  border-top: 1px solid var(--rule);
-  padding-top: 1rem;
-}
-
-.dash-grid {
-  display: grid;
-  gap: 1.5rem;
-  margin-top: 1.25rem;
-}
 
 .attention {
   list-style: none;
@@ -675,38 +685,6 @@ main.shell-main > * + * {
   gap: 0.4rem;
   font-size: 0.9rem;
   color: var(--ink-muted);
-}
-
-.pulse-card .week-line {
-  margin: 0 0 0.75rem;
-  font-weight: 600;
-}
-
-.facts,
-.counts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.35rem 1rem;
-  margin: 0;
-}
-
-.facts dt,
-.counts dt {
-  color: var(--ink-muted);
-}
-
-.facts dd,
-.counts dd {
-  margin: 0;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.open-week {
-  display: inline-block;
-  margin-top: 1rem;
-  color: var(--ink);
-  font-weight: 600;
 }
 
 .chip {
@@ -799,10 +777,6 @@ main.shell-main > * + * {
 }
 
 /* Week workspace */
-.workspace {
-  display: grid;
-  gap: 1.25rem;
-}
 
 .ws-head {
   display: grid;
@@ -826,25 +800,6 @@ main.shell-main > * + * {
   border-left: 3px solid #8a1c1c;
   padding: 0.5rem 0.75rem;
   margin: 0 0 1rem;
-}
-
-.week-games ol,
-.stages {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.game {
-  border-top: 1px solid var(--rule);
-  padding: 0.9rem 0;
-}
-
-.game-line {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.15rem 0.75rem;
-  align-items: center;
 }
 
 .kick {
@@ -874,22 +829,6 @@ main.shell-main > * + * {
   font-variant-numeric: tabular-nums;
 }
 
-.game-actions {
-  grid-column: 2;
-  grid-row: 2 / span 2;
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.game.excluded .teams,
-.game.excluded .status {
-  color: var(--ink-muted);
-  text-decoration: line-through;
-  text-decoration-color: var(--rule);
-}
-
 .editor {
   display: grid;
   gap: 0.6rem;
@@ -916,7 +855,7 @@ main.shell-main > * + * {
 .editor input {
   font-size: 1.1rem;
   min-height: 2.75rem;
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
   max-width: 14rem;
@@ -926,26 +865,6 @@ main.shell-main > * + * {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-}
-
-.pulse .stages li {
-  padding: 0.3rem 0 0.3rem 0.9rem;
-  border-left: 2px solid var(--rule);
-  color: var(--ink-muted);
-}
-
-.pulse .stages li[aria-current="step"] {
-  border-left: 4px solid var(--brass);
-  color: var(--ink);
-  font-weight: 700;
-}
-
-.pulse .counts {
-  margin-top: 1rem;
-}
-
-.here {
-  font-weight: 400;
 }
 
 /* The next action stays in reach on a phone. */
@@ -1051,24 +970,6 @@ main.shell-main > * + * {
     padding: 1.75rem 2.25rem 2rem;
   }
 
-  .dash-grid {
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-    align-items: start;
-  }
-
-  .workspace {
-    grid-template-columns: minmax(0, 1fr) 15rem;
-    align-items: start;
-    column-gap: 2.5rem;
-  }
-
-  .pulse {
-    position: sticky;
-    top: 1rem;
-    border-left: 1px solid var(--rule);
-    padding-left: 1.25rem;
-  }
-
   /* On desktop the dock sits in the flow beneath the games instead of floating. */
   .dock {
     position: static;
@@ -1110,62 +1011,14 @@ main.shell-main > * + * {
   font-size: 0.9rem;
 }
 
-.game.pick.on {
-  background: var(--ink);
-  color: #fff;
-  border-radius: 0.6rem;
-  padding: 0.9rem 0.9rem;
-  margin: 0.25rem 0;
-  border-top-color: transparent;
-}
-
-.game.pick.on .kick,
-.game.pick.on .teams i,
-.game.pick.on .status {
-  color: #c4d3e3;
-}
-
-.game.pick.on .teams {
-  color: #fff;
-}
-
-.game.pick.on button.primary {
-  background: var(--brass);
-  border-color: var(--brass);
-  color: #1a1203;
-}
-
-.game.pick.locked:not(.on) {
-  opacity: 0.8;
-}
-
-.game.pick.locked .status {
-  font-weight: 600;
-}
-
 .dogs {
   margin-top: 1.5rem;
   border-left: 3px solid var(--brass);
   padding-left: 0.9rem;
 }
 
-.desk .game-actions button {
-  min-width: 6.5rem;
-}
-
-.desk .pulse .counts {
-  margin-top: 0.5rem;
-}
-
 @media (min-width: 56rem) {
   /* The pick list is long, so the save dock stays in view instead of waiting at the bottom of the page. */
-  .desk .dock {
-    position: sticky;
-    bottom: 0;
-    background: var(--ice);
-    border-top: 1px solid var(--rule);
-    padding: 0.85rem 0;
-  }
 }
 
 /* Roster draft: coaches choose nine teams by division; the commissioner sees who still needs a roster. */
@@ -1177,7 +1030,7 @@ main.shell-main > * + * {
 .editor textarea {
   font: inherit;
   min-height: 2.75rem;
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
   max-width: 24rem;
@@ -1186,16 +1039,6 @@ main.shell-main > * + * {
 
 .editor textarea {
   resize: vertical;
-}
-
-li.game.coach-missing,
-li.game.coach-incomplete {
-  border-left: 3px solid var(--brass);
-  padding-left: 0.75rem;
-}
-
-li.game.coach-locked .status strong {
-  color: var(--ink);
 }
 
 .card h2 {
@@ -1286,7 +1129,7 @@ form.card.wide
 }
 
 .dev-tools {
-  border-top: 1px dashed #9fb3c8;
+  border-top: 1px dashed var(--field-border);
   padding-top: 0.5rem;
 }
 
@@ -1456,8 +1299,8 @@ form.card.wide
 }
 
 .rail-step.done .rail-dot {
-  border-color: #1a7f4b;
-  background: #1a7f4b;
+  border-color: var(--green);
+  background: var(--green);
 }
 
 .rail-step.next .rail-dot {
@@ -1465,12 +1308,12 @@ form.card.wide
 }
 
 .rail-step.fix .rail-dot {
-  border-color: #b42318;
-  background: #b42318;
+  border-color: var(--red);
+  background: var(--red);
 }
 
 .rail-step.fix .rail-state {
-  color: #b42318;
+  color: var(--red);
   font-weight: 600;
 }
 
@@ -1519,7 +1362,7 @@ form.card.wide
 }
 
 .readiness .readiness-group.fix {
-  color: #b42318;
+  color: var(--red);
 }
 
 .readiness .readiness-group.look {
@@ -1588,19 +1431,19 @@ form.card.wide
 }
 
 .tier-1 {
-  background: #1a7f4b;
+  background: var(--green);
 }
 
 .tier-2 {
-  background: #1f5fbf;
+  background: var(--blue);
 }
 
 .tier-3 {
-  background: #8a6400;
+  background: var(--gold);
 }
 
 .tier-4 {
-  background: #b42318;
+  background: var(--red);
 }
 
 .spread {
@@ -1611,7 +1454,7 @@ form.card.wide
   padding: 0.2rem 0.45rem;
   border-radius: 0.45rem;
   background: var(--ink);
-  color: #f6d78f;
+  color: var(--on-ink-brass);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -1657,11 +1500,11 @@ form.card.wide
 }
 
 .week-hero .eyebrow {
-  color: #c3d0dd;
+  color: var(--on-ink-muted);
 }
 
 .shell .week-hero .hero-line {
-  color: #c3d0dd;
+  color: var(--on-ink-muted);
   margin: 0;
 }
 
@@ -1678,7 +1521,7 @@ form.card.wide
   border-radius: 0.6rem;
   background: var(--ink-2);
   font-size: 0.8rem;
-  color: #c3d0dd;
+  color: var(--on-ink-muted);
 }
 
 .hero-clocks .clock strong {
@@ -1694,7 +1537,7 @@ form.card.wide
 }
 
 .hero-clocks .clock.next strong {
-  color: #f6d78f;
+  color: var(--on-ink-brass);
 }
 
 .week-card {
@@ -1769,7 +1612,7 @@ form.card.wide
   padding: 0 0.75rem;
   border: 1.5px dashed var(--brass);
   border-radius: 0.6rem;
-  background: #fbf6ea;
+  background: var(--brass-tint);
   color: var(--brass-text);
   font-weight: 600;
   text-decoration: none;
@@ -1859,7 +1702,7 @@ form.card.wide
 
 .pick-row.on {
   border-color: var(--ink-2);
-  background: #eef3f8;
+  background: var(--select-tint);
   box-shadow: inset 4px 0 0 var(--ink-2);
 }
 
@@ -1921,10 +1764,10 @@ form.card.wide
 
 .shell .dog-note {
   padding: 0.65rem 0.8rem;
-  border: 1px solid #e7cf98;
+  border: 1px solid var(--brass-line);
   border-radius: 0.6rem;
-  background: #fbf6ea;
-  color: #5c3d08;
+  background: var(--brass-tint);
+  color: var(--brass-ink);
 }
 
 .shell .bye-note {
@@ -1935,12 +1778,12 @@ form.card.wide
 }
 
 .pick-dock .owed {
-  color: #b42318;
+  color: var(--red);
   font-weight: 600;
 }
 
 .pick-dock .complete {
-  color: #1a7f4b;
+  color: var(--green);
   font-weight: 600;
 }
 
@@ -2000,19 +1843,19 @@ form.card.wide
 }
 
 .meter .tier-1 {
-  background: #1a7f4b;
+  background: var(--green);
 }
 
 .meter .tier-2 {
-  background: #1f5fbf;
+  background: var(--blue);
 }
 
 .meter .tier-3 {
-  background: #8a6400;
+  background: var(--gold);
 }
 
 .meter .tier-4 {
-  background: #b42318;
+  background: var(--red);
 }
 
 .shell .draft-summary .mix {
@@ -2142,8 +1985,8 @@ form.card.wide
 }
 
 .state-pill.open {
-  background: #e3f3ea;
-  color: #11603a;
+  background: var(--ok-tint);
+  color: var(--ok-ink);
 }
 
 .state-pill.closed {
@@ -2152,8 +1995,8 @@ form.card.wide
 }
 
 .state-pill.unopened {
-  background: #fbf0d9;
-  color: #6b4708;
+  background: var(--warn-tint);
+  color: var(--warn-ink);
 }
 
 .shell .open-draft {
@@ -2172,10 +2015,10 @@ form.card.wide
 .shell .consequence {
   margin: 0;
   padding: 0.65rem 0.8rem;
-  border: 1px solid #e7cf98;
+  border: 1px solid var(--brass-line);
   border-radius: 0.6rem;
-  background: #fbf6ea;
-  color: #5c3d08;
+  background: var(--brass-tint);
+  color: var(--brass-ink);
 }
 
 .draft-tally {
@@ -2196,11 +2039,11 @@ form.card.wide
 }
 
 .tally-locked {
-  --tally: #1a7f4b;
+  --tally: var(--green);
 }
 
 .tally-complete {
-  --tally: #1f5fbf;
+  --tally: var(--blue);
 }
 
 .tally-incomplete {
@@ -2208,7 +2051,7 @@ form.card.wide
 }
 
 .tally-missing {
-  --tally: #b42318;
+  --tally: var(--red);
 }
 
 .tally-bar span {
@@ -2443,7 +2286,7 @@ form.card.wide
 
 .shell .next-card p {
   margin: 0;
-  color: #c3d0dd;
+  color: var(--on-ink-muted);
 }
 
 .shell .next-card .next-eyebrow {
@@ -2451,7 +2294,7 @@ form.card.wide
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #f6d78f;
+  color: var(--on-ink-brass);
 }
 
 .shell-main .next-card h2 {
@@ -2512,7 +2355,7 @@ form.card.wide
 .subs-bar span {
   display: block;
   height: 100%;
-  background: #1a7f4b;
+  background: var(--green);
 }
 
 .owing {
@@ -2567,12 +2410,12 @@ form.card.wide
 }
 
 .stat-card .ok {
-  color: #1a7f4b;
+  color: var(--green);
   font-weight: 600;
 }
 
 .stat-card .bad {
-  color: #b42318;
+  color: var(--red);
   font-weight: 600;
 }
 
@@ -2724,7 +2567,7 @@ form.card.wide
 
 .stage-pills .now {
   border-color: var(--brass);
-  background: #fbf6ea;
+  background: var(--brass-tint);
   color: var(--ink);
   font-weight: 700;
 }
@@ -2797,7 +2640,7 @@ form.card.wide
 
 .shell button.ghost.on {
   border-color: var(--ink-2);
-  background: #eef3f8;
+  background: var(--select-tint);
 }
 
 .shell button.small {
@@ -2852,7 +2695,7 @@ form.card.wide
   width: 6rem;
   min-height: 2.5rem;
   padding: 0 0.5rem;
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.45rem;
   font: inherit;
   font-variant-numeric: tabular-nums;
@@ -2870,18 +2713,18 @@ form.card.wide
 }
 
 .line-pill.approved {
-  background: #e3f3ea;
-  color: #11603a;
+  background: var(--ok-tint);
+  color: var(--ok-ink);
 }
 
 .line-pill.review,
 .line-pill.unsaved {
-  background: #fbf0d9;
-  color: #6b4708;
+  background: var(--warn-tint);
+  color: var(--warn-ink);
 }
 
 .line-pill.none {
-  background: #fde8e6;
+  background: var(--danger-tint);
   color: #8a1c1c;
 }
 
@@ -2925,7 +2768,7 @@ form.card.wide
     "Geist Mono",
     monospace;
   padding: 0.5rem;
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.5rem;
 }
 
@@ -2975,7 +2818,7 @@ form.card.wide
 .dog-add select {
   min-height: 2.75rem;
   padding: 0 0.5rem;
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.5rem;
   font: inherit;
   max-width: 100%;
@@ -3071,7 +2914,7 @@ form.card.wide
 }
 
 .dock-text .dock-warn {
-  color: #6b4708;
+  color: var(--warn-ink);
 }
 
 .ws-dock {
@@ -3187,7 +3030,7 @@ form.card.wide
 .week-picker select {
   min-height: 2.75rem;
   padding: 0 0.6rem;
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.5rem;
   background: #fff;
   font: inherit;
@@ -3251,7 +3094,7 @@ form.card.wide
 
 .you-text span {
   font-size: 0.85rem;
-  color: #c3d0dd;
+  color: var(--on-ink-muted);
 }
 
 .standings-card {
@@ -3288,7 +3131,7 @@ form.card.wide
 
 .standings-table td {
   padding: 0.7rem 0.9rem;
-  border-top: 1px solid #e6edf3;
+  border-top: 1px solid var(--hairline);
 }
 
 .standings-table td:first-child {
@@ -3309,7 +3152,7 @@ form.card.wide
 }
 
 .standings-table tr.you td {
-  background: #eef3f8;
+  background: var(--select-tint);
   font-weight: 700;
 }
 
@@ -3330,7 +3173,7 @@ form.card.wide
   width: 100%;
   min-height: 3rem;
   border: 0;
-  border-top: 1px solid #e6edf3;
+  border-top: 1px solid var(--hairline);
   border-radius: 0;
   background: #fff;
   color: var(--ink-2);
@@ -3436,7 +3279,7 @@ form.card.wide
 .signin .signin-tagline {
   font-size: 0.95rem;
   line-height: 1.45;
-  color: #c3d0dd;
+  color: var(--on-ink-muted);
 }
 
 .signin-headline,
@@ -3501,7 +3344,7 @@ form.card.wide
 .signin input {
   min-height: 3.1rem;
   padding: 0 0.9rem;
-  border: 1.5px solid #9fb3c8;
+  border: 1.5px solid var(--field-border);
   border-radius: 0.65rem;
   background: #fff;
   color: var(--ink, #0b1b2e);
@@ -3510,7 +3353,7 @@ form.card.wide
 
 .signin input:focus-visible,
 .signin button:focus-visible {
-  outline: 3px solid #f6d78f;
+  outline: 3px solid var(--on-ink-brass);
   outline-offset: 2px;
 }
 
@@ -3562,15 +3405,15 @@ form.card.wide
 }
 
 .signin .signin-problem {
-  border: 1px solid #f3b8b2;
-  background: #fde8e6;
-  color: #7a1a12;
+  border: 1px solid var(--danger-line);
+  background: var(--danger-tint);
+  color: var(--danger-ink);
 }
 
 .signin .signin-wait {
-  border: 1px solid #e7cf98;
-  background: #fbf6ea;
-  color: #5c3d08;
+  border: 1px solid var(--brass-line);
+  background: var(--brass-tint);
+  color: var(--brass-ink);
 }
 
 .signin-wait strong {
@@ -3583,9 +3426,9 @@ form.card.wide
   justify-content: center;
   width: 3.5rem;
   height: 3.5rem;
-  border: 1px solid #e7cf98;
+  border: 1px solid var(--brass-line);
   border-radius: 1rem;
-  background: #fbf6ea;
+  background: var(--brass-tint);
   color: #7d5410;
 }
 
@@ -3684,7 +3527,7 @@ form.card.wide
   max-width: 28rem;
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1.5px solid #9fb3c8;
+  border: 1.5px solid var(--field-border);
   border-radius: 0.55rem;
   background: #fff;
   color: var(--ink);
@@ -3695,22 +3538,22 @@ form.card.wide
 .editor input:focus-visible,
 .editor select:focus-visible,
 .editor textarea:focus-visible {
-  outline: 3px solid #f6d78f;
+  outline: 3px solid var(--on-ink-brass);
   outline-offset: 1px;
   border-color: var(--ink-2);
 }
 
 .editor [aria-invalid="true"] {
-  border-color: #b42318;
+  border-color: var(--red);
 }
 
 .shell .editor .problem {
   margin: 0;
   padding: 0.6rem 0.75rem;
-  border: 1px solid #f3b8b2;
+  border: 1px solid var(--danger-line);
   border-radius: 0.55rem;
-  background: #fde8e6;
-  color: #7a1a12;
+  background: var(--danger-tint);
+  color: var(--danger-ink);
   font-size: 0.9rem;
 }
 
@@ -3726,7 +3569,7 @@ form.card.wide
   width: 3.5rem;
   min-height: 2.5rem;
   padding: 0 0.4rem;
-  border: 1px solid #9fb3c8;
+  border: 1px solid var(--field-border);
   border-radius: 0.45rem;
   font: inherit;
   font-variant-numeric: tabular-nums;
@@ -3758,7 +3601,7 @@ form.card.wide
 }
 
 .coach-row.correcting {
-  background: #eef3f8;
+  background: var(--select-tint);
 }
 
 .coach-area.with-panel .coach-line {
@@ -3773,4 +3616,65 @@ form.card.wide
 .coach-area.with-panel .coach-line > button {
   grid-column: 3;
   grid-row: 1;
+}
+
+/* Page states: one look for loading, failed and empty, used on every page. */
+.page-state {
+  display: grid;
+  justify-items: start;
+  gap: 0.6rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.85rem;
+  background: #fff;
+}
+
+.shell .page-state p {
+  max-width: 40rem;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.shell-main .page-state h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.page-state.loading {
+  display: flex;
+  align-items: center;
+  border-style: dashed;
+  color: var(--ink-muted);
+}
+
+.page-spinner {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 3px solid var(--rule);
+  border-top-color: var(--brass);
+  border-radius: 50%;
+  animation: signin-spin 0.9s linear infinite;
+}
+
+.page-state.error {
+  border-color: var(--danger-line);
+  background: var(--danger-tint);
+  color: var(--danger-ink);
+}
+
+.page-state.empty {
+  box-shadow: inset 4px 0 0 var(--brass);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-spinner {
+    animation: none;
+    border-top-color: var(--rule);
+    border-right-color: var(--brass);
+  }
 }

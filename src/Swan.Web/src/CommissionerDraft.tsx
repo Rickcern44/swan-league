@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { formatDeadline, goTo, timeLeft } from "./draftTime";
+import PageState from "./PageState";
 
 type Coach = {
   membershipId: string;
@@ -154,9 +155,9 @@ export default function CommissionerDraft() {
 
   if (loaded.status === "loading")
     return (
-      <section aria-busy="true" aria-labelledby="draft-title">
+      <section aria-labelledby="draft-title">
         <h1 id="draft-title">Draft</h1>
-        <p role="status">Loading the draft…</p>
+        <PageState kind="loading" message="Loading the draft…" />
       </section>
     );
 
@@ -164,18 +165,15 @@ export default function CommissionerDraft() {
     return (
       <section aria-labelledby="draft-title">
         <h1 id="draft-title">Draft</h1>
-        <div role="alert" className="notice problem">
-          <strong>Could not load the draft.</strong> {loaded.error}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
+        <PageState
+          kind="error"
+          title="Could not load the draft."
+          message={loaded.error}
+          onRetry={() => {
             setLoaded({ status: "loading" });
             void load();
           }}
-        >
-          Try again
-        </button>
+        />
       </section>
     );
 
@@ -183,13 +181,15 @@ export default function CommissionerDraft() {
     return (
       <section aria-labelledby="draft-title">
         <h1 id="draft-title">Draft</h1>
-        <div className="band">
-          <h2>Only the commissioner can manage rosters</h2>
+        <PageState
+          kind="empty"
+          title="Only the commissioner can manage rosters"
+        >
           <p>
             {loaded.message} Being an administrator is not enough: this belongs
             to the season's own commissioner.
           </p>
-        </div>
+        </PageState>
       </section>
     );
 
@@ -197,13 +197,12 @@ export default function CommissionerDraft() {
     return (
       <section aria-labelledby="draft-title">
         <h1 id="draft-title">Draft</h1>
-        <div className="band">
-          <h2>No season is live yet</h2>
+        <PageState kind="empty" title="No season is live yet">
           <p>The draft starts when the season is started from Season setup.</p>
           <button type="button" onClick={() => goTo("/commish/setup")}>
             Go to Season setup
           </button>
-        </div>
+        </PageState>
       </section>
     );
 

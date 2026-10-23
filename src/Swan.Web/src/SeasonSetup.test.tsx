@@ -2128,11 +2128,20 @@ test("a failed load shows an error instead of offering to create a season", asyn
   render(<App />);
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Could not load the Setup season: Boom",
+    "Could not load the Setup season. Boom",
   );
   expect(
     screen.queryByRole("form", { name: "Start a new season" }),
   ).not.toBeInTheDocument();
+
+  replies["GET /api/admin/seasons/setup"] = {
+    status: 404,
+    body: { code: "season.missing", message: "No season." },
+  };
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(
+    await screen.findByRole("form", { name: "Start a new season" }),
+  ).toBeVisible();
 });
 
 test("a network failure on load is shown as an error", async () => {

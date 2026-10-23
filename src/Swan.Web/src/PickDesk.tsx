@@ -11,6 +11,7 @@ import {
   when,
 } from "./coachDesk";
 import { goTo, timeLeft } from "./draftTime";
+import PageState from "./PageState";
 
 const sameSet = (left: Set<string>, right: Set<string>) =>
   left.size === right.size && [...left].every((id) => right.has(id));
@@ -70,9 +71,9 @@ export default function PickDesk() {
 
   if (loaded.status === "loading")
     return (
-      <section aria-busy="true" aria-labelledby="desk-title">
+      <section aria-labelledby="desk-title">
         <h1 id="desk-title">Your picks</h1>
-        <p role="status">Loading your picks…</p>
+        <PageState kind="loading" message="Loading your picks…" />
       </section>
     );
 
@@ -80,18 +81,15 @@ export default function PickDesk() {
     return (
       <section aria-labelledby="desk-title">
         <h1 id="desk-title">Your picks</h1>
-        <div role="alert" className="notice problem">
-          <strong>Could not load your picks.</strong> {loaded.error}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
+        <PageState
+          kind="error"
+          title="Could not load your picks."
+          message={loaded.error}
+          onRetry={() => {
             setLoaded({ status: "loading" });
             void load();
           }}
-        >
-          Try again
-        </button>
+        />
       </section>
     );
 
@@ -103,8 +101,7 @@ export default function PickDesk() {
       <section aria-labelledby="desk-title">
         {desk.seasonName && <p className="eyebrow">{desk.seasonName}</p>}
         <h1 id="desk-title">Your picks</h1>
-        <div className="band">
-          <h2>Nothing to pick yet</h2>
+        <PageState kind="empty" title="Nothing to pick yet">
           <p>{message}</p>
           {(desk.state === "no-roster" ||
             desk.state === "roster-incomplete") && (
@@ -122,7 +119,7 @@ export default function PickDesk() {
           >
             Check again
           </button>
-        </div>
+        </PageState>
       </section>
     );
   }

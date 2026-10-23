@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import PageState from "./PageState";
 import { kindLabels, stageLabelsInOrder, stateLabel } from "./Swan";
 
 type LatestLine = {
@@ -272,9 +273,9 @@ export default function WeekWorkspace({
 
   if (loaded.status === "loading")
     return (
-      <section aria-busy="true" aria-labelledby="ws-title">
+      <section aria-labelledby="ws-title">
         <h1 id="ws-title">Week</h1>
-        <p role="status">Loading the week…</p>
+        <PageState kind="loading" message="Loading the week…" />
       </section>
     );
 
@@ -293,18 +294,15 @@ export default function WeekWorkspace({
     return (
       <section aria-labelledby="ws-title">
         <h1 id="ws-title">Week</h1>
-        <div role="alert" className="notice problem">
-          <strong>Could not load this week.</strong> {loaded.error}
-        </div>
-        <button
-          type="button"
-          onClick={() => {
+        <PageState
+          kind="error"
+          title="Could not load this week."
+          message={loaded.error}
+          onRetry={() => {
             setLoaded({ status: "loading" });
             void load();
           }}
-        >
-          Try again
-        </button>
+        />
       </section>
     );
 
@@ -1446,14 +1444,15 @@ function Loading({
   what: string;
   retry: () => void;
 }) {
-  if (state.status === "loading") return <p role="status">Loading {what}…</p>;
+  if (state.status === "loading")
+    return <PageState kind="loading" message={`Loading ${what}…`} />;
   return (
-    <div role="alert" className="notice problem">
-      <strong>Could not load {what}.</strong> {state.error}{" "}
-      <button type="button" className="ghost small" onClick={retry}>
-        Try again
-      </button>
-    </div>
+    <PageState
+      kind="error"
+      title={`Could not load ${what}.`}
+      message={state.error}
+      onRetry={retry}
+    />
   );
 }
 
