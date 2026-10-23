@@ -528,6 +528,9 @@ test("excluding a game asks for a reason and sends it", async () => {
   });
   fireEvent.click(within(form).getByRole("button", { name: "Exclude game" }));
   expect(within(form).getByRole("alert")).toHaveTextContent("Give a reason");
+  expect(within(form).getByLabelText(/^Reason/)).toHaveAccessibleDescription(
+    "Give a reason for the change.",
+  );
   expect(calls.some((c) => c.method === "POST")).toBe(false);
 
   fireEvent.change(within(form).getByLabelText(/^Reason/), {
@@ -859,82 +862,6 @@ test("a lifecycle rejection shows its reason in the dock and keeps the week as i
   );
 });
 
-test("a locked week takes a result per game, then finalizing is offered only when none is missing", async () => {
-  open("Locked", [
-    game(G1, {
-      approvedLine: -3,
-      lineHistory: [-3],
-      hasResult: true,
-      homeScore: 21,
-      awayScore: 14,
-    }),
-    game(G2, { approvedLine: 1, lineHistory: [1] }),
-  ]);
-  replies[`POST /games/${G2}/result`] = () => {
-    server = week("Locked", [
-      server.games[0],
-      game(G2, {
-        approvedLine: 1,
-        lineHistory: [1],
-        hasResult: true,
-        homeScore: 10,
-        awayScore: 17,
-      }),
-    ]);
-    return { status: 200, body: server };
-  };
-  replies["POST /finalize"] = () => {
-    server = week("Final", server.games);
-    return { status: 200, body: server };
-  };
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
-  const dock = screen.getByRole("region", { name: "Next action" });
-  expect(dock).toHaveTextContent("1 of 2 included games still need a result.");
-  expect(within(dock).queryByRole("button")).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: /Enter result/ }));
-  const form = screen.getByRole("form", { name: /Result for/ });
-  fireEvent.change(within(form).getByLabelText("Ravens score"), {
-    target: { value: "17" },
-  });
-  fireEvent.change(within(form).getByLabelText("Bills score"), {
-    target: { value: "10" },
-  });
-  fireEvent.click(within(form).getByRole("button", { name: "Save result" }));
-
-  expect(
-    await within(dock).findByRole("button", { name: "Finalize week" }),
-  ).toBeVisible();
-  expect(calls.find((c) => c.url.endsWith("/result"))?.body).toEqual({
-    homeScore: 10,
-    awayScore: 17,
-  });
-  fireEvent.click(within(dock).getByRole("button", { name: "Finalize week" }));
-  expect(
-    await within(dock).findByRole("button", { name: "Recompute scores" }),
-  ).toBeVisible();
-  expect(screen.getByRole("listitem", { current: "step" })).toHaveTextContent(
-    "Final",
-  );
-  expect(
-    screen.queryByRole("button", { name: /Enter result|Edit result/ }),
-  ).not.toBeInTheDocument();
-});
-
-test("result scores must be whole numbers before anything is sent", async () => {
-  open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
-
-  fireEvent.click(screen.getByRole("button", { name: /Enter result/ }));
-  fireEvent.change(screen.getByLabelText("Ravens score"), {
-    target: { value: "x" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save result" }));
-
-  expect(await screen.findByRole("alert")).toHaveTextContent("whole numbers");
-  expect(calls.some((c) => c.method === "POST")).toBe(false);
-});
-
 test("a final week shows scores and no editing", async () => {
   open("Final", [
     game(G1, {
@@ -1009,83 +936,6 @@ test("a coach on a week address gets their own desk and no admin call is made", 
     "Could not load your week.",
   );
   expect(calls.some((c) => c.url.includes("/api/admin"))).toBe(false);
-});
-
-test("Escape closes an open result editor without sending anything and returns focus to its button", async () => {
-  open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
-
-  fireEvent.click(screen.getByRole("button", { name: /Enter result/ }));
-  fireEvent.keyDown(screen.getByLabelText("Ravens score"), { key: "Escape" });
-
-  expect(screen.queryByRole("form")).not.toBeInTheDocument();
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: /Enter result/ })).toHaveFocus(),
-  );
-  expect(calls.some((c) => c.method === "POST")).toBe(false);
-});
-
-test.each([
-  ["101", "0"],
-  ["0", "101"],
-  ["1e2", "3"],
-  ["3.5", "3"],
-  ["-1", "3"],
-  ["", "3"],
-  ["3", " "],
-])(
-  "the scores %j and %j are refused before anything is sent",
-  async (away, home) => {
-    open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
-    await screen.findByRole("heading", { level: 1, name: "Week 4" });
-
-    fireEvent.click(screen.getByRole("button", { name: /Enter result/ }));
-    fireEvent.change(screen.getByLabelText("Ravens score"), {
-      target: { value: away },
-    });
-    fireEvent.change(screen.getByLabelText("Bills score"), {
-      target: { value: home },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save result" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "whole numbers from 0 to 100",
-    );
-    expect(calls.some((c) => c.method === "POST")).toBe(false);
-  },
-);
-
-test("scores of 0 and 100 are accepted", async () => {
-  open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
-  replies[`POST /games/${G1}/result`] = () => ({
-    status: 200,
-    body: week("Locked", [
-      game(G1, {
-        approvedLine: -3,
-        lineHistory: [-3],
-        hasResult: true,
-        homeScore: 100,
-        awayScore: 0,
-      }),
-    ]),
-  });
-  await screen.findByRole("heading", { level: 1, name: "Week 4" });
-
-  fireEvent.click(screen.getByRole("button", { name: /Enter result/ }));
-  fireEvent.change(screen.getByLabelText("Ravens score"), {
-    target: { value: "0" },
-  });
-  fireEvent.change(screen.getByLabelText("Bills score"), {
-    target: { value: "100" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save result" }));
-
-  await waitFor(() =>
-    expect(calls.find((c) => c.method === "POST")?.body).toEqual({
-      homeScore: 100,
-      awayScore: 0,
-    }),
-  );
 });
 
 test("recompute asks first, can be cancelled, and calls the endpoint only after confirming", async () => {
@@ -1254,4 +1104,220 @@ test("without the season's weeks the workspace still works and offers no picker"
 
   expect(screen.queryByRole("navigation", { name: "Weeks" })).toBeNull();
   expect(screen.getByRole("button", { name: "‹ Today" })).toBeVisible();
+});
+
+const resultsTable = () => screen.getByRole("table", { name: "Results" });
+const resultRow = (matchup: string) =>
+  within(resultsTable()).getByRole("row", { name: new RegExp(matchup) });
+const score = (team: string) =>
+  screen.getByRole("textbox", { name: new RegExp(`^${team} score`) });
+
+test("a locked week enters both scores in the table, then finalizing is offered once none is missing", async () => {
+  open("Locked", [
+    game(G1, {
+      approvedLine: -3,
+      lineHistory: [-3],
+      hasResult: true,
+      homeScore: 21,
+      awayScore: 14,
+    }),
+    game(G2, {
+      approvedLine: 1,
+      lineHistory: [1],
+      homeTeamName: "Chicago Bears",
+      awayTeamName: "Detroit Lions",
+    }),
+  ]);
+  replies[`POST /games/${G2}/result`] = () => {
+    server = week("Locked", [
+      server.games[0],
+      {
+        ...server.games[1],
+        hasResult: true,
+        homeScore: 10,
+        awayScore: 17,
+      },
+    ]);
+    return { status: 200, body: server };
+  };
+  replies["POST /finalize"] = () => {
+    server = week("Final", server.games);
+    return { status: 200, body: server };
+  };
+  await screen.findByRole("table", { name: "Results" });
+  expect(screen.getByRole("tab", { name: "Results" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  const dock = screen.getByRole("region", { name: "Next action" });
+  expect(dock).toHaveTextContent("1 of 2 included games still need a result.");
+  expect(within(dock).queryByRole("button")).not.toBeInTheDocument();
+  expect(resultRow("Baltimore Ravens at Buffalo Bills")).toHaveTextContent(
+    "Saved",
+  );
+  expect(score("Ravens")).toHaveValue("14");
+  expect(resultRow("Detroit Lions at Chicago Bears")).toHaveTextContent(
+    "No result yet",
+  );
+
+  fireEvent.change(score("Lions"), { target: { value: "17" } });
+  expect(
+    screen.queryByRole("button", { name: /^Save result for Detroit/ }),
+  ).toBeNull();
+  fireEvent.change(score("Bears"), { target: { value: "10" } });
+  expect(resultRow("Detroit Lions at Chicago Bears")).toHaveTextContent(
+    "Unsaved",
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Save result for Detroit Lions at Chicago Bears",
+    }),
+  );
+
+  expect(
+    await within(dock).findByRole("button", { name: "Finalize week" }),
+  ).toBeVisible();
+  expect(calls.find((c) => c.url.endsWith("/result"))?.body).toEqual({
+    homeScore: 10,
+    awayScore: 17,
+  });
+  expect(screen.getByText("Result saved.")).toBeVisible();
+  fireEvent.click(within(dock).getByRole("button", { name: "Finalize week" }));
+  expect(
+    await within(dock).findByRole("button", { name: "Recompute scores" }),
+  ).toBeVisible();
+  expect(screen.getByRole("listitem", { current: "step" })).toHaveTextContent(
+    "Final",
+  );
+  expect(screen.queryByRole("textbox", { name: /score/ })).toBeNull();
+});
+
+test("save results sends every complete row and names any game the server refuses", async () => {
+  open("Locked", [
+    game(G1, { approvedLine: -3, lineHistory: [-3] }),
+    game(G2, {
+      approvedLine: 1,
+      lineHistory: [1],
+      homeTeamName: "Chicago Bears",
+      awayTeamName: "Detroit Lions",
+    }),
+    game(G3, {
+      approvedLine: 2,
+      lineHistory: [2],
+      homeTeamName: "Green Bay Packers",
+      awayTeamName: "New York Jets",
+    }),
+  ]);
+  replies[`POST /games/${G1}/result`] = {
+    status: 409,
+    body: {
+      code: "week.state",
+      message: "Results can only be confirmed while the week is locked.",
+    },
+  };
+  replies[`POST /games/${G2}/result`] = () => ({ status: 200, body: server });
+  await screen.findByRole("table", { name: "Results" });
+
+  const saveAll = () =>
+    screen.getByRole("button", { name: /^Save \d+ results?$/ });
+  expect(saveAll()).toBeDisabled();
+  fireEvent.change(score("Ravens"), { target: { value: "20" } });
+  fireEvent.change(score("Bills"), { target: { value: "24" } });
+  fireEvent.change(score("Lions"), { target: { value: "3" } });
+  fireEvent.change(score("Bears"), { target: { value: "0" } });
+  fireEvent.change(score("Jets"), { target: { value: "7" } });
+  expect(saveAll()).toHaveTextContent("Save 2 results");
+  fireEvent.click(saveAll());
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Baltimore Ravens at Buffalo Bills: Results can only be confirmed while the week is locked.",
+  );
+  expect(calls.filter((c) => c.method === "POST").map((c) => c.url)).toEqual([
+    `/api/admin/weeks/${WEEK}/games/${G1}/result`,
+    `/api/admin/weeks/${WEEK}/games/${G2}/result`,
+  ]);
+  expect(screen.getByText("Saved 1 result.")).toBeVisible();
+  expect(score("Ravens")).toHaveValue("20");
+});
+
+test.each([
+  ["101", "0"],
+  ["0", "101"],
+  ["1e2", "3"],
+  ["3.5", "3"],
+  ["-1", "3"],
+  ["x", "3"],
+])(
+  "the scores %j and %j are refused before anything is sent",
+  async (away, home) => {
+    open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+    await screen.findByRole("table", { name: "Results" });
+
+    fireEvent.change(score("Ravens"), { target: { value: away } });
+    fireEvent.change(score("Bills"), { target: { value: home } });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Save result for Baltimore Ravens at Buffalo Bills",
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Baltimore Ravens at Buffalo Bills: Enter both scores as whole numbers from 0 to 100.",
+    );
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  },
+);
+
+test("scores of 0 and 100 are accepted", async () => {
+  open("Locked", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+  replies[`POST /games/${G1}/result`] = () => ({ status: 200, body: server });
+  await screen.findByRole("table", { name: "Results" });
+
+  fireEvent.change(score("Ravens"), { target: { value: "0" } });
+  fireEvent.change(score("Bills"), { target: { value: "100" } });
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Save result for Baltimore Ravens at Buffalo Bills",
+    }),
+  );
+
+  await waitFor(() =>
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({
+      homeScore: 100,
+      awayScore: 0,
+    }),
+  );
+});
+
+test("Escape in a score puts back the saved result and sends nothing", async () => {
+  open("Locked", [
+    game(G1, {
+      approvedLine: -3,
+      lineHistory: [-3],
+      hasResult: true,
+      homeScore: 21,
+      awayScore: 14,
+    }),
+  ]);
+  await screen.findByRole("table", { name: "Results" });
+
+  fireEvent.change(score("Ravens"), { target: { value: "17" } });
+  expect(resultRow("Baltimore Ravens")).toHaveTextContent("Unsaved");
+  fireEvent.keyDown(score("Ravens"), { key: "Escape" });
+
+  expect(score("Ravens")).toHaveValue("14");
+  expect(resultRow("Baltimore Ravens")).toHaveTextContent("Saved");
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+});
+
+test("before the week locks the results tab says when scores can be entered", async () => {
+  open("Open", [game(G1, { approvedLine: -3, lineHistory: [-3] })]);
+  await screen.findByRole("heading", { level: 1, name: "Week 4" });
+
+  fireEvent.click(screen.getByRole("tab", { name: "Results" }));
+  expect(
+    screen.getByText("Results are entered once the week locks."),
+  ).toBeVisible();
+  expect(resultRow("Baltimore Ravens")).toHaveTextContent("No result yet");
+  expect(screen.queryByRole("textbox", { name: /score/ })).toBeNull();
 });
