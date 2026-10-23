@@ -182,4 +182,21 @@ public sealed class BallotSaveTests
         Assert.Equal(1, ballot.RemovePicksFor(teams["t1"], Now.AddHours(2), "Wrong team on the roster"));
         Assert.Empty(ballot.Picks);
     }
+
+    [Fact]
+    public void ACommissionerCanReplaceLockedPicksButMustRecordAReason()
+    {
+        var locked = Pick("t1", lockHours: 1);
+        Assert.True(ballot.Save([locked, Pick("t2")], [Dog("t10")], false, Roster, Now).IsSuccess);
+
+        var withoutReason = ballot.OverrideByCommissioner([Pick("t3"), Pick("t4")], [Dog("t11")], false, Roster, Now.AddHours(2), "");
+        var overridden = ballot.OverrideByCommissioner([Pick("t3"), Pick("t4")], [Dog("t11")], false, Roster, Now.AddHours(2), "Corrected commissioner entry");
+
+        Assert.Equal("pick.override.reason", withoutReason.Error!.Code);
+        Assert.True(overridden.IsSuccess);
+        Assert.Equivalent(new[] { teams["t3"], teams["t4"] }, ballot.Picks.Select(pick => pick.TeamId));
+        Assert.Equal([teams["t11"]], ballot.Dogs.Select(dog => dog.TeamId));
+        Assert.Equal("Corrected commissioner entry", ballot.Changes.Last().Reason);
+        Assert.Contains(ballot.DomainEvents, item => item is PickChanged);
+    }
 }
